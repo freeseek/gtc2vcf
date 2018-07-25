@@ -443,6 +443,7 @@ static void idat_to_csv(idat_t *idat, FILE *stream)
 typedef struct
 {
     int32_t version;
+    uint8_t norm_id; // Normalization lookups from manifest. This indexes into list of normalization transforms read from GTC file
     char *ilmn_id; // IlmnID (probe identifier) of locus
     char *name; // Name (variant identifier) of locus
     int32_t index;
@@ -454,11 +455,16 @@ typedef struct
     char *map_info; // Mapping location of locus
     char *unknown_strand;
     int32_t address_a; // AddressA ID of locus
+    char *allele_a_probe_seq; // CSV files
     int32_t address_b; // AddressB ID of locus (0 if none)
+    char *allele_b_probe_seq; // CSV files (empty if none)
     char *genome_build;
     char *source;
     char *source_version;
     char *source_strand;
+    char *source_seq; // CSV files
+    char *top_genomic_seq; // CSV files
+    int32_t beadset_id; // CSV files
     uint8_t exp_clusters;
     uint8_t intensity_only;
     uint8_t assay_type; // Identifies type of assay (0 - Infinium II , 1 - Infinium I (A/T), 2 - Infinium I (G/C)
@@ -472,6 +478,7 @@ LocusEntry;
 
 static void locusentry_read(LocusEntry *locus_entry, hFILE *fp)
 {
+    locus_entry->norm_id = 0xFF;
     read_bytes(fp, (void *)&locus_entry->version, sizeof(int32_t));
     read_pfx_string(fp, &locus_entry->ilmn_id, NULL);
     read_pfx_string(fp, &locus_entry->name, NULL);
@@ -528,13 +535,30 @@ typedef struct
     int32_t num_loci; // Number of loci in manifest
     int32_t *indexes;
     char **names; // Names of loci from manifest
-    uint8_t *normalization_ids;
+    uint8_t *norm_ids;
     LocusEntry *locus_entries;
+    uint8_t *norm_lookups;
     char **header;
     size_t m_header;
-    uint8_t *normalization_lookups; // Normalization lookups from manifest. This indexes into list of normalization transforms read from GTC file
 }
 bpm_t;
+
+static uint8_t *bpm_norm_lookups(bpm_t *bpm)
+{
+    uint8_t sorted_norm_ids[256];
+    for (int i=0; i<256; i++) sorted_norm_ids[i] = 0xFF;
+    for (int i=0; i<bpm->num_loci; i++)
+    {
+        int norm_id = bpm->locus_entries[i].norm_id;
+        sorted_norm_ids[norm_id] = norm_id;
+    }
+    int j=0;
+    for (int i=0; i<256; i++) if ( sorted_norm_ids[i] != 0xFF ) sorted_norm_ids[j++] = sorted_norm_ids[i];
+    uint8_t *norm_lookups = (uint8_t *)malloc(256 * sizeof(uint8_t *));
+    memset((void *)norm_lookups, 0xFF, 256 * sizeof(uint8_t *));
+    for (int i=0; i<j; i++) norm_lookups[sorted_norm_ids[i]] = i;
+    return norm_lookups;
+}
 
 static bpm_t *bpm_init(const char *fn)
 {
@@ -560,18 +584,24 @@ static bpm_t *bpm_init(const char *fn)
     read_array(bpm->fp, (void **)&bpm->indexes, NULL, bpm->num_loci, sizeof(int32_t), 0);
     bpm->names = (char **)malloc(bpm->num_loci * sizeof(char *));
     for (int i=0; i<bpm->num_loci; i++) read_pfx_string(bpm->fp, &bpm->names[i], NULL);
-    read_array(bpm->fp, (void **)&bpm->normalization_ids, NULL, bpm->num_loci, sizeof(uint8_t), 0);
+    read_array(bpm->fp, (void **)&bpm->norm_ids, NULL, bpm->num_loci, sizeof(uint8_t), 0);
 
     bpm->locus_entries = (LocusEntry *)malloc(bpm->num_loci * sizeof(LocusEntry));
     LocusEntry locus_entry;
     for (int i=0; i<bpm->num_loci; i++)
     {
         memset(&locus_entry, 0, sizeof(LocusEntry));
-
         locusentry_read(&locus_entry, bpm->fp);
         int idx = locus_entry.index - 1;
         if ( idx < 0 || idx >= bpm->num_loci ) error("Locus entry index %d is out of boundaries\n", locus_entry.index);
+        if ( bpm->norm_ids[idx] > 100 ) error("Manifest format error: read invalid normalization ID %d\n", bpm->norm_ids[idx]);
+        locus_entry.norm_id = bpm->norm_ids[idx] + 100 * locus_entry.assay_type;
         memcpy(&bpm->locus_entries[ idx ], &locus_entry, sizeof(LocusEntry));
+    }
+    bpm->norm_lookups = bpm_norm_lookups(bpm);
+    for (int i=0; i<bpm->num_loci; i++)
+    {
+        if ( i != bpm->locus_entries[i].index - 1 ) error("Manifest format error: read invalid number of assay entries\n");
     }
 
     read_bytes(bpm->fp, (void *)&bpm->m_header, sizeof(int32_t));
@@ -579,23 +609,6 @@ static bpm_t *bpm_init(const char *fn)
     for (int i=0; i<bpm->m_header; i++) read_pfx_string(bpm->fp, &bpm->header[i], NULL);
 
     if ( !heof(bpm->fp) ) error("BPM reader did not reach the end of file %s at position %ld\n", bpm->fn, htell(bpm->fp));
-
-    for (int i=0; i<bpm->num_loci; i++)
-    {
-        if ( i != bpm->locus_entries[i].index - 1 ) error("Manifest format error: read invalid number of assay entries\n");
-        if ( bpm->normalization_ids[i] > 100 ) error("Manifest format error: read invalid normalization ID %d\n", bpm->normalization_ids[i]);
-        bpm->normalization_ids[i] += 100 * bpm->locus_entries[i].assay_type;
-    }
-
-    uint8_t sorted_norm_ids[256];
-    for (int i=0; i<256; i++) sorted_norm_ids[i] = 0xFF;
-    for (int i=0; i<bpm->num_loci; i++) sorted_norm_ids[bpm->normalization_ids[i]] = bpm->normalization_ids[i];
-    int j=0;
-    for (int i=0; i<256; i++) if ( sorted_norm_ids[i] != 0xFF ) sorted_norm_ids[j++] = sorted_norm_ids[i];
-    uint8_t lookup_dictionary[256];
-    for (int i=0; i<j; i++) lookup_dictionary[sorted_norm_ids[i]] = i;
-    bpm->normalization_lookups = (uint8_t *)malloc(bpm->num_loci * sizeof(uint8_t));
-    for (int i=0; i<bpm->num_loci; i++) bpm->normalization_lookups[i] = lookup_dictionary[bpm->normalization_ids[i]];
 
     return bpm;
 }
@@ -610,7 +623,7 @@ static void bpm_destroy(bpm_t *bpm)
     free(bpm->indexes);
     for (int i=0; i<bpm->num_loci; i++) free(bpm->names[i]);
     free(bpm->names);
-    free(bpm->normalization_ids);
+    free(bpm->norm_ids);
     for (int i=0; i<bpm->num_loci; i++)
     {
         free(bpm->locus_entries[i].ilmn_id);
@@ -622,16 +635,20 @@ static void bpm_destroy(bpm_t *bpm)
         free(bpm->locus_entries[i].species);
         free(bpm->locus_entries[i].map_info);
         free(bpm->locus_entries[i].unknown_strand);
+        free(bpm->locus_entries[i].allele_a_probe_seq);
+        free(bpm->locus_entries[i].allele_b_probe_seq);
         free(bpm->locus_entries[i].genome_build);
         free(bpm->locus_entries[i].source);
         free(bpm->locus_entries[i].source_version);
         free(bpm->locus_entries[i].source_strand);
+        free(bpm->locus_entries[i].source_seq);
+        free(bpm->locus_entries[i].top_genomic_seq);
         free(bpm->locus_entries[i].ref_strand);
     }
     free(bpm->locus_entries);
+    free(bpm->norm_lookups);
     for (int i=0; i<bpm->m_header; i++) free(bpm->header[i]);
     free(bpm->header);
-    free(bpm->normalization_lookups);
     free(bpm);
 }
 
@@ -649,33 +666,183 @@ static void bpm_to_csv(bpm_t *bpm, FILE *stream)
     for (int i=0; i<bpm->num_loci; i++)
     {
         LocusEntry *locus_entry = &bpm->locus_entries[i];
-        fprintf(stream, "%d,%d,%s,%s,%s,%s,%010d,,%010d,,%s,%s,%s,%s,%s,%s,,%s,,,,%d,%d,%f,%f,%f,%f,%s\n", bpm->indexes[i],
-                                                                                      bpm->normalization_ids[i],
-                                                                                      locus_entry->ilmn_id,
-                                                                                      locus_entry->name,
-                                                                                      locus_entry->ilmn_strand,
-                                                                                      locus_entry->snp,
-                                                                                      locus_entry->address_a,
-                                                                                      locus_entry->address_b,
-                                                                                      locus_entry->genome_build,
-                                                                                      locus_entry->chrom,
-                                                                                      locus_entry->map_info,
-                                                                                      locus_entry->ploidy,
-                                                                                      locus_entry->species,
-                                                                                      locus_entry->source,
-                                                                                      locus_entry->source_strand,
-                                                                                      locus_entry->exp_clusters,
-                                                                                      locus_entry->intensity_only,
-                                                                                      locus_entry->frac_a,
-                                                                                      locus_entry->frac_c,
-                                                                                      locus_entry->frac_g,
-                                                                                      locus_entry->frac_t,
-                                                                                      locus_entry->ref_strand);
-
+        fprintf(stream, "%d,%d,%s,%s,%s,%s,%010d,,%010d,,%s,%s,%s,%s,%s,%s,,%s,,,,%d,%d,%f,%f,%f,%f,%s\n",
+            locus_entry->index,
+            locus_entry->norm_id,
+            locus_entry->ilmn_id,
+            locus_entry->name,
+            locus_entry->ilmn_strand,
+            locus_entry->snp,
+            locus_entry->address_a,
+            locus_entry->address_b,
+            locus_entry->genome_build,
+            locus_entry->chrom,
+            locus_entry->map_info,
+            locus_entry->ploidy,
+            locus_entry->species,
+            locus_entry->source,
+            locus_entry->source_strand,
+            locus_entry->exp_clusters,
+            locus_entry->intensity_only,
+            locus_entry->frac_a,
+            locus_entry->frac_c,
+            locus_entry->frac_g,
+            locus_entry->frac_t,
+            locus_entry->ref_strand);
     }
     fprintf(stream, "[Controls]\n");
     fprintf(stream, "%s\n", bpm->control_config);
     if (stream != stdout && stream != stderr) fclose(stream);
+}
+
+/****************************************
+ * CSV FILE IMPLEMENTATION              *
+ ****************************************/
+
+int tsv_read_uint8(tsv_t *tsv, bcf1_t *rec, void *usr)
+{
+    uint8_t *uint8 = (uint8_t *)usr;
+    char tmp = *tsv->se;
+    *tsv->se = 0;
+    char *endptr;
+    *uint8 = (uint8_t)strtol(tsv->ss, &endptr, 0);
+    *tsv->se = tmp;
+    return 0;
+}
+
+int tsv_read_int32(tsv_t *tsv, bcf1_t *rec, void *usr)
+{
+    int32_t *int32 = (int32_t *)usr;
+    char tmp = *tsv->se;
+    *tsv->se = 0;
+    char *endptr;
+    *int32 = (int32_t)strtol(tsv->ss, &endptr, 0);
+    *tsv->se = tmp;
+    return 0;
+}
+
+int tsv_read_float(tsv_t *tsv, bcf1_t *rec, void *usr)
+{
+    float *single = (float *)usr;
+    char tmp = *tsv->se;
+    *tsv->se = 0;
+    char *endptr;
+    *single = (float)strtof(tsv->ss, &endptr);
+    *tsv->se = tmp;
+    return 0;
+}
+
+int tsv_read_string(tsv_t *tsv, bcf1_t *rec, void *usr)
+{
+    char **str = (char **)usr;
+    char tmp = *tsv->se;
+    *tsv->se = 0;
+    *str = strdup(tsv->ss);
+    *tsv->se = tmp;
+    return 0;
+}
+
+// Petr Danecek's similar implementation in bcftools/tsv2vcf.c
+int csv_parse(tsv_t *tsv, bcf1_t *rec, char *str)
+{
+    int status = 0;
+    tsv->icol = 0;
+    tsv->ss = tsv->se = str;
+    while ( *tsv->ss && tsv->icol < tsv->ncols )
+    {
+        while ( *tsv->se && *tsv->se!=',' ) tsv->se++;
+        if ( tsv->cols[tsv->icol].setter )
+        {
+            int ret = tsv->cols[tsv->icol].setter(tsv,rec,tsv->cols[tsv->icol].usr);
+            if ( ret<0 ) return -1;
+            status++;
+        }
+        tsv->se++;
+        tsv->ss = tsv->se;
+        tsv->icol++;
+    }
+    return status ? 0 : -1;
+}
+
+static bpm_t *bpm_csv_init(const char *fn)
+{
+    bpm_t *bpm = (bpm_t *)calloc(1, sizeof(bpm_t));
+    bpm->fn = strdup(fn);
+    bpm->fp = hopen(bpm->fn, "r");
+    if ( bpm->fp == NULL ) error("Could not open %s\n", bpm->fn);
+    if ( is_gzip(bpm->fp) ) error("File %s is gzip compressed and currently cannot be seeked\n", bpm->fn);
+
+    kstring_t str = {0, 0, NULL};
+    if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Empty file: %s\n", bpm->fn);
+    if ( strcmp(str.s, "Illumina, Inc.") ) error("Header of file %s is incorrect: %s\n", bpm->fn, str.s);
+    char *tmp = NULL;
+    size_t prev = 0;
+    while ( strcmp(str.s + prev, "[Assay]") )
+    {
+        if ( strncmp(str.s + prev, "Descriptor File Name,", 21) == 0 ) bpm->manifest_name = strdup(str.s + prev + 21);
+        else if ( strncmp(str.s + prev, "Loci Count ,", 12) == 0 ) bpm->num_loci = (int)strtol(str.s + prev + 12, &tmp, 0);
+        kputc('\n', &str);
+        prev = str.l;
+        if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Error reading from file: %s\n", bpm->fn);
+    }
+    if ( bpm->num_loci == 0 ) error("Could not understand number of loci from header of manifest file %s\n", bpm->fn);
+    int moff = 0, *off = NULL;
+    bpm->m_header = ksplit_core(str.s, '\n', &moff, &off);
+    bpm->header = (char **)malloc(bpm->m_header * sizeof(char *));
+    for (int i=0; i<bpm->m_header; i++) bpm->header[i] = strdup(&str.s[off[i]]);
+    free(off);
+
+    str.l = 0;
+    if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Error reading from file: %s\n", bpm->fn);
+
+    LocusEntry locus_entry;
+    tsv_t *tsv = tsv_init(str.s);
+    tsv_register(tsv, "Index", tsv_read_int32, &locus_entry.index);
+    int norm_id = tsv_register(tsv, "NormID", tsv_read_uint8, &locus_entry.norm_id);
+    tsv_register(tsv, "IlmnID", tsv_read_string, &locus_entry.ilmn_id);
+    tsv_register(tsv, "Name", tsv_read_string, &locus_entry.name);
+    tsv_register(tsv, "IlmnStrand", tsv_read_string, &locus_entry.ilmn_strand);
+    tsv_register(tsv, "SNP", tsv_read_string, &locus_entry.snp);
+    tsv_register(tsv, "AddressA_ID", tsv_read_int32, &locus_entry.address_a);
+    tsv_register(tsv, "AlleleA_ProbeSeq", tsv_read_string, &locus_entry.allele_a_probe_seq);
+    tsv_register(tsv, "AddressB_ID", tsv_read_int32, &locus_entry.address_b);
+    tsv_register(tsv, "AlleleB_ProbeSeq", tsv_read_string, &locus_entry.allele_b_probe_seq);
+    tsv_register(tsv, "GenomeBuild", tsv_read_string, &locus_entry.genome_build);
+    tsv_register(tsv, "Chr", tsv_read_string, &locus_entry.chrom);
+    tsv_register(tsv, "MapInfo", tsv_read_string, &locus_entry.map_info);
+    tsv_register(tsv, "Ploidy", tsv_read_string, &locus_entry.ploidy);
+    tsv_register(tsv, "Species", tsv_read_string, &locus_entry.species);
+    tsv_register(tsv, "Source", tsv_read_string, &locus_entry.source);
+    tsv_register(tsv, "SourceVersion", tsv_read_string, &locus_entry.source_version);
+    tsv_register(tsv, "SourceStrand", tsv_read_string, &locus_entry.source_strand);
+    tsv_register(tsv, "SourceSeq", tsv_read_string, &locus_entry.source_seq);
+    tsv_register(tsv, "TopGenomicSeq", tsv_read_string, &locus_entry.top_genomic_seq);
+    tsv_register(tsv, "BeadSetID", tsv_read_int32, &locus_entry.beadset_id);
+    tsv_register(tsv, "Exp_Clusters", tsv_read_uint8, &locus_entry.exp_clusters);
+    tsv_register(tsv, "Intensity_Only", tsv_read_uint8, &locus_entry.intensity_only);
+    tsv_register(tsv, "Frac A", tsv_read_float, &locus_entry.frac_a);
+    tsv_register(tsv, "Frac C", tsv_read_float, &locus_entry.frac_c);
+    tsv_register(tsv, "Frac G", tsv_read_float, &locus_entry.frac_g);
+    tsv_register(tsv, "Frac T", tsv_read_float, &locus_entry.frac_t);
+    tsv_register(tsv, "RefStrand", tsv_read_string, &locus_entry.ref_strand);
+
+    bpm->locus_entries = (LocusEntry *)malloc(bpm->num_loci * sizeof(LocusEntry));
+    for (int i=0; i<bpm->num_loci; i++)
+    {
+        memset(&locus_entry, 0, sizeof(LocusEntry));
+        locus_entry.norm_id = 0xFF;
+        str.l = 0;
+        if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Error reading from file: %s\n", bpm->fn);
+        if ( csv_parse(tsv, NULL, str.s) < 0 ) error("Could not parse the manifest file: %s\n", str.s);
+        int idx = locus_entry.index ? locus_entry.index - 1 : i;
+        if ( idx < 0 || idx >= bpm->num_loci ) error("Locus entry index %d is out of boundaries\n", idx);
+        memcpy(&bpm->locus_entries[ idx ], &locus_entry, sizeof(LocusEntry));
+    }
+    free(str.s);
+
+    if ( norm_id == 0 ) bpm->norm_lookups = bpm_norm_lookups(bpm);
+
+    return bpm;
 }
 
 /****************************************
@@ -867,28 +1034,29 @@ static void egt_to_csv(egt_t *egt, FILE *stream)
     for (int i=0; i<egt->num_records; i++)
     {
         ClusterRecord *cluster_record = &egt->cluster_records[i];
-        fprintf(stream, "%s,%d,%f,%f,%f,%f,%d,%f,%f,%f,%f,%d,%f,%f,%f,%f,%f,%f,%f,%f,%d,%d\n", egt->loci_names[i],
-                                                                                               cluster_record->aa_cluster_stats.N,
-                                                                                               cluster_record->aa_cluster_stats.r_dev,
-                                                                                               cluster_record->aa_cluster_stats.r_mean,
-                                                                                               cluster_record->aa_cluster_stats.theta_dev,
-                                                                                               cluster_record->aa_cluster_stats.theta_mean,
-                                                                                               cluster_record->ab_cluster_stats.N,
-                                                                                               cluster_record->ab_cluster_stats.r_dev,
-                                                                                               cluster_record->ab_cluster_stats.r_mean,
-                                                                                               cluster_record->ab_cluster_stats.theta_dev,
-                                                                                               cluster_record->ab_cluster_stats.theta_mean,
-                                                                                               cluster_record->bb_cluster_stats.N,
-                                                                                               cluster_record->bb_cluster_stats.r_dev,
-                                                                                               cluster_record->bb_cluster_stats.r_mean,
-                                                                                               cluster_record->bb_cluster_stats.theta_dev,
-                                                                                               cluster_record->bb_cluster_stats.theta_mean,
-                                                                                               cluster_record->intensity_threshold,
-                                                                                               cluster_record->cluster_score.cluster_separation,
-                                                                                               cluster_record->cluster_score.total_score,
-                                                                                               cluster_record->cluster_score.original_score,
-                                                                                               cluster_record->cluster_score.edited,
-                                                                                               cluster_record->address);
+        fprintf(stream, "%s,%d,%f,%f,%f,%f,%d,%f,%f,%f,%f,%d,%f,%f,%f,%f,%f,%f,%f,%f,%d,%d\n",
+            egt->loci_names[i],
+            cluster_record->aa_cluster_stats.N,
+            cluster_record->aa_cluster_stats.r_dev,
+            cluster_record->aa_cluster_stats.r_mean,
+            cluster_record->aa_cluster_stats.theta_dev,
+            cluster_record->aa_cluster_stats.theta_mean,
+            cluster_record->ab_cluster_stats.N,
+            cluster_record->ab_cluster_stats.r_dev,
+            cluster_record->ab_cluster_stats.r_mean,
+            cluster_record->ab_cluster_stats.theta_dev,
+            cluster_record->ab_cluster_stats.theta_mean,
+            cluster_record->bb_cluster_stats.N,
+            cluster_record->bb_cluster_stats.r_dev,
+            cluster_record->bb_cluster_stats.r_mean,
+            cluster_record->bb_cluster_stats.theta_dev,
+            cluster_record->bb_cluster_stats.theta_mean,
+            cluster_record->intensity_threshold,
+            cluster_record->cluster_score.cluster_separation,
+            cluster_record->cluster_score.total_score,
+            cluster_record->cluster_score.original_score,
+            cluster_record->cluster_score.edited,
+            cluster_record->address);
     }
     if (stream != stdout && stream != stderr) fclose(stream);
 }
@@ -1277,13 +1445,14 @@ static void gtc_to_csv(gtc_t *gtc, FILE *stream)
     fprintf(stream, "Version,Offset X,Offset Y,Scale X,Scale Y,Shear,Theta\n");
     for (int i=0; i<gtc->m_normalization_transforms; i++)
     {
-        fprintf(stream, "%d,%f,%f,%f,%f,%f,%f\n", gtc->normalization_transforms[i].version,
-                                                  gtc->normalization_transforms[i].offset_x,
-                                                  gtc->normalization_transforms[i].offset_y,
-                                                  gtc->normalization_transforms[i].scale_x,
-                                                  gtc->normalization_transforms[i].scale_y,
-                                                  gtc->normalization_transforms[i].shear,
-                                                  gtc->normalization_transforms[i].theta);
+        fprintf(stream, "%d,%f,%f,%f,%f,%f,%f\n",
+            gtc->normalization_transforms[i].version,
+            gtc->normalization_transforms[i].offset_x,
+            gtc->normalization_transforms[i].offset_y,
+            gtc->normalization_transforms[i].scale_x,
+            gtc->normalization_transforms[i].scale_y,
+            gtc->normalization_transforms[i].shear,
+            gtc->normalization_transforms[i].theta);
     }
     if (stream != stdout && stream != stderr) fclose(stream);
 }
@@ -1295,9 +1464,9 @@ static void gtc_to_csv(gtc_t *gtc, FILE *stream)
 // compute normalized X Y intensities
 static void get_norm_xy(uint16_t raw_x, uint16_t raw_y, gtc_t *gtc, bpm_t *bpm, int idx, float *norm_x, float *norm_y)
 {
-    if ( bpm->normalization_ids[idx] != -1 )
+    if ( bpm->norm_lookups && bpm->locus_entries[idx].norm_id != 0xFF )
     {
-        int norm_id = bpm->normalization_lookups[idx];
+        int norm_id = bpm->norm_lookups[bpm->locus_entries[idx].norm_id];
         XForm *xform = gtc->normalization_transforms + norm_id;
         float temp_x = (float)raw_x - xform->offset_x;
         float temp_y = (float)raw_y - xform->offset_y;
@@ -1309,8 +1478,8 @@ static void get_norm_xy(uint16_t raw_x, uint16_t raw_y, gtc_t *gtc, bpm_t *bpm, 
     }
     else
     {
-        *norm_x = (float)raw_x;
-        *norm_y = (float)raw_y;
+        *norm_x = NAN;
+        *norm_y = NAN;
     }
 }
 
@@ -1319,7 +1488,6 @@ static inline void get_ilmn_theta_r(float norm_x, float norm_y, float *ilmn_thet
 {
     *ilmn_theta = 2.0f * atanf(norm_y / norm_x) * (float)M_1_PI;
     *ilmn_r = norm_x + norm_y;
-
 }
 
 // compute BAF and LRR from raw intensities
@@ -1361,13 +1529,14 @@ static void get_lrr_baf(float ilmn_theta, float ilmn_r, egt_t *egt, int idx, flo
     }
 }
 
-static inline void get_all_intensities(gtc_t *gtc, bpm_t *bpm, egt_t *egt, int idx, intensities_t *intensities)
+static inline void get_intensities(gtc_t *gtc, bpm_t *bpm, egt_t *egt, int idx, intensities_t *intensities)
 {
     get_element(gtc->raw_x, (void *)&intensities->raw_x, idx);
     get_element(gtc->raw_y, (void *)&intensities->raw_y, idx);
     get_norm_xy(intensities->raw_x, intensities->raw_y, gtc, bpm, idx, &intensities->norm_x, &intensities->norm_y);
     get_ilmn_theta_r(intensities->norm_x, intensities->norm_y, &intensities->ilmn_theta, &intensities->ilmn_r);
-    if ( egt )
+
+    if ( bpm->norm_lookups && egt )
     {
         get_lrr_baf(intensities->ilmn_theta, intensities->ilmn_r, egt, idx, &intensities->baf, &intensities->lrr);
     }
@@ -1378,7 +1547,8 @@ static inline void get_all_intensities(gtc_t *gtc, bpm_t *bpm, egt_t *egt, int i
     }
     else
     {
-        error("BAF or LRR information missing from %s GTC file, cluster EGT file required\n", gtc->fn);
+        intensities->baf = NAN;
+        intensities->lrr = NAN;
     }
 }
 
@@ -1425,7 +1595,7 @@ static void gtcs_to_gs(gtc_t **gtc, int n, bpm_t *bpm, egt_t *egt, FILE *stream)
             BaseCall base_call;
             get_element(gtc[i]->base_calls, (void *)&base_call, j);
             intensities_t intensities;
-            get_all_intensities(gtc[i], bpm, egt, j, &intensities);
+            get_intensities(gtc[i], bpm, egt, j, &intensities);
             fprintf(stream, "\t%s\t%f\t%f\t%f\t%f\t%f\t%c%c\t--", code2genotype[genotype],
                                                                   genotype_score,
                                                                   intensities.ilmn_theta,
@@ -1538,7 +1708,7 @@ static void gtcs_to_vcf(gtc_t **gtc, int n, bpm_t *bpm, egt_t *egt, htsFile *out
                 default: gts[2*i] = bcf_gt_missing; gts[2*i+1] = bcf_gt_missing; break;
             }
             intensities_t intensities;
-            get_all_intensities(gtc[i], bpm, egt, j, &intensities);
+            get_intensities(gtc[i], bpm, egt, j, &intensities);
             if ( flags & IGC   ) get_element(gtc[i]->genotype_scores, (void *)&igc[i], j);
             if ( flags & BAF   ) baf[i] = intensities.baf;
             if ( flags & LRR   ) lrr[i] = intensities.lrr;
@@ -1918,6 +2088,7 @@ static const char *usage_text(void)
         "    -t, --tags LIST                    list of output tags [IGC,BAF,LRR]\n"
         "    -i  --idat <file>                  IDAT file\n"
         "    -b  --bpm <file>                   BPM manifest file\n"
+        "    -c  --csv <file>                   CSV manifest file\n"
         "    -e  --egt <file>                   EGT cluster file\n"
         "    -f, --fasta-ref <file>             reference sequence in fasta format\n"
         "    -g, --gtc-list <file>              read GTC file names from file\n"
@@ -1985,6 +2156,7 @@ int run(int argc, char *argv[])
     char *tag_list = "IGC,BAF,LRR";
     char *idat_fname = NULL;
     char *bpm_fname = NULL;
+    char *csv_fname = NULL;
     char *egt_fname = NULL;
     char *gs_fname = NULL;
     char *output_fname = "-";
@@ -2005,6 +2177,7 @@ int run(int argc, char *argv[])
         {"tags", required_argument, NULL, 't'},
         {"idat", required_argument, NULL, 'i'},
         {"bpm", required_argument, NULL, 'b'},
+        {"csv", required_argument, NULL, 'c'},
         {"egt", required_argument, NULL, 'e'},
         {"output", required_argument, NULL, 'o'},
         {"output-type", required_argument, NULL, 'O'},
@@ -2017,7 +2190,7 @@ int run(int argc, char *argv[])
         {NULL, 0, NULL, 0}
     };
     int c;
-    while ((c = getopt_long(argc, argv, "h?lt:o:O:i:b:e:f:g:", loptions, NULL)) >= 0)
+    while ((c = getopt_long(argc, argv, "h?lt:o:O:i:b:c:e:f:g:", loptions, NULL)) >= 0)
     {
         switch (c)
         {
@@ -2025,6 +2198,7 @@ int run(int argc, char *argv[])
             case 't': tag_list = optarg; break;
             case 'i': idat_fname = optarg; break;
             case 'b': bpm_fname = optarg; break;
+            case 'c': csv_fname = optarg; break;
             case 'e': egt_fname = optarg; break;
             case 'o': output_fname = optarg; break;
             case 'O':
@@ -2048,7 +2222,7 @@ int run(int argc, char *argv[])
             default: error("%s", usage_text());
         }
     }
-    if ( (idat_fname!=NULL) + (bpm_fname!=NULL) + (egt_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
+    if ( (idat_fname!=NULL) + (bpm_fname!=NULL) + (csv_fname!=NULL) + (egt_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
     if ( !binary_to_csv )
     {
         if ( idat_fname ) { fprintf(stderr, "IDAT file only allowed when converting to CSV\n"); error("%s", usage_text()); }
@@ -2101,6 +2275,13 @@ int run(int argc, char *argv[])
         bpm = bpm_init(bpm_fname);
         bpm_summary(bpm, stderr);
         if ( binary_to_csv ) bpm_to_csv(bpm, out_txt);
+    }
+    else if ( csv_fname )
+    {
+        fprintf(stderr, "================================================================================\n");
+        fprintf(stderr, "Reading CSV file %s\n", csv_fname);
+        bpm = bpm_csv_init(csv_fname);
+        bpm_summary(bpm, stderr);
     }
 
     egt_t *egt = NULL;
