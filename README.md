@@ -96,7 +96,7 @@ Convert Illumina IDAT files to GTC files
 
 Once Mono and AutoConvert are properly installed on your system, run Illumina's proprietary GenCall algorithm
 ```
-mono $HOME/bin/autoconvert/AutoConvert.exe path_to_idat_folder path_to_output_folder manifest_file egt_file
+mono $HOME/bin/autoconvert/AutoConvert.exe $path_to_idat_folder $path_to_output_folder $manifest_file $egt_file
 ```
 Make sure that the IDAT files have the same name prefix as the IDAT folder name. The software might require up to 8GB of RAM to run. Illumina provides manifest (BPM) and cluster (EGT) files for their arrays <a href="https://support.illumina.com/array/downloads.html">here</a>
 
@@ -105,7 +105,7 @@ Convert Illumina GTC files to VCF
 
 Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package. Reference strand determination is performed using Illumina's <a href="https://www.illumina.com/documents/products/technotes/technote_topbot.pdf">TOP/BOT</a> strand assignment in the manifest file. The resulting bcftools plugin is hundreds of times faster than Illumina's script and can be used to convert GTC files to VCF
 ```
-$HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b manifest_file -e egt_file -g $gtcs -f $ref | \
+$HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b $manifest_file -e $egt_file -g $gtcs -f $ref -x $sex | \
   $HOME/bin/bcftools sort -Ou -T . | \
   $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -- -f $ref -m top -b | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
@@ -118,7 +118,7 @@ Convert Illumina GenomeStudio final report to VCF
 
 Alternatively, if a GenomeStudio final report in <a href="https://support.illumina.com/content/dam/illumina-support/documents/documentation/software_documentation/genomestudio/genomestudio-2-0/genomestudio-genotyping-module-v2-user-guide-11319113-01.pdf#page=67">matrix format</a> is provided instead, this can be converted to VCF
 ```
-$HOME/bin/bcftools  +$HOME/bin/gtc2vcf.so --no-version -Ou --genome-studio genome_studio_file -f $ref | \
+$HOME/bin/bcftools  +$HOME/bin/gtc2vcf.so --no-version -Ou --genome-studio $genome_studio_file -f $ref | \
   $HOME/bin/bcftools sort -Ou -T . | \
   $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top -b | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \

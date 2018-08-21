@@ -621,8 +621,11 @@ static void bpm_destroy(bpm_t *bpm)
     free(bpm->manifest_name);
     free(bpm->control_config);
     free(bpm->indexes);
-    for (int i=0; i<bpm->num_loci; i++) free(bpm->names[i]);
-    free(bpm->names);
+    if ( bpm->names )
+    {
+        for (int i=0; i<bpm->num_loci; i++) free(bpm->names[i]);
+        free(bpm->names);
+    }
     free(bpm->norm_ids);
     for (int i=0; i<bpm->num_loci; i++)
     {
@@ -662,11 +665,11 @@ static void bpm_summary(bpm_t *bpm, FILE *stream)
 static void bpm_to_csv(bpm_t *bpm, FILE *stream)
 {
     for (int i=0; i<bpm->m_header; i++) fprintf(stream, "%s\n", bpm->header[i]);
-    fprintf(stream, "Index,NormID,IlmnID,Name,IlmnStrand,SNP,AddressA_ID,AlleleA_ProbeSeq,AddressB_ID,AlleleB_ProbeSeq,GenomeBuild,Chr,MapInfo,Ploidy,Species,Source,SourceVersion,SourceStrand,SourceSeq,TopGenomicSeq,BeadSetID,Exp_Clusters,Intensity_Only,Frac A,Frac C,Frac G,Frac T,RefStrand\n");
+    fprintf(stream, "Index,NormID,IlmnID,Name,IlmnStrand,SNP,AddressA_ID,AlleleA_ProbeSeq,AddressB_ID,AlleleB_ProbeSeq,GenomeBuild,Chr,MapInfo,Ploidy,Species,Source,SourceVersion,SourceStrand,SourceSeq,TopGenomicSeq,BeadSetID,Exp_Clusters,Intensity_Only,Assay_Type,Frac A,Frac C,Frac G,Frac T,RefStrand\n");
     for (int i=0; i<bpm->num_loci; i++)
     {
         LocusEntry *locus_entry = &bpm->locus_entries[i];
-        fprintf(stream, "%d,%d,%s,%s,%s,%s,%010d,,%010d,,%s,%s,%s,%s,%s,%s,,%s,,,,%d,%d,%f,%f,%f,%f,%s\n",
+        fprintf(stream, "%d,%d,%s,%s,%s,%s,%010d,,%010d,,%s,%s,%s,%s,%s,%s,,%s,,,,%d,%d,%d,%f,%f,%f,%f,%s\n",
             locus_entry->index,
             locus_entry->norm_id,
             locus_entry->ilmn_id,
@@ -684,6 +687,7 @@ static void bpm_to_csv(bpm_t *bpm, FILE *stream)
             locus_entry->source_strand,
             locus_entry->exp_clusters,
             locus_entry->intensity_only,
+            locus_entry->assay_type,
             locus_entry->frac_a,
             locus_entry->frac_c,
             locus_entry->frac_g,
@@ -705,7 +709,7 @@ int tsv_read_uint8(tsv_t *tsv, bcf1_t *rec, void *usr)
     char tmp = *tsv->se;
     *tsv->se = 0;
     char *endptr;
-    *uint8 = (uint8_t)strtol(tsv->ss, &endptr, 0);
+    *uint8 = (uint8_t)strtol(tsv->ss, &endptr, 10);
     *tsv->se = tmp;
     return 0;
 }
@@ -716,7 +720,7 @@ int tsv_read_int32(tsv_t *tsv, bcf1_t *rec, void *usr)
     char tmp = *tsv->se;
     *tsv->se = 0;
     char *endptr;
-    *int32 = (int32_t)strtol(tsv->ss, &endptr, 0);
+    *int32 = (int32_t)strtol(tsv->ss, &endptr, 10);
     *tsv->se = tmp;
     return 0;
 }
@@ -735,10 +739,14 @@ int tsv_read_float(tsv_t *tsv, bcf1_t *rec, void *usr)
 int tsv_read_string(tsv_t *tsv, bcf1_t *rec, void *usr)
 {
     char **str = (char **)usr;
-    char tmp = *tsv->se;
-    *tsv->se = 0;
-    *str = strdup(tsv->ss);
-    *tsv->se = tmp;
+    if (tsv->se == tsv->ss) *str = NULL;
+    else
+    {
+        char tmp = *tsv->se;
+        *tsv->se = 0;
+        *str = strdup(tsv->ss);
+        *tsv->se = tmp;
+    }
     return 0;
 }
 
@@ -762,6 +770,22 @@ int csv_parse(tsv_t *tsv, bcf1_t *rec, char *str)
         tsv->icol++;
     }
     return status ? 0 : -1;
+}
+
+static uint8_t get_assay_type(char *allele_a_probe_seq, char *allele_b_probe_seq, char *source_seq)
+{
+    if (!allele_b_probe_seq) return 0;
+    char *ptr1 = strchr(source_seq, '[');
+    char *ptr2 = strchr(source_seq, ']');
+    if (!ptr1 || !ptr2) error("Source sequence is malformed: %s\n", source_seq);
+    char trail1 = *(ptr1-1);
+    char trail2 = *(ptr2+1);
+    if ( (trail1 == 'a' || trail1 == 'A' || trail1 == 't' || trail1 == 'T') && (trail2 == 'a' || trail2 == 'A' || trail2 == 't' || trail2 == 'T') ) return 1;
+    if ( (trail1 == 'c' || trail1 == 'C' || trail1 == 'g' || trail1 == 'G') && (trail2 == 'c' || trail2 == 'C' || trail2 == 'g' || trail2 == 'G') ) return 2;
+    char last = allele_a_probe_seq[(strlen(allele_a_probe_seq)-1)];
+    if ( (last == 'g' || last == 'G' || last == 't' || last == 'T') ) return 1;
+    if ( (last == 'a' || last == 'A' || last == 'c' || last == 'C') ) return 2;
+    error("Unable to retrieve assay type: %s %s\n", allele_a_probe_seq, source_seq);
 }
 
 static bpm_t *bpm_csv_init(const char *fn)
@@ -834,6 +858,7 @@ static bpm_t *bpm_csv_init(const char *fn)
         str.l = 0;
         if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Error reading from file: %s\n", bpm->fn);
         if ( csv_parse(tsv, NULL, str.s) < 0 ) error("Could not parse the manifest file: %s\n", str.s);
+        locus_entry.assay_type = get_assay_type(locus_entry.allele_a_probe_seq, locus_entry.allele_b_probe_seq, locus_entry.source_seq);
         int idx = locus_entry.index ? locus_entry.index - 1 : i;
         if ( idx < 0 || idx >= bpm->num_loci ) error("Locus entry index %d is out of boundaries\n", idx);
         memcpy(&bpm->locus_entries[ idx ], &locus_entry, sizeof(LocusEntry));
@@ -2079,7 +2104,7 @@ static const char *usage_text(void)
 {
     return
         "\n"
-        "About: convert Illumina GTC files containing intensity data into VCF (2018-07-10)\n"
+        "About: convert Illumina GTC files containing intensity data into VCF (2018-08-21)\n"
         "\n"
         "Usage: bcftools +gtc2vcf [options] <A.gtc> [...]\n"
         "\n"
@@ -2092,8 +2117,9 @@ static const char *usage_text(void)
         "    -e  --egt <file>                   EGT cluster file\n"
         "    -f, --fasta-ref <file>             reference sequence in fasta format\n"
         "    -g, --gtc-list <file>              read GTC file names from file\n"
+        "    -x, --sex <file>                   output GenCall gender estimate into file\n"
         "        --do-not-check-bpm             do not check whether BPM and GTC files match manifest file name\n"
-        "        --genome-studio                input a genome studio file\n"
+        "        --genome-studio                input a genome studio final report file (in matrix format)\n"
         "        --no-version                   do not append version and command line to the header\n"
         "    -o, --output <file>                write output to a file [standard output]\n"
         "    -O, --output-type b|u|z|v|g        b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g GenomeStudio [v]\n"
@@ -2162,6 +2188,7 @@ int run(int argc, char *argv[])
     char *output_fname = "-";
     char *ref_fname = NULL;
     char *gtc_list = NULL;
+    char *sex_fname = NULL;
     int output_type = FT_VCF;
     int bpm_check = 1;
     int n_threads = 0;
@@ -2170,6 +2197,7 @@ int run(int argc, char *argv[])
     faidx_t *fai = NULL;
     htsFile *out_fh = NULL;
     FILE *out_txt = NULL;
+    FILE *out_sex = NULL;
 
     static struct option loptions[] =
     {
@@ -2182,7 +2210,8 @@ int run(int argc, char *argv[])
         {"output", required_argument, NULL, 'o'},
         {"output-type", required_argument, NULL, 'O'},
         {"fasta-ref", required_argument, NULL, 'f'},
-        {"gtc-list", required_argument, NULL, 'l'},
+        {"gtc-list", required_argument, NULL, 'g'},
+        {"sex", required_argument, NULL, 'x'},
         {"do-not-check-bpm", no_argument, NULL, 1},
         {"genome-studio", required_argument, NULL, 2},
         {"no-version", no_argument, NULL, 8},
@@ -2190,7 +2219,7 @@ int run(int argc, char *argv[])
         {NULL, 0, NULL, 0}
     };
     int c;
-    while ((c = getopt_long(argc, argv, "h?lt:o:O:i:b:c:e:f:g:", loptions, NULL)) >= 0)
+    while ((c = getopt_long(argc, argv, "h?lt:o:O:i:b:c:e:f:g:x:", loptions, NULL)) >= 0)
     {
         switch (c)
         {
@@ -2213,6 +2242,7 @@ int run(int argc, char *argv[])
                       break;
             case 'f': ref_fname = optarg; break;
             case 'g': gtc_list = optarg; break;
+            case 'x': sex_fname = optarg; break;
             case  1 : bpm_check = 0; break;
             case  2 : gs_fname = optarg; break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
@@ -2229,6 +2259,7 @@ int run(int argc, char *argv[])
         if ( !bpm_fname && !gs_fname ) { fprintf(stderr, "Manifest file required when converting to VCF\n"); error("%s", usage_text()); }
         if ( gs_fname && (argc-optind>0 || gtc_list || output_type & FT_GS) ) { fprintf(stderr, "If Genome Studio file provided, do not pass GTC files and do not output to GenomeStudio\n"); error("%s", usage_text()); }
         if ( argc-optind>0 && gtc_list ) { fprintf(stderr, "GTC files cannot be listed through both command interface and file list\n"); error("%s", usage_text()); }
+        if ( !gs_fname && !(output_type & FT_GS) && sex_fname ) out_sex = get_file_handle( sex_fname );
     }
     int flags = parse_tags(tag_list);
 
@@ -2282,6 +2313,7 @@ int run(int argc, char *argv[])
         fprintf(stderr, "Reading CSV file %s\n", csv_fname);
         bpm = bpm_csv_init(csv_fname);
         bpm_summary(bpm, stderr);
+        if ( binary_to_csv ) bpm_to_csv(bpm, out_txt);
     }
 
     egt_t *egt = NULL;
@@ -2303,6 +2335,7 @@ int run(int argc, char *argv[])
         if ( bpm_check && bpm && strcmp( bpm->manifest_name, gtc[i]->snp_manifest ) ) error("Manifest name %s in BPM file %s does not match manifest name %s in GTC file %s\n", bpm->manifest_name, bpm->fn, gtc[i]->snp_manifest, gtc[i]->fn);
         gtc_summary(gtc[i], stderr);
         if ( binary_to_csv ) gtc_to_csv(gtc[i], out_txt);
+
     }
 
     if ( !binary_to_csv )
@@ -2327,6 +2360,7 @@ int run(int argc, char *argv[])
                     if (ptr) *ptr = '\0';
                     // TODO add here a check to make sure the sample names are distinct
                     bcf_hdr_add_sample(hdr, str);
+                    if ( out_sex ) fprintf(out_sex, "%s\t%c\n", str, gtc[i]->gender);
                     if (ptr) *ptr = '.';
                 }
                 gtcs_to_vcf(gtc, nfiles, bpm, egt, out_fh, hdr, flags);
@@ -2344,5 +2378,6 @@ int run(int argc, char *argv[])
     }
     for (int i=0; i<nfiles; i++) gtc_destroy(gtc[i]);
     free(gtc);
+    if (out_sex != stdout && out_sex != stderr) fclose(out_sex);
     return 0;
 }
