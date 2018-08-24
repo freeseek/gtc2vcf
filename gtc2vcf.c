@@ -1684,7 +1684,7 @@ bcf_hdr_t *get_hdr(faidx_t *fai, int flags)
 
 static void gtcs_to_vcf(gtc_t **gtc, int n, bpm_t *bpm, egt_t *egt, htsFile *out_fh, bcf_hdr_t *hdr, int flags)
 {
-    bcf_hdr_write(out_fh, hdr);
+    if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
     bcf1_t *rec = bcf_init();
     rec->n_sample = n;
     char a_top[] = "\0\0";
@@ -1754,7 +1754,7 @@ static void gtcs_to_vcf(gtc_t **gtc, int n, bpm_t *bpm, egt_t *egt, htsFile *out
         if ( flags & THETA ) bcf_update_format_float(hdr, rec, "THETA", ilmn_theta, n);
         if ( flags & X     ) bcf_update_format_int32(hdr, rec, "X", raw_x, n);
         if ( flags & Y     ) bcf_update_format_int32(hdr, rec, "Y", raw_y, n);
-        bcf_write(out_fh, hdr, rec);
+        if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
     }
     bcf_hdr_name2id_flexible(hdr, NULL);
 
@@ -2023,7 +2023,7 @@ static void genomestudio_to_vcf(htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *hdr,
     gs_col_t gs_raw_y = {col2sample, GS_Y, NULL};
     if ( (flags & Y) && tsv_register_all(tsv, "Y", tsv_setter_gs_col, &gs_raw_y) == 0 ) gs_raw_y.ptr = malloc(nsamples * sizeof(int32_t));
 
-    bcf_hdr_write(out_fh, hdr);
+    if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
 
     bcf1_t *rec = bcf_init();
     rec->n_sample = nsamples;
@@ -2063,7 +2063,7 @@ static void genomestudio_to_vcf(htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *hdr,
             if ( gs_ilmn_theta.ptr ) bcf_update_format_float(hdr, rec, "THETA", (float *)gs_ilmn_theta.ptr, nsamples);
             if ( gs_raw_x.ptr ) bcf_update_format_int32(hdr, rec, "X", (int32_t *)gs_raw_x.ptr, nsamples);
             if ( gs_raw_y.ptr ) bcf_update_format_int32(hdr, rec, "Y", (int32_t *)gs_raw_y.ptr, nsamples);
-            bcf_write(out_fh, hdr, rec);
+            if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
         }
         else
             n_skipped++;
@@ -2378,6 +2378,6 @@ int run(int argc, char *argv[])
     }
     for (int i=0; i<nfiles; i++) gtc_destroy(gtc[i]);
     free(gtc);
-    if (out_sex != stdout && out_sex != stderr) fclose(out_sex);
+    if (out_sex && out_sex != stdout && out_sex != stderr) fclose(out_sex);
     return 0;
 }
