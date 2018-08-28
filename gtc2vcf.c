@@ -2332,7 +2332,10 @@ int run(int argc, char *argv[])
         fprintf(stderr, "================================================================================\n");
         fprintf(stderr, "Reading GTC file %s\n", files[i]);
         gtc[i] = gtc_init(files[i]);
-        if ( bpm_check && bpm && strcmp( bpm->manifest_name, gtc[i]->snp_manifest ) ) error("Manifest name %s in BPM file %s does not match manifest name %s in GTC file %s\n", bpm->manifest_name, bpm->fn, gtc[i]->snp_manifest, gtc[i]->fn);
+        // AutoConvert fills the GTC SNP manifest field with the BPM file name rather than with the BPM manifest name
+        if ( bpm_check && bpm && strcmp( bpm->manifest_name, gtc[i]->snp_manifest ) &&
+            strcmp( strrchr(bpm->fn, '/') ? strrchr(bpm->fn, '/') + 1 : bpm->fn, gtc[i]->snp_manifest ) )
+            error("Manifest name %s in BPM file %s does not match manifest name %s in GTC file %s\n", bpm->manifest_name, bpm->fn, gtc[i]->snp_manifest, gtc[i]->fn);
         gtc_summary(gtc[i], stderr);
         if ( binary_to_csv ) gtc_to_csv(gtc[i], out_txt);
 
