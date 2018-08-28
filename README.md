@@ -94,7 +94,11 @@ Notice that this approach to run AutoConvert on Linux is <strong>not</strong> su
 Convert Illumina IDAT files to GTC files
 ========================================
 
-Once Mono and AutoConvert are properly installed on your system, run Illumina's proprietary GenCall algorithm
+Once Mono and AutoConvert are properly installed on your system, run Illumina's proprietary GenCall algorithm on a single IDAT file pair
+```
+mono $HOME/bin/autoconvert/AutoConvert.exe $idat_green_file $path_to_output_folder $manifest_file $egt_file
+```
+Make sure that the red IDAT file is in the same folder as the green IDAT file. Alternatively you can run on multiple IDAT file pairs
 ```
 mono $HOME/bin/autoconvert/AutoConvert.exe $path_to_idat_folder $path_to_output_folder $manifest_file $egt_file
 ```
