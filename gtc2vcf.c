@@ -376,7 +376,7 @@ static void idat_destroy(idat_t *idat)
     free(idat);
 }
 
-static void idat_summary(idat_t *idat, FILE *stream)
+static void idat_summary(const idat_t *idat, FILE *stream)
 {
     fprintf(stream, "IDAT file version = %ld\n", idat->version);
     fprintf(stream, "Number of TOC entries = %d\n", idat->number_toc_entries);
@@ -389,7 +389,7 @@ static void idat_summary(idat_t *idat, FILE *stream)
     fprintf(stream, "Sentrix Position = %s\n", idat->sentrix_position);
 }
 
-static void idat_to_csv(idat_t *idat, FILE *stream)
+static void idat_to_csv(const idat_t *idat, FILE *stream)
 {
 
     fprintf(stream, "Illumina, Inc.\n");
@@ -655,14 +655,14 @@ static void bpm_destroy(bpm_t *bpm)
     free(bpm);
 }
 
-static void bpm_summary(bpm_t *bpm, FILE *stream)
+static void bpm_summary(const bpm_t *bpm, FILE *stream)
 {
     fprintf(stream, "BPM manifest file version = %d\n", bpm->version);
     fprintf(stream, "Name of manifest = %s\n", bpm->manifest_name);
     fprintf(stream, "Number of loci = %d\n", bpm->num_loci);
 }
 
-static void bpm_to_csv(bpm_t *bpm, FILE *stream)
+static void bpm_to_csv(const bpm_t *bpm, FILE *stream)
 {
     for (int i=0; i<bpm->m_header; i++) fprintf(stream, "%s\n", bpm->header[i]);
     fprintf(stream, "Index,NormID,IlmnID,Name,IlmnStrand,SNP,AddressA_ID,AlleleA_ProbeSeq,AddressB_ID,AlleleB_ProbeSeq,GenomeBuild,Chr,MapInfo,Ploidy,Species,Source,SourceVersion,SourceStrand,SourceSeq,TopGenomicSeq,BeadSetID,Exp_Clusters,Intensity_Only,Assay_Type,Frac A,Frac C,Frac G,Frac T,RefStrand\n");
@@ -772,7 +772,7 @@ int csv_parse(tsv_t *tsv, bcf1_t *rec, char *str)
     return status ? 0 : -1;
 }
 
-static uint8_t get_assay_type(char *allele_a_probe_seq, char *allele_b_probe_seq, char *source_seq)
+static uint8_t get_assay_type(const char *allele_a_probe_seq, const char *allele_b_probe_seq, const char *source_seq)
 {
     if (!allele_b_probe_seq) return 0;
     char *ptr1 = strchr(source_seq, '[');
@@ -1030,7 +1030,7 @@ static void egt_destroy(egt_t *egt)
     free(egt);
 }
 
-static void egt_summary(egt_t *egt, FILE *stream)
+static void egt_summary(const egt_t *egt, FILE *stream)
 {
     fprintf(stream, "EGT cluster file version = %d\n", egt->version);
     fprintf(stream, "GenCall version = %s\n", egt->gencall_version);
@@ -1043,7 +1043,7 @@ static void egt_summary(egt_t *egt, FILE *stream)
     fprintf(stream, "Number of records = %d\n", egt->num_records);
 }
 
-static void egt_to_csv(egt_t *egt, FILE *stream)
+static void egt_to_csv(const egt_t *egt, FILE *stream)
 {
     fprintf(stream, "Illumina, Inc.\n");
     fprintf(stream, "[Heading]\n");
@@ -1396,7 +1396,7 @@ static void gtc_destroy(gtc_t *gtc)
     free(gtc);
 }
 
-static void gtc_summary(gtc_t *gtc, FILE *stream)
+static void gtc_summary(const gtc_t *gtc, FILE *stream)
 {
     fprintf(stream, "GTC genotype file version = %d\n", gtc->version);
     fprintf(stream, "Number of TOC entries = %d\n", gtc->number_toc_entries);
@@ -1437,7 +1437,7 @@ static void gtc_summary(gtc_t *gtc, FILE *stream)
     fprintf(stream, "Sentrix identifier for the slide = %s\n", gtc->sentrix_id);
 }
 
-static void gtc_to_csv(gtc_t *gtc, FILE *stream)
+static void gtc_to_csv(const gtc_t *gtc, FILE *stream)
 {
     fprintf(stream, "Illumina, Inc.\n");
     fprintf(stream, "[Heading]\n");
@@ -1487,7 +1487,7 @@ static void gtc_to_csv(gtc_t *gtc, FILE *stream)
  ****************************************/
 
 // compute normalized X Y intensities
-static void get_norm_xy(uint16_t raw_x, uint16_t raw_y, gtc_t *gtc, bpm_t *bpm, int idx, float *norm_x, float *norm_y)
+static void get_norm_xy(uint16_t raw_x, uint16_t raw_y, const gtc_t *gtc, const bpm_t *bpm, int idx, float *norm_x, float *norm_y)
 {
     if ( bpm->norm_lookups && bpm->locus_entries[idx].norm_id != 0xFF )
     {
@@ -1511,12 +1511,12 @@ static void get_norm_xy(uint16_t raw_x, uint16_t raw_y, gtc_t *gtc, bpm_t *bpm, 
 // compute Theta and R from raw intensities
 static inline void get_ilmn_theta_r(float norm_x, float norm_y, float *ilmn_theta, float *ilmn_r)
 {
-    *ilmn_theta = 2.0f * atanf(norm_y / norm_x) * (float)M_1_PI;
+    *ilmn_theta = atanf(norm_y / norm_x) * (float)M_2_PI;
     *ilmn_r = norm_x + norm_y;
 }
 
 // compute BAF and LRR from raw intensities
-static void get_lrr_baf(float ilmn_theta, float ilmn_r, egt_t *egt, int idx, float *baf, float *lrr)
+static void get_lrr_baf(float ilmn_theta, float ilmn_r, const egt_t *egt, int idx, float *baf, float *lrr)
 {
     float aa_theta = egt->cluster_records[idx].aa_cluster_stats.theta_mean;
     float ab_theta = egt->cluster_records[idx].ab_cluster_stats.theta_mean;
@@ -1528,7 +1528,7 @@ static void get_lrr_baf(float ilmn_theta, float ilmn_r, egt_t *egt, int idx, flo
     // compute LRR and BAF
     if ( ilmn_theta == ab_theta )
     {
-        *lrr = logf(ilmn_r / ab_r) * M_LOG2E;
+        *lrr = logf(ilmn_r / ab_r) * (float)M_LOG2E;
         *baf = 0.5f;
     }
     else if ( ilmn_theta < ab_theta )
@@ -1536,7 +1536,7 @@ static void get_lrr_baf(float ilmn_theta, float ilmn_r, egt_t *egt, int idx, flo
         float slope = ( aa_r - ab_r ) / ( aa_theta - ab_theta );
         float b = aa_r - ( aa_theta * slope );
         float r_ref = ( slope * ilmn_theta ) + b;
-        *lrr = logf(ilmn_r / r_ref) * M_LOG2E;
+        *lrr = logf(ilmn_r / r_ref) * (float)M_LOG2E;
         *baf = ilmn_theta < aa_theta ? 0.0f : 0.5f - (ab_theta - ilmn_theta) * 0.5f / (ab_theta - aa_theta);
     }
     else if ( ilmn_theta > ab_theta )
@@ -1544,7 +1544,7 @@ static void get_lrr_baf(float ilmn_theta, float ilmn_r, egt_t *egt, int idx, flo
         float slope = ( ab_r - bb_r ) / ( ab_theta - bb_theta );
         float b = ab_r - ( ab_theta * slope );
         float r_ref = ( slope * ilmn_theta ) + b;
-        *lrr = logf(ilmn_r / r_ref) * M_LOG2E;
+        *lrr = logf(ilmn_r / r_ref) * (float)M_LOG2E;
         *baf = ilmn_theta >= bb_theta ? 1.0f : 1.0f - (bb_theta - ilmn_theta) * 0.5f / (bb_theta - ab_theta);
     }
     else
@@ -1554,7 +1554,7 @@ static void get_lrr_baf(float ilmn_theta, float ilmn_r, egt_t *egt, int idx, flo
     }
 }
 
-static inline void get_intensities(gtc_t *gtc, bpm_t *bpm, egt_t *egt, int idx, intensities_t *intensities)
+static inline void get_intensities(gtc_t *gtc, const bpm_t *bpm, const egt_t *egt, int idx, intensities_t *intensities)
 {
     get_element(gtc->raw_x, (void *)&intensities->raw_x, idx);
     get_element(gtc->raw_y, (void *)&intensities->raw_y, idx);
@@ -1591,7 +1591,7 @@ static inline void get_intensities(gtc_t *gtc, bpm_t *bpm, egt_t *egt, int idx, 
 #define X     (1<<7)
 #define Y     (1<<8)
 
-static void gtcs_to_gs(gtc_t **gtc, int n, bpm_t *bpm, egt_t *egt, FILE *stream)
+static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, FILE *stream)
 {
     // print header
     fprintf(stream, "Index\tName\tAddress\tChr\tPosition\tGenTrain Score\tFrac A\tFrac C\tFrac G\tFrac T");
@@ -1635,7 +1635,7 @@ static void gtcs_to_gs(gtc_t **gtc, int n, bpm_t *bpm, egt_t *egt, FILE *stream)
     if (stream != stdout && stream != stderr) fclose(stream);
 }
 
-static int bcf_hdr_name2id_flexible(bcf_hdr_t *hdr, char *chr)
+static int bcf_hdr_name2id_flexible(const bcf_hdr_t *hdr, char *chr)
 {
     static kstring_t str = {0, 0, NULL};
     if (!str.s) kputs("chr", &str);
@@ -1659,7 +1659,7 @@ static int bcf_hdr_name2id_flexible(bcf_hdr_t *hdr, char *chr)
     return rid;
 }
 
-bcf_hdr_t *get_hdr(faidx_t *fai, int flags)
+static bcf_hdr_t *get_hdr(faidx_t *fai, int flags)
 {
     bcf_hdr_t *hdr = bcf_hdr_init("w");
     int n = faidx_nseq(fai);
@@ -1682,7 +1682,7 @@ bcf_hdr_t *get_hdr(faidx_t *fai, int flags)
     return hdr;
 }
 
-static void gtcs_to_vcf(gtc_t **gtc, int n, bpm_t *bpm, egt_t *egt, htsFile *out_fh, bcf_hdr_t *hdr, int flags)
+static void gtcs_to_vcf(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, htsFile *out_fh, bcf_hdr_t *hdr, int flags)
 {
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
     bcf1_t *rec = bcf_init();
@@ -2026,8 +2026,7 @@ static void genomestudio_to_vcf(htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *hdr,
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
 
     bcf1_t *rec = bcf_init();
-    rec->n_sample = nsamples;
-    bcf_float_set_missing(rec->qual);
+    // bcf_float_set_missing(rec->qual);
     int n_total = 0, n_skipped = 0;
     while ( hts_getline(gs_fh, KS_SEP_LINE, &line) > 0 )
     {
@@ -2035,6 +2034,7 @@ static void genomestudio_to_vcf(htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *hdr,
         strand = STRAND_PLUS;
         snp = NULL;
         bcf_clear(rec);
+        rec->n_sample = nsamples;
         bcf_update_alleles_str(hdr, rec, "N,N");
 
         n_total++;
@@ -2104,7 +2104,7 @@ static const char *usage_text(void)
 {
     return
         "\n"
-        "About: convert Illumina GTC files containing intensity data into VCF (2018-08-21)\n"
+        "About: convert Illumina GTC files containing intensity data into VCF (2018-09-07)\n"
         "\n"
         "Usage: bcftools +gtc2vcf [options] <A.gtc> [...]\n"
         "\n"
@@ -2332,9 +2332,9 @@ int run(int argc, char *argv[])
         fprintf(stderr, "================================================================================\n");
         fprintf(stderr, "Reading GTC file %s\n", files[i]);
         gtc[i] = gtc_init(files[i]);
-        // AutoConvert fills the GTC SNP manifest field with the BPM file name rather than with the BPM manifest name
+        // AutoConvert fills the GTC SNP manifest with the BPM file name rather than the BPM manifest name
         if ( bpm_check && bpm && strcmp( bpm->manifest_name, gtc[i]->snp_manifest ) &&
-            strcmp( strrchr(bpm->fn, '/') ? strrchr(bpm->fn, '/') + 1 : bpm->fn, gtc[i]->snp_manifest ) )
+             strcmp( strrchr(bpm->fn, '/') ? strrchr(bpm->fn, '/') + 1 : bpm->fn, gtc[i]->snp_manifest ) )
             error("Manifest name %s in BPM file %s does not match manifest name %s in GTC file %s\n", bpm->manifest_name, bpm->fn, gtc[i]->snp_manifest, gtc[i]->fn);
         gtc_summary(gtc[i], stderr);
         if ( binary_to_csv ) gtc_to_csv(gtc[i], out_txt);
