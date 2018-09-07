@@ -139,6 +139,10 @@ Convert Illumina GTC files to VCF
 Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package. Reference strand determination is performed using Illumina's <a href="https://www.illumina.com/documents/products/technotes/technote_topbot.pdf">TOP/BOT</a> strand assignment in the manifest file. The gtc2vcf bcftools plugin is hundreds of times faster than Illumina's script and can be used to convert GTC files to VCF
 ```
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
+manifest_file="..."
+egt_file="..."
+gtc_list="..."
+out="..."
 $HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list -f $ref -x $out.sex | \
   $HOME/bin/bcftools sort -Ou -T . | \
   $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -- -f $ref -m top -b | \
@@ -153,6 +157,8 @@ Convert Illumina GenomeStudio final report to VCF
 Alternatively, if a GenomeStudio final report in <a href="https://support.illumina.com/content/dam/illumina-support/documents/documentation/software_documentation/genomestudio/genomestudio-2-0/genomestudio-genotyping-module-v2-user-guide-11319113-01.pdf#page=67">matrix format</a> is provided instead, this can be converted to VCF
 ```
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
+genome_studio_file="..."
+out="..."
 $HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou --genome-studio $genome_studio_file -f $ref | \
   $HOME/bin/bcftools sort -Ou -T . | \
   $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top -b | \
@@ -202,7 +208,6 @@ The affy2vcf bcftools plugin can be used to convert Affymetric genotype calls an
 ```
 ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
 dir="..."
-pfx="$dir/AxiomGT1"
 out="..."
 $HOME/bin/bcftools +$HOME/bin/affy2vcf.so --no-version -Ou --fasta-ref $ref --annot $annot_file --sex $out.sex \
   --snp-posteriors $dir/AxiomGT1.snp-posteriors.txt \
