@@ -1,13 +1,14 @@
 gtc2vcf
 =======
 
-A set of tools to convert Illumina files containing intensity data into VCF files <b>without</b> using Microsoft Windows. You can use the final output to run the pipeline to detect <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>. If you use this tool in your publication, please cite this website. For any feedback, send an email to giulio.genovese@gmail.com
+A set of tools to convert Illumina and Affymetrix array intensity data files into VCF files <b>without</b> using Microsoft Windows. You can use the final output to run the pipeline to detect <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>. If you use this tool in your publication, please cite this website. For any feedback, send an email to giulio.genovese@gmail.com
 
 ![](gtc2vcf.png)
 
 Usage
 =====
 
+Illumina tool:
 ```
 Usage: bcftools +gtc2vcf [options] <A.gtc> [...]
 
@@ -27,12 +28,32 @@ Plugin options:
         --threads <int>                number of extra output compression threads [0]
 ```
 
+Affymetrix tool:
+```
+Usage: bcftools +affy2vcf [options] --fasta-ref <fasta> --annot <file> --summary <file>
+                            --snp-posteriors <file> --confidences <file> --calls <file>
+
+Plugin options:
+    -f, --fasta-ref <file>                     reference sequence in fasta format
+        --annot <file>                         probeset annotation file
+        --summary <summary.txt>                apt-probeset-genotype summary output
+        --snp-posteriors <snp-posteriors.txt>  apt-probeset-genotype snp-posteriors output
+        --report <report.txt>                  apt-probeset-genotype report output
+        --confidences <confidences.txt>        apt-probeset-genotype confidences output
+        --calls <calls.txt>                    apt-probeset-genotype calls output
+    -x, --sex <file>                           output apt-probeset-genotype gender estimate into file
+        --no-version                           do not append version and command line to the header
+    -o, --output <file>                        write output to a file [standard output]
+    -O, --output-type b|u|z|v                  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF
+        --threads <int>                        number of extra output compression threads [0]
+```
+
 Installation
 ============
 
 Install basic tools (Debian/Ubuntu specific)
 ```
-sudo apt-get install wget liblzma-dev libbz2-dev libgsl0-dev gzip samtools unzip wine64 mono-devel
+sudo apt-get install wget liblzma-dev libbz2-dev libgsl0-dev gzip samtools unzip wine64 mono-devel libgdiplus
 ```
 
 Preparation steps
@@ -48,7 +69,7 @@ git clone --branch=develop git://github.com/samtools/bcftools.git
 
 Add patches and code for plugin
 ```
-wget -P bcftools/plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{gtc2vcf.c,fixref.patch}
+wget -P bcftools/plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{gtc2vcf.c,affy2vcf.c,fixref.patch}
 cd bcftools/plugins && patch < fixref.patch && cd ../..
 ```
 
@@ -56,7 +77,7 @@ Compile latest version of `htslib` (optionally disable `bz2` and `lzma`) and `bc
 ```
 cd htslib && autoheader && (autoconf || autoconf) && ./configure --disable-bz2 --disable-lzma && make && cd ..
 cd bcftools && make && cd ..
-/bin/cp bcftools/{bcftools,plugins/{fixref,gtc2vcf}.so} $HOME/bin/
+/bin/cp bcftools/{bcftools,plugins/{fixref,gtc2vcf,affy2vcf}.so} $HOME/bin/
 ```
 
 Install the GRCh37 human genome reference
@@ -84,12 +105,20 @@ wine64 NDP452-KB2901907-x86-x64-AllOS-ENU.exe
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/software/genomestudio/genomestudio-software-v2-0-4-5-installer.zip
 unzip -o genomestudio-software-v2-0-4-5-installer.zip
 wine64 GenomeStudio-software-v2-0-4-5-installer/GenomeStudioInstaller.exe
-wget https://raw.githubusercontent.com/freeseek/gtc2vcf/master/nearest_neighbor.c
 cp -R $HOME/.wine/drive_c/Program\ Files/Illumina/AutoConvert\ 2.0 $HOME/bin/autoconvert
 cp $HOME/.wine/drive_c/Program\ Files/Illumina/GenomeStudio\ 2.0/Heatmap.dll $HOME/bin/autoconvert/
+wget https://raw.githubusercontent.com/freeseek/gtc2vcf/master/nearest_neighbor.c
 gcc -fPIC -shared -O2 -o $HOME/bin/autoconvert/libMathRoutines.dll.so nearest_neighbor.c
 ```
 Notice that this approach to run AutoConvert on Linux is <strong>not</strong> supported by Illumina
+
+Affymetrix provides the <a href="http://www.affymetrix.com/support/developer/powertools/changelog/index.html">Analysis Power Tools (APT)</a> for free which allow to call genotypes from raw intensity data using an algorithm derived from <a href="http://tools.thermofisher.com/content/sfs/brochures/brlmmp_whitepaper.pdf">BRLMM-P</a>.
+```
+mkdir -p $HOME/bin && cd /tmp
+wget https://downloads.thermofisher.com/Affymetrix_Softwares/APT_2.10.0/apt-2.10.0-x86_64-intel-linux.zip
+unzip -ojd $HOME/bin apt-2.10.0-x86_64-intel-linux.zip apt-2.10.0-x86_64-intel-linux/bin/apt-probeset-genotype
+chmod a+x $HOME/bin/apt-probeset-genotype
+```
 
 Convert Illumina IDAT files to GTC files
 ========================================
@@ -107,10 +136,10 @@ Make sure that the IDAT files have the same name prefix as the IDAT folder name.
 Convert Illumina GTC files to VCF
 =================================
 
-Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package. Reference strand determination is performed using Illumina's <a href="https://www.illumina.com/documents/products/technotes/technote_topbot.pdf">TOP/BOT</a> strand assignment in the manifest file. The resulting bcftools plugin is hundreds of times faster than Illumina's script and can be used to convert GTC files to VCF
+Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package. Reference strand determination is performed using Illumina's <a href="https://www.illumina.com/documents/products/technotes/technote_topbot.pdf">TOP/BOT</a> strand assignment in the manifest file. The gtc2vcf bcftools plugin is hundreds of times faster than Illumina's script and can be used to convert GTC files to VCF
 ```
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
-$HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list -f $ref -x $sex_file | \
+$HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list -f $ref -x $out.sex | \
   $HOME/bin/bcftools sort -Ou -T . | \
   $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -- -f $ref -m top -b | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
@@ -124,10 +153,65 @@ Convert Illumina GenomeStudio final report to VCF
 Alternatively, if a GenomeStudio final report in <a href="https://support.illumina.com/content/dam/illumina-support/documents/documentation/software_documentation/genomestudio/genomestudio-2-0/genomestudio-genotyping-module-v2-user-guide-11319113-01.pdf#page=67">matrix format</a> is provided instead, this can be converted to VCF
 ```
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
-$HOME/bin/bcftools  +$HOME/bin/gtc2vcf.so --no-version -Ou --genome-studio $genome_studio_file -f $ref | \
+$HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou --genome-studio $genome_studio_file -f $ref | \
   $HOME/bin/bcftools sort -Ou -T . | \
   $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top -b | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   $HOME/bin/bcftools index -f $out.bcf
 ```
 Notice that this will drop unlocalized variants, monomorphic variants, and indels
+
+Convert Affymetrix CEL files to genotype calls
+==============================================
+
+Affymetrix provides a best practice workflow for genotyping data generated using <a href="https://www.affymetrix.com/support/developer/powertools/changelog/VIGNETTE-snp6-on-axiom.html">SNP6</a> and <a href="https://www.affymetrix.com/support/developer/powertools/changelog/VIGNETTE-Axiom-probeset-genotype.html">Axiom</a> arrays. As an examples, the following command will run the genotyping for the Affymetrix SNP6 array:
+```
+dir="..."
+cel_list="..."
+$HOME/bin/apt-probeset-genotype \
+  --out-dir $dir \
+  --read-models-brlmmp GenomeWideSNP_6.generic_prior.txt \
+  --analysis-files-path . \
+  --xml-file GenomeWideSNP_6.apt-probeset-genotype.AxiomGT1.xml \
+  --cel-files $cel_list \
+  --summaries \
+  --write-models
+```
+Affymetrix provides Library and NetAffx Annotation files for their arrays <a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a>.
+
+As an example, the following commands will obtain the files necessary to run the genotyping for the Affymetrix SNP6 array:
+```
+wget http://www.affymetrix.com/Auth/support/downloads/library_files/genomewidesnp6_libraryfile.zip
+wget http://www.affymetrix.com/Auth/analysis/downloads/lf/genotyping/GenomeWideSNP_6/SNP6_supplemental_axiom_analysis_files.zip
+wget http://www.affymetrix.com/Auth/analysis/downloads/na35/genotyping/GenomeWideSNP_6.na35.annot.csv.zip
+unzip -oj genomewidesnp6_libraryfile.zip CD_GenomeWideSNP_6_rev3/Full/GenomeWideSNP_6/LibFiles/GenomeWideSNP_6.{cdf,chrXprobes,chrYprobes}
+unzip -o SNP6_supplemental_axiom_analysis_files.zip GenomeWideSNP_6.{generic_prior.txt,apt-probeset-genotype.AxiomGT1.xml,AxiomGT1.sketch}
+unzip -o GenomeWideSNP_6.na35.annot.csv.zip GenomeWideSNP_6.na35.annot.csv
+```
+
+Note: If the program exits due to different chip types or probe counts with error message such as
+```
+Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWideEx_6'
+```
+Add the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem.
+
+Convert Affymetrix genotype and intensity calls to VCF
+======================================================
+
+The affy2vcf bcftools plugin can be used to convert Affymetric genotype calls and intensity files to VCF
+```
+ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
+dir="..."
+pfx="$dir/AxiomGT1"
+out="..."
+$HOME/bin/bcftools +$HOME/bin/affy2vcf.so --no-version -Ou --fasta-ref $ref --annot $annot_file --sex $out.sex \
+  --snp-posteriors $dir/AxiomGT1.snp-posteriors.txt \
+  --summary $dir/AxiomGT1.summary.txt \
+  --report $dir/AxiomGT1.report.txt \
+  --calls $dir/AxiomGT1.calls.txt \
+  --confidences $dir/AxiomGT1.confidences.txt | \
+  $HOME/bin/bcftools sort -Ou -T . | \
+  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap -b | \
+  $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
+  $HOME/bin/bcftools index -f $out.bcf
+```
