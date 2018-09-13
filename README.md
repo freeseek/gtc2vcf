@@ -226,6 +226,4 @@ $HOME/bin/bcftools +$HOME/bin/affy2vcf.so --no-version -Ou --fasta-ref $ref --an
 Acknowledgements
 ================
 
-```
 This work is supported by NIH grant <a href="https://projectreporter.nih.gov/project_info_description.cfm?aid=8852155">R01 HG006855</a> and the Stanley Center for Psychiatric Research and by US Department of Defense Breast Cancer Research Breakthrough Award W81XWH-16-1-0316 (project BC151244)
-```
