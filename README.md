@@ -17,11 +17,13 @@ Plugin options:
     -t, --tags LIST                    list of output tags [IGC,BAF,LRR]
     -i  --idat <file>                  IDAT file
     -b  --bpm <file>                   BPM manifest file
+    -c  --csv <file>                   CSV manifest file
     -e  --egt <file>                   EGT cluster file
     -f, --fasta-ref <file>             reference sequence in fasta format
     -g, --gtc-list <file>              read GTC file names from file
+    -x, --sex <file>                   output GenCall gender estimate into file
         --do-not-check-bpm             do not check whether BPM and GTC files match manifest file name
-        --genome-studio                input a genome studio file
+        --genome-studio                input a genome studio final report file (in matrix format)
         --no-version                   do not append version and command line to the header
     -o, --output <file>                write output to a file [standard output]
     -O, --output-type b|u|z|v|g        b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g GenomeStudio [v]
@@ -73,7 +75,7 @@ wget -P bcftools/plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/mast
 cd bcftools/plugins && patch < fixref.patch && cd ../..
 ```
 
-Compile latest version of `htslib` (optionally disable `bz2` and `lzma`) and `bcftools`
+Compile latest version of `htslib` (optionally disable `bz2` and `lzma`) and `bcftools` (make sure you are using gcc version 5 or newer)
 ```
 cd htslib && autoheader && (autoconf || autoconf) && ./configure --disable-bz2 --disable-lzma && make && cd ..
 cd bcftools && make && cd ..
@@ -94,7 +96,7 @@ wget -O- ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15
 samtools faidx $HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
 ```
 
-Illumina provides the <a href="https://support.illumina.com/array/array_software/beeline.html">Beeline</a> software for free and this includes the AutoConvert executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, with the exception of one small mathmatical function (findClosestSitesToPointsAlongAxis) which is contained instead within a Windows PE32+ library (MathRoutines.dll). As this is <a href="http://www.mono-project.com/docs/advanced/embedding/">unmanaged code</a>, to be run on Linux with Mono it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the <a href="http://doi.org/10.1093/bioinformatics/btm443">normalization</a> of the raw intensities when sampling 400 <a href="http://patft.uspto.gov/netacgi/nph-Parser?patentnumber=7035740">candidate homozygotes</a> before calling genotypes. For some unclear reasons, you will also need to separately download an additional Mono/.Net library (Heatmap.dll) from <a href="https://support.illumina.com/array/array_software/genomestudio.html">GenomeStudio</a> and include it in your binary directory as shown below, most likely due to differences in which Mono and .Net resolve library dependencies.
+Illumina provides the <a href="https://support.illumina.com/array/array_software/beeline.html">Beeline</a> software for free and this includes the AutoConvert executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, with the exception of one small mathmatical function (findClosestSitesToPointsAlongAxis) which is contained instead within a Windows PE32+ library (MathRoutines.dll). As this is <a href="http://www.mono-project.com/docs/advanced/embedding/">unmanaged code</a>, to be run on Linux with <a href="https://www.mono-project.com/">Mono</a> it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the <a href="http://doi.org/10.1093/bioinformatics/btm443">normalization</a> of the raw intensities when sampling 400 <a href="http://patft.uspto.gov/netacgi/nph-Parser?patentnumber=7035740">candidate homozygotes</a> before calling genotypes. For some unclear reasons, you will also need to separately download an additional Mono/.Net library (Heatmap.dll) from <a href="https://support.illumina.com/array/array_software/genomestudio.html">GenomeStudio</a> and include it in your binary directory as shown below, most likely due to differences in which Mono and .Net resolve library dependencies.
 ```
 mkdir -p $HOME/bin && cd /tmp
 wget https://support.illumina.com/content/dam/illumina-support/documents/downloads/software/beeline/autoconvert-software-v2-0-1-installer.zip
@@ -201,8 +203,8 @@ Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWide
 ```
 Add the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem.
 
-Convert Affymetrix genotype and intensity calls to VCF
-======================================================
+Convert Affymetrix genotype calls and intensities to VCF
+========================================================
 
 The affy2vcf bcftools plugin can be used to convert Affymetric genotype calls and intensity files to VCF
 ```
@@ -219,4 +221,11 @@ $HOME/bin/bcftools +$HOME/bin/affy2vcf.so --no-version -Ou --fasta-ref $ref --an
   $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap -b | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   $HOME/bin/bcftools index -f $out.bcf
+```
+
+Acknowledgements
+================
+
+```
+This work is supported by NIH grant <a href="https://projectreporter.nih.gov/project_info_description.cfm?aid=8852155">R01 HG006855</a> and the Stanley Center for Psychiatric Research and by US Department of Defense Breast Cancer Research Breakthrough Award W81XWH-16-1-0316 (project BC151244)
 ```
