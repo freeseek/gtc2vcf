@@ -133,7 +133,7 @@ Make sure that the red IDAT file is in the same folder as the green IDAT file. A
 ```
 mono $HOME/bin/autoconvert/AutoConvert.exe $path_to_idat_folder $path_to_output_folder $manifest_file $egt_file
 ```
-Make sure that the IDAT files have the same name prefix as the IDAT folder name. The software might require up to 8GB of RAM to run. Illumina provides manifest (BPM) and cluster (EGT) files for their arrays <a href="https://support.illumina.com/array/downloads.html">here</a>
+Make sure that the IDAT files have the same name prefix as the IDAT folder name. The software might require up to 8GB of RAM to run. Illumina provides manifest (BPM) and cluster (EGT) files for their arrays <a href="https://support.illumina.com/array/downloads.html">here</a>. Notice that if you provide the wrong BPM file, you will get an error such as: `Normalization failed!  Unable to normalize!` and if you provide the wrong EGT file, you will get an error such as `System.Exception: Unrecoverable Error...Exiting! Unable to find manifest entry ######## in the cluster file!`
 
 Convert Illumina GTC files to VCF
 =================================
@@ -156,7 +156,16 @@ Notice that this will drop unlocalized variants and indels
 Convert Illumina GenomeStudio final report to VCF
 =================================================
 
-Alternatively, if a GenomeStudio final report in <a href="https://support.illumina.com/content/dam/illumina-support/documents/documentation/software_documentation/genomestudio/genomestudio-2-0/genomestudio-genotyping-module-v2-user-guide-11319113-01.pdf#page=67">matrix format</a> is provided instead, this can be converted to VCF
+Alternatively, if a GenomeStudio final report in <a href="https://support.illumina.com/content/dam/illumina-support/documents/documentation/software_documentation/genomestudio/genomestudio-2-0/genomestudio-genotyping-module-v2-user-guide-11319113-01.pdf#page=67">matrix format</a> is provided instead, and it follows the following convention (Illumina does not share specifications for this file format):
+```
+Chromosome	Position	IlmnStrand	SNP	Name	SM.GType	SM.Score	SM.Theta	SM.R	SM.B Allele Freq	SM.Log R Ratio
+9	139906359	BOT	[T/C]	200003	AA	0.9299	0.029	1.300	0.0027	0.2150
+9	139926402	TOP	[A/G]	200006	AB	0.7877	0.435	2.675	0.4742	0.3024
+2	220084902	BOT	[T/C]	200047	AA	0.8612	0.083	0.476	0.0532	-0.1173
+2	220089685	TOP	[C/G]	200050	BB	0.8331	0.995	1.499	1.0000	0.3068
+```
+
+It can be converted into VCF format with the following command
 ```
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 genome_studio_file="..."
@@ -197,16 +206,12 @@ unzip -o SNP6_supplemental_axiom_analysis_files.zip GenomeWideSNP_6.{generic_pri
 unzip -o GenomeWideSNP_6.na35.annot.csv.zip GenomeWideSNP_6.na35.annot.csv
 ```
 
-Note: If the program exits due to different chip types or probe counts with error message such as
-```
-Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWideEx_6'
-```
-Add the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem.
+Note: If the program exits due to different chip types or probe counts with error message such as `Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWideEx_6'` then add the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem.
 
 Convert Affymetrix genotype calls and intensities to VCF
 ========================================================
 
-The affy2vcf bcftools plugin can be used to convert Affymetric genotype calls and intensity files to VCF
+The affy2vcf bcftools plugin can be used to convert Affymetrix genotype calls and intensity files to VCF
 ```
 ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
 dir="..."
