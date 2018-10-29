@@ -147,7 +147,7 @@ gtc_list="..."
 out="..."
 $HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list -f $ref -x $out.sex | \
   $HOME/bin/bcftools sort -Ou -T . | \
-  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -- -f $ref -m top -b | \
+  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -- -f $ref -m top -d | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   $HOME/bin/bcftools index -f $out.bcf
 ```
@@ -172,7 +172,7 @@ genome_studio_file="..."
 out="..."
 $HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou --genome-studio $genome_studio_file -f $ref | \
   $HOME/bin/bcftools sort -Ou -T . | \
-  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top -b | \
+  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top -d | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   $HOME/bin/bcftools index -f $out.bcf
 ```
@@ -223,7 +223,7 @@ $HOME/bin/bcftools +$HOME/bin/affy2vcf.so --no-version -Ou --fasta-ref $ref --an
   --calls $dir/AxiomGT1.calls.txt \
   --confidences $dir/AxiomGT1.confidences.txt | \
   $HOME/bin/bcftools sort -Ou -T . | \
-  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap -b | \
+  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap -d | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   $HOME/bin/bcftools index -f $out.bcf
 ```
