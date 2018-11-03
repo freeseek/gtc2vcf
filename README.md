@@ -55,12 +55,17 @@ Installation
 
 Install basic tools (Debian/Ubuntu specific)
 ```
-sudo apt-get install wget liblzma-dev libbz2-dev libgsl0-dev gzip samtools unzip wine64 mono-devel libgdiplus
+sudo apt install wget gzip unzip samtools wine64 mono-devel libgdiplus
+```
+
+Optionally, you can install these libraries to activate further bcftools features:
+```
+sudo apt install liblzma-dev libbz2-dev libgsl0-dev
 ```
 
 Preparation steps
 ```
-mkdir -p $HOME/bin && cd /tmp
+mkdir -p $HOME/bin $HOME/res && cd /tmp
 ```
 
 Download latest version of `htslib` and `bcftools` (if not downloaded already)
@@ -69,8 +74,9 @@ git clone --branch=develop git://github.com/samtools/htslib.git
 git clone --branch=develop git://github.com/samtools/bcftools.git
 ```
 
-Add patches and code for plugin
+Add patch (to allow the fixref plugin to flip BAF values) and code for plugins
 ```
+/bin/rm -f bcftools/plugins/{gtc2vcf.c,affy2vcf.c,fixref.patch}
 wget -P bcftools/plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{gtc2vcf.c,affy2vcf.c,fixref.patch}
 cd bcftools/plugins && patch < fixref.patch && cd ../..
 ```
@@ -112,7 +118,7 @@ cp $HOME/.wine/drive_c/Program\ Files/Illumina/GenomeStudio\ 2.0/Heatmap.dll $HO
 wget https://raw.githubusercontent.com/freeseek/gtc2vcf/master/nearest_neighbor.c
 gcc -fPIC -shared -O2 -o $HOME/bin/autoconvert/libMathRoutines.dll.so nearest_neighbor.c
 ```
-Notice that this approach to run AutoConvert on Linux is <strong>not</strong> supported by Illumina
+If you do not succeed at installing AutoConvert and GenomeStudio using wine following the instructions above, you can always resort to install them using a Windows machine, copy the files on Linux, and then add the required Linux ELF64 library as described in the last steps above. Notice that this approach to run AutoConvert on Linux is <strong>not</strong> supported by Illumina
 
 Affymetrix provides the <a href="http://www.affymetrix.com/support/developer/powertools/changelog/index.html">Analysis Power Tools (APT)</a> for free which allow to call genotypes from raw intensity data using an algorithm derived from <a href="http://tools.thermofisher.com/content/sfs/brochures/brlmmp_whitepaper.pdf">BRLMM-P</a>.
 ```
@@ -146,8 +152,8 @@ egt_file="..."
 gtc_list="..."
 out="..."
 $HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list -f $ref -x $out.sex | \
-  $HOME/bin/bcftools sort -Ou -T . | \
-  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -- -f $ref -m top -b | \
+  $HOME/bin/bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
+  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -- -f $ref -m top --flip-baf | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   $HOME/bin/bcftools index -f $out.bcf
 ```
@@ -171,8 +177,8 @@ ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/
 genome_studio_file="..."
 out="..."
 $HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou --genome-studio $genome_studio_file -f $ref | \
-  $HOME/bin/bcftools sort -Ou -T . | \
-  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top -b | \
+  $HOME/bin/bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
+  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top --flip-baf | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   $HOME/bin/bcftools index -f $out.bcf
 ```
@@ -222,8 +228,8 @@ $HOME/bin/bcftools +$HOME/bin/affy2vcf.so --no-version -Ou --fasta-ref $ref --an
   --report $dir/AxiomGT1.report.txt \
   --calls $dir/AxiomGT1.calls.txt \
   --confidences $dir/AxiomGT1.confidences.txt | \
-  $HOME/bin/bcftools sort -Ou -T . | \
-  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap -b | \
+  $HOME/bin/bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
+  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap --flip-baf | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   $HOME/bin/bcftools index -f $out.bcf
 ```
