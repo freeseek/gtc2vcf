@@ -27,6 +27,7 @@
 #include <getopt.h>
 #include <errno.h>
 #include <ctype.h>
+#include <sys/resource.h>
 #include <htslib/hfile.h>
 #include <htslib/faidx.h>
 #include <htslib/vcf.h>
@@ -2275,6 +2276,15 @@ int run(int argc, char *argv[])
         nfiles = argc - optind;
         files = argv + optind;
     }
+    // make sure the process is allowed to open enough files
+    struct rlimit lim;
+    getrlimit(RLIMIT_NOFILE, &lim);
+    if (nfiles + 7 > lim.rlim_max) error("On this system you cannot open more than %ld files at once while %d is required\n", lim.rlim_max, nfiles + 7);
+    if (nfiles + 7 > lim.rlim_cur)
+    {
+        lim.rlim_cur = nfiles + 7;
+        setrlimit(RLIMIT_NOFILE, &lim);
+    }
 
     if ( binary_to_csv || output_type & FT_GS ) out_txt = get_file_handle( output_fname );
     else
@@ -2338,7 +2348,6 @@ int run(int argc, char *argv[])
             error("Manifest name %s in BPM file %s does not match manifest name %s in GTC file %s\n", bpm->manifest_name, bpm->fn, gtc[i]->snp_manifest, gtc[i]->fn);
         gtc_summary(gtc[i], stderr);
         if ( binary_to_csv ) gtc_to_csv(gtc[i], out_txt);
-
     }
 
     if ( !binary_to_csv )
