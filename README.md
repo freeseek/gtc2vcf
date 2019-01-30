@@ -80,6 +80,7 @@ Add patch (to allow the fixref plugin to flip BAF values) and code for plugins
 wget -P bcftools/plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{gtc2vcf.c,affy2vcf.c,fixref.patch}
 cd bcftools/plugins && patch < fixref.patch && cd ../..
 ```
+If for any reason the patch fails with an error message, contact the <a href="mailto:giulio.genovese@gmail.com">author</a> for a fix.
 
 Compile latest version of `htslib` (optionally disable `bz2` and `lzma`) and `bcftools` (make sure you are using gcc version 5 or newer)
 ```
@@ -140,6 +141,37 @@ Make sure that the red IDAT file is in the same folder as the green IDAT file. A
 mono $HOME/bin/autoconvert/AutoConvert.exe $path_to_idat_folder $path_to_output_folder $manifest_file $egt_file
 ```
 Make sure that the IDAT files have the same name prefix as the IDAT folder name. The software might require up to 8GB of RAM to run. Illumina provides manifest (BPM) and cluster (EGT) files for their arrays <a href="https://support.illumina.com/array/downloads.html">here</a>. Notice that if you provide the wrong BPM file, you will get an error such as: `Normalization failed!  Unable to normalize!` and if you provide the wrong EGT file, you will get an error such as `System.Exception: Unrecoverable Error...Exiting! Unable to find manifest entry ######## in the cluster file!`
+
+Some users have encountered an issue when running Mono going along with the following error:
+```
+System.TypeInitializationException: The type initializer for 'System.Drawing.KnownColors' threw an exception. ---> System.TypeInitializationException: The type initializer for 'System.Drawing.GDIPlus' threw an exception. ---> System.DllNotFoundException: libgdiplus.so.0
+```
+The problem is related to the fact that you or your system administrator did not install the GDIPlus library. If this is the case, you can manually download an old binary version of the library together with some of its dependencis that should be compatible with your system using the following hack:
+```
+mkdir -p lib
+wget http://old-releases.ubuntu.com/ubuntu/pool/main/libg/libgdiplus/libgdiplus_2.10-2_amd64.deb
+ar x libgdiplus_2.10-2_amd64.deb data.tar.gz
+tar xzf data.tar.gz -C lib ./usr/lib/libgdiplus.so.0.0.0 --strip-components=3
+ln -s libgdiplus.so.0.0.0 lib/libgdiplus.so.0
+wget http://old-releases.ubuntu.com/ubuntu/pool/main/t/tiff/libtiff4_3.9.5-1ubuntu1_amd64.deb
+ar x libtiff4_3.9.5-1ubuntu1_amd64.deb data.tar.gz
+tar xzf data.tar.gz -C lib ./usr/lib/x86_64-linux-gnu/libtiff.so.4.3.4 --strip-components=4
+ln -s libtiff.so.4.3.4 lib/libtiff.so.4
+wget http://old-releases.ubuntu.com/ubuntu/pool/main/libe/libexif/libexif12_0.6.20-1_amd64.deb
+ar x libexif12_0.6.20-1_amd64.deb data.tar.gz
+tar xzf data.tar.gz -C lib ./usr/lib/libexif.so.12.3.2 --strip-components=3
+ln -s libexif.so.12.3.2 lib/libexif.so.12
+wget http://old-releases.ubuntu.com/ubuntu/pool/main/libj/libjpeg8/libjpeg8_8b-1_amd64.deb
+ar x libjpeg8_8b-1_amd64.deb data.tar.gz
+tar xzf data.tar.gz -C lib ./usr/lib/libjpeg.so.8.0.2 --strip-components=3
+ln -s libjpeg.so.8.0.2 lib/libjpeg.so.8
+wget http://old-releases.ubuntu.com/ubuntu/pool/main/libp/libpng/libpng12-0_1.2.46-3ubuntu1_amd64.deb
+ar x libpng12-0_1.2.46-3ubuntu1_amd64.deb data.tar.gz
+tar xzf data.tar.gz -C lib ./lib/x86_64-linux-gnu/libpng12.so.0.46.0 --strip-components=3
+ln -s libpng12.so.0.46.0 lib/libpng12.so.0
+/bin/rm lib{gdiplus_2.10-2,tiff4_3.9.5-1ubuntu1,exif12_0.6.20-1,jpeg8_8b-1,png12-0_1.2.46-3ubuntu1}_amd64.deb data.tar.gz
+```
+After downloading the binaries, replace `mono` with `LD_LIBRARY_PATH="lib" mono` when running AutoConvert through Mono.
 
 Convert Illumina GTC files to VCF
 =================================
