@@ -59,12 +59,29 @@ static htsFile *unheader(const char *fn, kstring_t *str)
 
 typedef struct
 {
-    float aa_delta;
-    float aa_size;
-    float ab_delta;
-    float ab_size;
-    float bb_delta;
-    float bb_size;
+    float aa_delta_mean;
+    float aa_delta_dev;
+    float aa_n_mean;
+    float aa_n_dev;
+    float aa_size_mean;
+    float aa_size_dev;
+    float aa_cov;
+
+    float ab_delta_mean;
+    float ab_delta_dev;
+    float ab_n_mean;
+    float ab_n_dev;
+    float ab_size_mean;
+    float ab_size_dev;
+    float ab_cov;
+
+    float bb_delta_mean;
+    float bb_delta_dev;
+    float bb_n_mean;
+    float bb_n_dev;
+    float bb_size_mean;
+    float bb_size_dev;
+    float bb_cov;
 }
 cluster_t;
 
@@ -94,26 +111,43 @@ static snp_posteriors_t *snp_posteriors_init(const char *fn)
         snp_posteriors->n_clusters++;
         hts_expand(cluster_t, snp_posteriors->n_clusters, snp_posteriors->m_clusters, snp_posteriors->clusters);
         cluster = &snp_posteriors->clusters[snp_posteriors->n_clusters - 1];
-        cluster->aa_delta = NAN;
-        cluster->aa_size = NAN;
-        cluster->ab_delta = NAN;
-        cluster->ab_size = NAN;
-        cluster->bb_delta = NAN;
-        cluster->bb_size = NAN;
+        cluster->aa_delta_mean = NAN;
+        cluster->aa_size_mean = NAN;
+        cluster->ab_delta_mean = NAN;
+        cluster->ab_size_mean = NAN;
+        cluster->bb_delta_mean = NAN;
+        cluster->bb_size_mean = NAN;
 
         char *tmp;
         ncols2 = ksplit_core(&str.s[off[1]], ',', &moff2, &off2);
-        if ( ncols2 < 5 ) error("Missing information for cluster BB for probeset %s in file: %s\n", &str.s[off[0]], fn);
-        cluster->bb_delta = strtof( &str.s[off[1] + off2[0]], &tmp );
-        cluster->bb_size = strtof( &str.s[off[1] + off2[4]], &tmp );
+        if ( ncols2 < 7 ) error("Missing information for cluster BB for probeset %s in file: %s\n", &str.s[off[0]], fn);
+        cluster->bb_delta_mean = strtof( &str.s[off[1] + off2[0]], &tmp );
+        cluster->bb_delta_dev = strtof( &str.s[off[1] + off2[1]], &tmp );
+        cluster->bb_n_mean = strtof( &str.s[off[1] + off2[2]], &tmp );
+        cluster->bb_n_dev = strtof( &str.s[off[1] + off2[3]], &tmp );
+        cluster->bb_size_mean = strtof( &str.s[off[1] + off2[4]], &tmp );
+        cluster->bb_size_dev = strtof( &str.s[off[1] + off2[5]], &tmp );
+        cluster->bb_cov = strtof( &str.s[off[1] + off2[6]], &tmp );
+
         ncols2 = ksplit_core(&str.s[off[2]], ',', &moff2, &off2);
-        if ( ncols2 < 5 ) error("Missing information for cluster AB for probeset %s in file: %s\n", &str.s[off[0]], fn);
-        cluster->ab_delta = strtof( &str.s[off[2] + off2[0]], &tmp );
-        cluster->ab_size = strtof( &str.s[off[2] + off2[4]], &tmp );
+        if ( ncols2 < 7 ) error("Missing information for cluster AB for probeset %s in file: %s\n", &str.s[off[0]], fn);
+        cluster->ab_delta_mean = strtof( &str.s[off[2] + off2[0]], &tmp );
+        cluster->ab_delta_dev = strtof( &str.s[off[2] + off2[1]], &tmp );
+        cluster->ab_n_mean = strtof( &str.s[off[2] + off2[2]], &tmp );
+        cluster->ab_n_dev = strtof( &str.s[off[2] + off2[3]], &tmp );
+        cluster->ab_size_mean = strtof( &str.s[off[2] + off2[4]], &tmp );
+        cluster->ab_size_dev = strtof( &str.s[off[2] + off2[5]], &tmp );
+        cluster->ab_cov = strtof( &str.s[off[2] + off2[6]], &tmp );
+
         ncols2 = ksplit_core(&str.s[off[3]], ',', &moff2, &off2);
-        if ( ncols2 < 5 ) error("Missing information for cluster AA for probeset %s in file: %s\n", &str.s[off[0]], fn);
-        cluster->aa_delta = strtof( &str.s[off[3] + off2[0]], &tmp );
-        cluster->aa_size = strtof( &str.s[off[3] + off2[4]], &tmp );
+        if ( ncols2 < 7 ) error("Missing information for cluster AA for probeset %s in file: %s\n", &str.s[off[0]], fn);
+        cluster->aa_delta_mean = strtof( &str.s[off[3] + off2[0]], &tmp );
+        cluster->aa_delta_dev = strtof( &str.s[off[3] + off2[1]], &tmp );
+        cluster->aa_n_mean = strtof( &str.s[off[3] + off2[2]], &tmp );
+        cluster->aa_n_dev = strtof( &str.s[off[3] + off2[3]], &tmp );
+        cluster->aa_size_mean = strtof( &str.s[off[3] + off2[4]], &tmp );
+        cluster->aa_size_dev = strtof( &str.s[off[3] + off2[5]], &tmp );
+        cluster->aa_cov = strtof( &str.s[off[3] + off2[6]], &tmp );
     }
 
     free(off2);
@@ -305,6 +339,8 @@ static void report_destroy(report_t *report)
  * OUTPUT FUNCTIONS                     *
  ****************************************/
 
+#define ADJUST_CLUSTERS (1<<0)
+
 static bcf_hdr_t *hdr_init(const faidx_t *fai)
 {
     bcf_hdr_t *hdr = bcf_hdr_init("w");
@@ -315,6 +351,27 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai)
         int len = faidx_seq_len(fai, seq);
         bcf_hdr_printf(hdr, "##contig=<ID=%s,length=%d>", seq, len);
     }
+    bcf_hdr_append(hdr, "##INFO=<ID=meanDELTA_AA,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AA cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=meanDELTA_AB,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AB cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=meanDELTA_BB,Number=1,Type=Float,Description=\"Mean of normalized DELTA for BB cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=devDELTA_AA,Number=1,Type=Float,Description=\"Standard deviation of normalized DELTA for AA cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=devDELTA_AB,Number=1,Type=Float,Description=\"Standard deviation of normalized DELTA for AB cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=devDELTA_BB,Number=1,Type=Float,Description=\"Standard deviation of normalized DELTA for BB cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=meanN_AA,Number=1,Type=Float,Description=\"Number of AA calls in training set for mean\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=meanN_AB,Number=1,Type=Float,Description=\"Number of AB calls in training set for mean\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=meanN_BB,Number=1,Type=Float,Description=\"Number of BB calls in training set for mean\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=devN_AA,Number=1,Type=Float,Description=\"Number of AA calls in training set for standard deviation\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=devN_AB,Number=1,Type=Float,Description=\"Number of AB calls in training set for standard deviation\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=devN_BB,Number=1,Type=Float,Description=\"Number of BB calls in training set for standard deviation\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=meanSIZE_AA,Number=1,Type=Float,Description=\"Mean of normalized SIZE for AA cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=meanSIZE_AB,Number=1,Type=Float,Description=\"Mean of normalized SIZE for AB cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=meanSIZE_BB,Number=1,Type=Float,Description=\"Mean of normalized SIZE for BB cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=devSIZE_AA,Number=1,Type=Float,Description=\"Standard deviation of normalized SIZE for AA cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=devSIZE_AB,Number=1,Type=Float,Description=\"Standard deviation of normalized SIZE for AB cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=devSIZE_BB,Number=1,Type=Float,Description=\"Standard deviation of normalized SIZE for BB cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=covar_AA,Number=1,Type=Float,Description=\"Covariance for AA cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=covar_AB,Number=1,Type=Float,Description=\"Covariance for AB cluster\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=covar_BB,Number=1,Type=Float,Description=\"Covariance for BB cluster\">");
     bcf_hdr_append(hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">");
     bcf_hdr_append(hdr, "##FORMAT=<ID=CONF,Number=1,Type=Float,Description=\"Genotype confidences\">");
     bcf_hdr_append(hdr, "##FORMAT=<ID=NORMX,Number=1,Type=Float,Description=\"Normalized X intensity\">");
@@ -326,47 +383,106 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai)
     return hdr;
 }
 
-static void get_lrr_baf(const float *norm_x,
-                        const float *norm_y,
-                        int n,
-                        const cluster_t *cluster,
-                        float *delta,
-                        float *size,
-                        float *baf,
-                        float *lrr)
+// compute DELTA (contrast) and SIZE
+static void get_delta_size(const float *norm_x,
+                           const float *norm_y,
+                           int n,
+                           float *delta,
+                           float *size)
 {
-    for (int i=0; i<n; i++) // compute THETA and R
+    for (int i=0; i<n; i++)
     {
         float log2x = logf(norm_x[i]) * (float)M_LOG2E;
         float log2y = logf(norm_y[i]) * (float)M_LOG2E;
         delta[i] = log2x - log2y;
         size[i] = ( log2x + log2y ) * 0.5f;
     }
+}
 
-    for (int i=0; i<n; i++) // compute LRR and BAF
+// adjust cluster centers (using apt-probeset-genotype posteriors as priors)
+// similar to https://github.com/WGLab/PennCNV/blob/master/affy/bin/generate_affy_geno_cluster.pl
+static void adjust_clusters(const int32_t *gts,
+                            const float *delta,
+                            const float *size,
+                            int n,
+                            cluster_t *cluster)
+{
+    cluster->aa_delta_mean *= 0.2f;
+    cluster->ab_delta_mean *= 0.2f;
+    cluster->bb_delta_mean *= 0.2f;
+    cluster->aa_size_mean *= 0.2f;
+    cluster->ab_size_mean *= 0.2f;
+    cluster->bb_size_mean *= 0.2f;
+    cluster->aa_n_mean = 0.2f;
+    cluster->ab_n_mean = 0.2f;
+    cluster->bb_n_mean = 0.2f;
+
+    for (int i=0; i<n; i++)
     {
-        if ( delta[i] == cluster->ab_delta )
+        if ( bcf_gt_is_missing(gts[2*i]) && bcf_gt_is_missing(gts[2*i+1]) ) continue;
+        switch ( bcf_gt_allele( gts[2*i] ) + bcf_gt_allele( gts[2*i+1] ) )
         {
-            lrr[i] = size[i] - cluster->ab_size;
+            case 0:
+                cluster->aa_n_mean++;
+                cluster->aa_delta_mean += delta[i];
+                cluster->aa_size_mean += size[i];
+                break;
+            case 1:
+                cluster->ab_n_mean++;
+                cluster->ab_delta_mean += delta[i];
+                cluster->ab_size_mean += size[i];
+                break;
+            case 2:
+                cluster->bb_n_mean++;
+                cluster->bb_delta_mean += delta[i];
+                cluster->bb_size_mean += size[i];
+                break;
+            default:
+                break;
+        }
+    }
+
+    cluster->aa_delta_mean /= cluster->aa_n_mean;
+    cluster->ab_delta_mean /= cluster->ab_n_mean;
+    cluster->bb_delta_mean /= cluster->bb_n_mean;
+    cluster->aa_size_mean /= cluster->aa_n_mean;
+    cluster->ab_size_mean /= cluster->ab_n_mean;
+    cluster->bb_size_mean /= cluster->bb_n_mean;
+}
+
+// compute LRR and BAF
+// similar to https://github.com/WGLab/PennCNV/blob/master/affy/bin/normalize_affy_geno_cluster.pl
+static void get_lrr_baf(const float *delta,
+                        const float *size,
+                        int n,
+                        const cluster_t *cluster,
+                        float *baf,
+                        float *lrr)
+{
+    for (int i=0; i<n; i++)
+    {
+        if ( delta[i] == cluster->ab_delta_mean )
+        {
+            lrr[i] = size[i] - cluster->ab_size_mean;
             baf[i] = 0.5f;
         }
-        else if ( ( delta[i] < cluster->ab_delta && cluster->aa_delta < cluster->ab_delta ) ||
-                  ( delta[i] > cluster->ab_delta && cluster->aa_delta > cluster->ab_delta ) )
+        else if ( ( delta[i] < cluster->ab_delta_mean && cluster->aa_delta_mean < cluster->ab_delta_mean ) ||
+                  ( delta[i] > cluster->ab_delta_mean && cluster->aa_delta_mean > cluster->ab_delta_mean ) )
         {
-            float slope = ( cluster->aa_size - cluster->ab_size ) / ( cluster->aa_delta - cluster->ab_delta );
-            float b = cluster->aa_size - ( cluster->aa_delta * slope );
+            float slope = ( cluster->aa_size_mean - cluster->ab_size_mean ) / ( cluster->aa_delta_mean - cluster->ab_delta_mean );
+            float b = cluster->aa_size_mean - ( cluster->aa_delta_mean * slope );
             float size_ref = ( slope * delta[i] ) + b;
             lrr[i] = size[i] - size_ref;
-            baf[i] = 0.5f - (cluster->ab_delta - delta[i]) * 0.5f / (cluster->ab_delta - cluster->aa_delta);
+            baf[i] = 0.5f - (cluster->ab_delta_mean - delta[i]) * 0.5f / (cluster->ab_delta_mean - cluster->aa_delta_mean);
         }
-        else if ( ( delta[i] > cluster->ab_delta && cluster->bb_delta > cluster->ab_delta ) ||
-                  ( delta[i] < cluster->ab_delta && cluster->bb_delta < cluster->ab_delta ) )
+        else if ( ( delta[i] > cluster->ab_delta_mean && cluster->bb_delta_mean > cluster->ab_delta_mean ) ||
+                  ( delta[i] < cluster->ab_delta_mean && cluster->bb_delta_mean < cluster->ab_delta_mean ) )
         {
-            float slope = ( cluster->ab_size - cluster->bb_size ) / ( cluster->ab_delta - cluster->bb_delta );
-            float b = cluster->ab_size - ( cluster->ab_delta * slope );
+            float slope = ( cluster->ab_size_mean - cluster->bb_size_mean ) / ( cluster->ab_delta_mean - cluster->bb_delta_mean );
+            float b = cluster->ab_size_mean - ( cluster->ab_delta_mean * slope );
             float size_ref = ( slope * delta[i] ) + b;
             lrr[i] = size[i] - size_ref;
-            baf[i] = 1.0f - (cluster->bb_delta - delta[i]) * 0.5f / (cluster->bb_delta - cluster->ab_delta);
+            baf[i] = 1.0f - (cluster->bb_delta_mean - delta[i]) * 0.5f / (cluster->bb_delta_mean - cluster->ab_delta_mean);
         }
         else
         {
@@ -384,7 +500,8 @@ static void process(htsFile *out_fh,
                     const snp_posteriors_t *snp_posteriors,
                     const char *summary_fn,
                     const char *calls_fn,
-                    const char *confidences_fn)
+                    const char *confidences_fn,
+                    int flags)
 {
     kstring_t str = {0, 0, NULL};
     int moff = 0, *off = NULL, ncols;
@@ -406,7 +523,7 @@ static void process(htsFile *out_fh,
     if ( strcmp(&str.s[off[0]], "probeset_id") ) error("Malformed first line from calls file: %s\n%s\n", calls_fn, str.s);
 
     bcf1_t *rec = bcf_init();
-    int32_t *gts = (int32_t *)malloc(bcf_hdr_nsamples(hdr)*2 * sizeof(int32_t));
+    int32_t *gts = (int32_t *)malloc(bcf_hdr_nsamples(hdr)* 2 * sizeof(int32_t));
     float *conf_arr = (float *)malloc(bcf_hdr_nsamples(hdr) * sizeof(float));
     float *norm_x_arr = (float *)malloc(bcf_hdr_nsamples(hdr) * sizeof(float));
     float *norm_y_arr = (float *)malloc(bcf_hdr_nsamples(hdr) * sizeof(float));
@@ -440,6 +557,28 @@ static void process(htsFile *out_fh,
             rec->d.allele[0][0] = revnt(record->allele_a);
             rec->d.allele[1][0] = revnt(record->allele_b);
         }
+        bcf_update_info_float(hdr, rec, "meanDELTA_AA", &cluster->aa_delta_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanDELTA_AB", &cluster->ab_delta_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanDELTA_BB", &cluster->bb_delta_mean, 1);
+        bcf_update_info_float(hdr, rec, "devDELTA_AA", &cluster->aa_delta_dev, 1);
+        bcf_update_info_float(hdr, rec, "devDELTA_AB", &cluster->ab_delta_dev, 1);
+        bcf_update_info_float(hdr, rec, "devDELTA_BB", &cluster->bb_delta_dev, 1);
+        bcf_update_info_float(hdr, rec, "meanN_AA", &cluster->aa_n_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanN_AB", &cluster->ab_n_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanN_BB", &cluster->bb_n_mean, 1);
+        bcf_update_info_float(hdr, rec, "devN_AA", &cluster->aa_n_dev, 1);
+        bcf_update_info_float(hdr, rec, "devN_AB", &cluster->ab_n_dev, 1);
+        bcf_update_info_float(hdr, rec, "devN_BB", &cluster->bb_n_dev, 1);
+        bcf_update_info_float(hdr, rec, "meanSIZE_AA", &cluster->aa_size_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanSIZE_AB", &cluster->ab_size_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanSIZE_BB", &cluster->bb_size_mean, 1);
+        bcf_update_info_float(hdr, rec, "devSIZE_AA", &cluster->aa_size_dev, 1);
+        bcf_update_info_float(hdr, rec, "devSIZE_AB", &cluster->ab_size_dev, 1);
+        bcf_update_info_float(hdr, rec, "devSIZE_BB", &cluster->bb_size_dev, 1);
+        bcf_update_info_float(hdr, rec, "covar_AA", &cluster->aa_cov, 1);
+        bcf_update_info_float(hdr, rec, "covar_AB", &cluster->ab_cov, 1);
+        bcf_update_info_float(hdr, rec, "covar_BB", &cluster->bb_cov, 1);
+
         char *tmp;
         // read genotypes
         for (int i=1; i<ncols; i++)
@@ -484,8 +623,9 @@ static void process(htsFile *out_fh,
         if ( ncols != bcf_hdr_nsamples(hdr) + 1 ) error("Expected %d columns but %d columns found in the confidences file\n", bcf_hdr_nsamples(hdr) + 1, ncols);
         for (int i=1; i<ncols; i++) norm_y_arr[i-1] = strtof(&str.s[off[i]], &tmp);
 
-        // compute LRR and BAF
-        get_lrr_baf(norm_x_arr, norm_y_arr, bcf_hdr_nsamples(hdr), cluster, delta_arr, size_arr, baf_arr, lrr_arr);
+        get_delta_size(norm_x_arr, norm_y_arr, bcf_hdr_nsamples(hdr), delta_arr, size_arr);
+        if ( flags & ADJUST_CLUSTERS ) adjust_clusters(gts, delta_arr, size_arr, bcf_hdr_nsamples(hdr), cluster);
+        get_lrr_baf(delta_arr, size_arr, bcf_hdr_nsamples(hdr), cluster, baf_arr, lrr_arr);
 
         bcf_update_genotypes(hdr, rec, gts, bcf_hdr_nsamples(hdr)*2);
         bcf_update_format_float(hdr, rec, "CONF", conf_arr, bcf_hdr_nsamples(hdr));
@@ -496,8 +636,9 @@ static void process(htsFile *out_fh,
         bcf_update_format_float(hdr, rec, "BAF", baf_arr, bcf_hdr_nsamples(hdr));
         bcf_update_format_float(hdr, rec, "LRR", lrr_arr, bcf_hdr_nsamples(hdr));
         if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
-        cluster++;
+        if ( snp_posteriors ) cluster++;
     }
+    free(gts);
     free(conf_arr);
     free(norm_x_arr);
     free(norm_y_arr);
@@ -505,7 +646,6 @@ static void process(htsFile *out_fh,
     free(size_arr);
     free(baf_arr);
     free(lrr_arr);
-    free(gts);
     bcf_destroy(rec);
     free(off);
     free(str.s);
@@ -528,7 +668,7 @@ static const char *usage_text(void)
 {
     return
         "\n"
-        "About: convert Affymetrix apt-probeset-genotype output files to VCF (2018-09-07)\n"
+        "About: convert Affymetrix apt-probeset-genotype output files to VCF (2019-02-18)\n"
         "\n"
         "Usage: bcftools +affy2vcf [options] --fasta-ref <fasta> --annot <file> --snp-posteriors <file>\n"
         "                                         --summary <file> --calls <file> --confidences <file> \n"
@@ -541,6 +681,7 @@ static const char *usage_text(void)
         "        --report <report.txt>                  apt-probeset-genotype report output\n"
         "        --calls <calls.txt>                    apt-probeset-genotype calls output\n"
         "        --confidences <confidences.txt>        apt-probeset-genotype confidences output\n"
+        "        --adjust-clusters                      adjust snp-posteriors cluster centers\n"
         "    -x, --sex <file>                           output apt-probeset-genotype gender estimate into file\n"
         "        --no-version                           do not append version and command line to the header\n"
         "    -o, --output <file>                        write output to a file [standard output]\n"
@@ -560,6 +701,7 @@ int run(int argc, char *argv[])
     char *calls_fname = NULL;
     char *confidences_fname = NULL;
     char *output_fname = "-";
+    int flags = 0;
     int output_type = FT_VCF;
     int n_threads = 0;
     int record_cmd_line = 1;
@@ -573,6 +715,7 @@ int run(int argc, char *argv[])
         {"report", required_argument, NULL, 4},
         {"calls", required_argument, NULL, 5},
         {"confidences", required_argument, NULL, 6},
+        {"adjust-clusters", no_argument, NULL, 7},
         {"fasta-ref", required_argument, NULL, 'f'},
         {"sex", required_argument, NULL, 'x'},
         {"output", required_argument, NULL, 'o'},
@@ -604,6 +747,7 @@ int run(int argc, char *argv[])
             case  4 : report_fname = optarg; break;
             case  5 : calls_fname = optarg; break;
             case  6 : confidences_fname = optarg; break;
+            case  7 : flags |= ADJUST_CLUSTERS; break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
             case  8 : record_cmd_line = 0; break;
             case 'h':
@@ -643,7 +787,7 @@ int run(int argc, char *argv[])
         report_destroy(report);
     }
 
-    process(out_fh, hdr, annot, snp_posteriors, summary_fname , calls_fname, confidences_fname);
+    process(out_fh, hdr, annot, snp_posteriors, summary_fname , calls_fname, confidences_fname, flags);
 
     snp_posteriors_destroy(snp_posteriors);
     annot_destroy(annot);
