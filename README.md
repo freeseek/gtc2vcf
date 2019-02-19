@@ -43,6 +43,7 @@ Plugin options:
         --report <report.txt>                  apt-probeset-genotype report output
         --confidences <confidences.txt>        apt-probeset-genotype confidences output
         --calls <calls.txt>                    apt-probeset-genotype calls output
+        --adjust-clusters                      adjust snp-posteriors cluster centers
     -x, --sex <file>                           output apt-probeset-genotype gender estimate into file
         --no-version                           do not append version and command line to the header
     -o, --output <file>                        write output to a file [standard output]
@@ -259,7 +260,8 @@ $HOME/bin/bcftools +$HOME/bin/affy2vcf.so --no-version -Ou --fasta-ref $ref --an
   --summary $dir/AxiomGT1.summary.txt \
   --report $dir/AxiomGT1.report.txt \
   --calls $dir/AxiomGT1.calls.txt \
-  --confidences $dir/AxiomGT1.confidences.txt | \
+  --confidences $dir/AxiomGT1.confidences.txt \
+  --adjust-clusters | \
   $HOME/bin/bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
   $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap --flip-baf | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
