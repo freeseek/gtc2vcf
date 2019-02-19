@@ -55,7 +55,9 @@ static inline int heof(hFILE *fp)
 }
 
 // read or skip a fixed number of bytes
-static inline void read_bytes(hFILE *fp, void *buffer, size_t nbytes)
+static inline void read_bytes(hFILE *fp,
+                              void *buffer,
+                              size_t nbytes)
 {
     if (buffer)
     {
@@ -73,7 +75,12 @@ static inline void read_bytes(hFILE *fp, void *buffer, size_t nbytes)
 }
 
 // read or skip a fixed length array
-static inline void read_array(hFILE *fp, void **arr, size_t *m_arr, size_t nmemb, size_t size, size_t term)
+static inline void read_array(hFILE *fp,
+                              void **arr,
+                              size_t *m_arr,
+                              size_t nmemb,
+                              size_t size,
+                              size_t term)
 {
     if (arr)
     {
@@ -103,7 +110,10 @@ static inline void read_array(hFILE *fp, void **arr, size_t *m_arr, size_t nmemb
 }
 
 // read or skip a length-prefixed array
-static inline void read_pfx_array(hFILE *fp, void **arr, size_t *m_arr, size_t item_size)
+static inline void read_pfx_array(hFILE *fp,
+                                  void **arr,
+                                  size_t *m_arr,
+                                  size_t item_size)
 {
     int32_t n;
     if ( hread(fp, (void *)&n, 4) < 4 )
@@ -115,7 +125,9 @@ static inline void read_pfx_array(hFILE *fp, void **arr, size_t *m_arr, size_t i
 
 // read or skip a length-prefixed string
 // https://en.wikipedia.org/wiki/LEB128#Decode_unsigned_integer
-static inline void read_pfx_string(hFILE *fp, char **str, size_t *m_str)
+static inline void read_pfx_string(hFILE *fp,
+                                   char **str,
+                                   size_t *m_str)
 {
     uint8_t byte;
     size_t n = 0, shift = 0;
@@ -159,7 +171,9 @@ typedef struct
 }
 buffer_array_t;
 
-static buffer_array_t *buffer_array_init(hFILE *fp, size_t capacity, size_t item_size)
+static buffer_array_t *buffer_array_init(hFILE *fp,
+                                         size_t capacity,
+                                         size_t item_size)
 {
     buffer_array_t *arr = (buffer_array_t *)malloc(1 * sizeof(buffer_array_t));
     arr->fp = fp;
@@ -173,7 +187,9 @@ static buffer_array_t *buffer_array_init(hFILE *fp, size_t capacity, size_t item
     return arr;
 }
 
-static inline int get_element(buffer_array_t *arr, void *dst, size_t item_idx)
+static inline int get_element(buffer_array_t *arr,
+                              void *dst,
+                              size_t item_idx)
 {
     if ( !arr || item_idx >= arr->item_num) return -1;
     else if (item_idx - arr->item_offset < arr->item_capacity)
@@ -704,7 +720,9 @@ static void bpm_to_csv(const bpm_t *bpm, FILE *stream)
  * CSV FILE IMPLEMENTATION              *
  ****************************************/
 
-int tsv_read_uint8(tsv_t *tsv, bcf1_t *rec, void *usr)
+int tsv_read_uint8(tsv_t *tsv,
+                   bcf1_t *rec,
+                   void *usr)
 {
     uint8_t *uint8 = (uint8_t *)usr;
     char tmp = *tsv->se;
@@ -715,7 +733,9 @@ int tsv_read_uint8(tsv_t *tsv, bcf1_t *rec, void *usr)
     return 0;
 }
 
-int tsv_read_int32(tsv_t *tsv, bcf1_t *rec, void *usr)
+int tsv_read_int32(tsv_t *tsv,
+                   bcf1_t *rec,
+                   void *usr)
 {
     int32_t *int32 = (int32_t *)usr;
     char tmp = *tsv->se;
@@ -726,7 +746,9 @@ int tsv_read_int32(tsv_t *tsv, bcf1_t *rec, void *usr)
     return 0;
 }
 
-int tsv_read_float(tsv_t *tsv, bcf1_t *rec, void *usr)
+int tsv_read_float(tsv_t *tsv,
+                   bcf1_t *rec,
+                   void *usr)
 {
     float *single = (float *)usr;
     char tmp = *tsv->se;
@@ -737,7 +759,9 @@ int tsv_read_float(tsv_t *tsv, bcf1_t *rec, void *usr)
     return 0;
 }
 
-int tsv_read_string(tsv_t *tsv, bcf1_t *rec, void *usr)
+int tsv_read_string(tsv_t *tsv,
+                    bcf1_t *rec,
+                    void *usr)
 {
     char **str = (char **)usr;
     if (tsv->se == tsv->ss) *str = NULL;
@@ -752,7 +776,9 @@ int tsv_read_string(tsv_t *tsv, bcf1_t *rec, void *usr)
 }
 
 // Petr Danecek's similar implementation in bcftools/tsv2vcf.c
-int csv_parse(tsv_t *tsv, bcf1_t *rec, char *str)
+int csv_parse(tsv_t *tsv,
+              bcf1_t *rec,
+              char *str)
 {
     int status = 0;
     tsv->icol = 0;
@@ -773,7 +799,9 @@ int csv_parse(tsv_t *tsv, bcf1_t *rec, char *str)
     return status ? 0 : -1;
 }
 
-static uint8_t get_assay_type(const char *allele_a_probe_seq, const char *allele_b_probe_seq, const char *source_seq)
+static uint8_t get_assay_type(const char *allele_a_probe_seq,
+                              const char *allele_b_probe_seq,
+                              const char *source_seq)
 {
     if (!allele_b_probe_seq) return 0;
     char *ptr1 = strchr(source_seq, '[');
@@ -1488,7 +1516,13 @@ static void gtc_to_csv(const gtc_t *gtc, FILE *stream)
  ****************************************/
 
 // compute normalized X Y intensities
-static void get_norm_xy(uint16_t raw_x, uint16_t raw_y, const gtc_t *gtc, const bpm_t *bpm, int idx, float *norm_x, float *norm_y)
+static void get_norm_xy(uint16_t raw_x,
+                        uint16_t raw_y,
+                        const gtc_t *gtc,
+                        const bpm_t *bpm,
+                        int idx,
+                        float *norm_x,
+                        float *norm_y)
 {
     if ( bpm->norm_lookups && bpm->locus_entries[idx].norm_id != 0xFF )
     {
@@ -1510,14 +1544,22 @@ static void get_norm_xy(uint16_t raw_x, uint16_t raw_y, const gtc_t *gtc, const 
 }
 
 // compute Theta and R from raw intensities
-static inline void get_ilmn_theta_r(float norm_x, float norm_y, float *ilmn_theta, float *ilmn_r)
+static inline void get_ilmn_theta_r(float norm_x,
+                                    float norm_y,
+                                    float *ilmn_theta,
+                                    float *ilmn_r)
 {
     *ilmn_theta = atanf(norm_y / norm_x) * (float)M_2_PI;
     *ilmn_r = norm_x + norm_y;
 }
 
-// compute BAF and LRR from raw intensities
-static void get_lrr_baf(float ilmn_theta, float ilmn_r, const egt_t *egt, int idx, float *baf, float *lrr)
+// compute BAF and LRR from Theta and R
+static void get_lrr_baf(float ilmn_theta,
+                        float ilmn_r,
+                        const egt_t *egt,
+                        int idx,
+                        float *baf,
+                        float *lrr)
 {
     float aa_theta = egt->cluster_records[idx].aa_cluster_stats.theta_mean;
     float ab_theta = egt->cluster_records[idx].ab_cluster_stats.theta_mean;
@@ -1555,7 +1597,11 @@ static void get_lrr_baf(float ilmn_theta, float ilmn_r, const egt_t *egt, int id
     }
 }
 
-static inline void get_intensities(gtc_t *gtc, const bpm_t *bpm, const egt_t *egt, int idx, intensities_t *intensities)
+static inline void get_intensities(gtc_t *gtc,
+                                   const bpm_t *bpm,
+                                   const egt_t *egt,
+                                   int idx,
+                                   intensities_t *intensities)
 {
     get_element(gtc->raw_x, (void *)&intensities->raw_x, idx);
     get_element(gtc->raw_y, (void *)&intensities->raw_y, idx);
@@ -1582,17 +1628,22 @@ static inline void get_intensities(gtc_t *gtc, const bpm_t *bpm, const egt_t *eg
  * CONVERSION UTILITIES                 *
  ****************************************/
 
-#define IGC   (1<<0)
-#define BAF   (1<<1)
-#define LRR   (1<<2)
-#define NORMX (1<<3)
-#define NORMY (1<<4)
-#define R     (1<<5)
-#define THETA (1<<6)
-#define X     (1<<7)
-#define Y     (1<<8)
+#define EGT   (1<<0)
+#define IGC   (1<<1)
+#define BAF   (1<<2)
+#define LRR   (1<<3)
+#define NORMX (1<<4)
+#define NORMY (1<<5)
+#define R     (1<<6)
+#define THETA (1<<7)
+#define X     (1<<8)
+#define Y     (1<<9)
 
-static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, FILE *stream)
+static void gtcs_to_gs(gtc_t **gtc,
+                       int n,
+                       const bpm_t *bpm,
+                       const egt_t *egt,
+                       FILE *stream)
 {
     // print header
     fprintf(stream, "Index\tName\tAddress\tChr\tPosition\tGenTrain Score\tFrac A\tFrac C\tFrac G\tFrac T");
@@ -1670,6 +1721,24 @@ static bcf_hdr_t *get_hdr(faidx_t *fai, int flags)
         int len = faidx_seq_len(fai, seq);
         bcf_hdr_printf(hdr, "##contig=<ID=%s,length=%d>", seq, len);
     }
+    if ( flags & EGT )
+    {
+        bcf_hdr_append(hdr, "##INFO=<ID=N_AA,Number=1,Type=Integer,Description=\"Number of AA calls in training set\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=N_AB,Number=1,Type=Integer,Description=\"Number of AB calls in training set\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=N_BB,Number=1,Type=Integer,Description=\"Number of BB calls in training set\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=devR_AA,Number=1,Type=Float,Description=\"Standard deviation of normalized R for AA cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=devR_AB,Number=1,Type=Float,Description=\"Standard deviation of normalized R for AB cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=devR_BB,Number=1,Type=Float,Description=\"Standard deviation of normalized R for BB cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=devTHETA_AA,Number=1,Type=Float,Description=\"Standard deviation of normalized THETA for AA cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=devTHETA_AB,Number=1,Type=Float,Description=\"Standard deviation of normalized THETA for AB cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=devTHETA_BB,Number=1,Type=Float,Description=\"Standard deviation of normalized THETA for BB cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=meanR_AA,Number=1,Type=Float,Description=\"Mean of normalized R for AA cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=meanR_AB,Number=1,Type=Float,Description=\"Mean of normalized R for AB cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=meanR_BB,Number=1,Type=Float,Description=\"Mean of normalized R for BB cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=meanTHETA_AA,Number=1,Type=Float,Description=\"Mean of normalized THETA for AA cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=meanTHETA_AB,Number=1,Type=Float,Description=\"Mean of normalized THETA for AB cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=meanTHETA_BB,Number=1,Type=Float,Description=\"Mean of normalized THETA for BB cluster\">");
+    }
     bcf_hdr_append(hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">");
     if ( flags & IGC   ) bcf_hdr_append(hdr, "##FORMAT=<ID=IGC,Number=1,Type=Float,Description=\"Illumina GenCall Confidence Score\">");
     if ( flags & BAF   ) bcf_hdr_append(hdr, "##FORMAT=<ID=BAF,Number=1,Type=Float,Description=\"B Allele Frequency\">");
@@ -1683,7 +1752,13 @@ static bcf_hdr_t *get_hdr(faidx_t *fai, int flags)
     return hdr;
 }
 
-static void gtcs_to_vcf(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, htsFile *out_fh, bcf_hdr_t *hdr, int flags)
+static void gtcs_to_vcf(gtc_t **gtc,
+                        int n,
+                        const bpm_t *bpm,
+                        const egt_t *egt,
+                        htsFile *out_fh,
+                        bcf_hdr_t *hdr,
+                        int flags)
 {
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
     bcf1_t *rec = bcf_init();
@@ -1722,6 +1797,22 @@ static void gtcs_to_vcf(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, 
             b_top[0] = revnt(b_top[0]);
         }
         bcf_update_alleles(hdr, rec, alleles, 2);
+        bcf_update_info_int32(hdr, rec, "N_AA", &egt->cluster_records[j].aa_cluster_stats.N, 1);
+        bcf_update_info_int32(hdr, rec, "N_AB", &egt->cluster_records[j].ab_cluster_stats.N, 1);
+        bcf_update_info_int32(hdr, rec, "N_BB", &egt->cluster_records[j].bb_cluster_stats.N, 1);
+        bcf_update_info_float(hdr, rec, "devR_AA", &egt->cluster_records[j].aa_cluster_stats.r_dev, 1);
+        bcf_update_info_float(hdr, rec, "devR_AB", &egt->cluster_records[j].ab_cluster_stats.r_dev, 1);
+        bcf_update_info_float(hdr, rec, "devR_BB", &egt->cluster_records[j].bb_cluster_stats.r_dev, 1);
+        bcf_update_info_float(hdr, rec, "devTHETA_AA", &egt->cluster_records[j].aa_cluster_stats.theta_dev, 1);
+        bcf_update_info_float(hdr, rec, "devTHETA_AB", &egt->cluster_records[j].ab_cluster_stats.theta_dev, 1);
+        bcf_update_info_float(hdr, rec, "devTHETA_BB", &egt->cluster_records[j].bb_cluster_stats.theta_dev, 1);
+        bcf_update_info_float(hdr, rec, "meanR_AA", &egt->cluster_records[j].aa_cluster_stats.r_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanR_AB", &egt->cluster_records[j].ab_cluster_stats.r_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanR_BB", &egt->cluster_records[j].bb_cluster_stats.r_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanTHETA_AA", &egt->cluster_records[j].aa_cluster_stats.theta_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanTHETA_AB", &egt->cluster_records[j].ab_cluster_stats.theta_mean, 1);
+        bcf_update_info_float(hdr, rec, "meanTHETA_BB", &egt->cluster_records[j].bb_cluster_stats.theta_mean, 1);
+
         for (int i=0; i<n; i++)
         {
             uint8_t genotype;
@@ -1799,7 +1890,9 @@ typedef struct
 }
 gs_col_t;
 
-static int tsv_setter_gs_col(tsv_t *tsv, bcf1_t *rec, void *usr)
+static int tsv_setter_gs_col(tsv_t *tsv,
+                             bcf1_t *rec,
+                             void *usr)
 {
     gs_col_t *gs_col = (gs_col_t *)usr;
     int32_t *gts;
@@ -1858,7 +1951,9 @@ static int tsv_setter_gs_col(tsv_t *tsv, bcf1_t *rec, void *usr)
     return 0;
 }
 
-static int tsv_setter_chrom_flexible(tsv_t *tsv, bcf1_t *rec, void *usr)
+static int tsv_setter_chrom_flexible(tsv_t *tsv,
+                                     bcf1_t *rec,
+                                     void *usr)
 {
     char tmp = *tsv->se;
     *tsv->se = 0;
@@ -1867,7 +1962,9 @@ static int tsv_setter_chrom_flexible(tsv_t *tsv, bcf1_t *rec, void *usr)
     return rec->rid==-1 ? -1 : 0;
 }
 
-static int tsv_setter_strand(tsv_t *tsv, bcf1_t *rec, void *usr)
+static int tsv_setter_strand(tsv_t *tsv,
+                             bcf1_t *rec,
+                             void *usr)
 {
     if ( strncmp(tsv->ss, "PLUS", 4) == 0 ) ((int *)usr)[0] = STRAND_PLUS;
     else if ( strncmp(tsv->ss, "TOP", 3) == 0 ) ((int *)usr)[0] = STRAND_TOP;
@@ -1876,7 +1973,9 @@ static int tsv_setter_strand(tsv_t *tsv, bcf1_t *rec, void *usr)
     return 0;
 }
 
-static int tsv_setter_snp(tsv_t *tsv, bcf1_t *rec, void *usr)
+static int tsv_setter_snp(tsv_t *tsv,
+                          bcf1_t *rec,
+                          void *usr)
 {
     char **snp = (char **)usr;
     if ( strncmp(tsv->ss, "[N/A]", 5) == 0 ) *snp = NULL;
@@ -1884,7 +1983,9 @@ static int tsv_setter_snp(tsv_t *tsv, bcf1_t *rec, void *usr)
     return 0;
 }
 
-int tsv_register_all(tsv_t *tsv, const char *id, tsv_setter_t setter, void *usr)
+int tsv_register_all(tsv_t *tsv,
+                     const char *id,
+                     tsv_setter_t setter, void *usr)
 {
     int i, n = 0;
     for (i=0; i<tsv->ncols; i++)
@@ -1897,7 +1998,10 @@ int tsv_register_all(tsv_t *tsv, const char *id, tsv_setter_t setter, void *usr)
     return n ? 0 : -1;
 }
 
-int tsv_parse_delimiter(tsv_t *tsv, bcf1_t *rec, char *str, int delimiter)
+int tsv_parse_delimiter(tsv_t *tsv,
+                        bcf1_t *rec,
+                        char *str,
+                        int delimiter)
 {
     int status = 0;
     tsv->icol = 0;
@@ -1920,7 +2024,10 @@ int tsv_parse_delimiter(tsv_t *tsv, bcf1_t *rec, char *str, int delimiter)
     return status ? 0 : -1;
 }
 
-static void genomestudio_to_vcf(htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *hdr, int flags)
+static void genomestudio_to_vcf(htsFile *gs_fh,
+                                htsFile *out_fh,
+                                bcf_hdr_t *hdr,
+                                int flags)
 {
     // read the header of the table
     kstring_t line = {0, 0, NULL};
@@ -2105,7 +2212,7 @@ static const char *usage_text(void)
 {
     return
         "\n"
-        "About: convert Illumina GTC files containing intensity data into VCF (2018-09-07)\n"
+        "About: convert Illumina GTC files containing intensity data into VCF (2019-02-18)\n"
         "\n"
         "Usage: bcftools +gtc2vcf [options] <A.gtc> [...]\n"
         "\n"
@@ -2334,6 +2441,7 @@ int run(int argc, char *argv[])
         egt = egt_init(egt_fname);
         egt_summary(egt, stderr);
         if ( binary_to_csv ) egt_to_csv(egt, out_txt);
+        else flags |= EGT;
     }
 
     gtc_t **gtc = (gtc_t **)malloc(nfiles * sizeof(gtc_t *));
