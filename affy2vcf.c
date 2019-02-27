@@ -351,6 +351,7 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai)
         int len = faidx_seq_len(fai, seq);
         bcf_hdr_printf(hdr, "##contig=<ID=%s,length=%d>", seq, len);
     }
+    bcf_hdr_append(hdr, "##INFO=<ID=PROBESET_ID,Number=1,Type=String,Description=\"Affymetrix probe set ID\">");
     bcf_hdr_append(hdr, "##INFO=<ID=meanDELTA_AA,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AA cluster\">");
     bcf_hdr_append(hdr, "##INFO=<ID=meanDELTA_AB,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AB cluster\">");
     bcf_hdr_append(hdr, "##INFO=<ID=meanDELTA_BB,Number=1,Type=Float,Description=\"Mean of normalized DELTA for BB cluster\">");
@@ -452,7 +453,7 @@ static void adjust_clusters(const int32_t *gts,
 
 // compute LRR and BAF
 // similar to https://github.com/WGLab/PennCNV/blob/master/affy/bin/normalize_affy_geno_cluster.pl
-static void get_lrr_baf(const float *delta,
+static void get_baf_lrr(const float *delta,
                         const float *size,
                         int n,
                         const cluster_t *cluster,
@@ -557,6 +558,7 @@ static void process(htsFile *out_fh,
             rec->d.allele[0][0] = revnt(record->allele_a);
             rec->d.allele[1][0] = revnt(record->allele_b);
         }
+        bcf_update_info_string(hdr, rec, "PROBESET_ID", &str.s[off[0]]);
         bcf_update_info_float(hdr, rec, "meanDELTA_AA", &cluster->aa_delta_mean, 1);
         bcf_update_info_float(hdr, rec, "meanDELTA_AB", &cluster->ab_delta_mean, 1);
         bcf_update_info_float(hdr, rec, "meanDELTA_BB", &cluster->bb_delta_mean, 1);
@@ -625,7 +627,7 @@ static void process(htsFile *out_fh,
 
         get_delta_size(norm_x_arr, norm_y_arr, bcf_hdr_nsamples(hdr), delta_arr, size_arr);
         if ( flags & ADJUST_CLUSTERS ) adjust_clusters(gts, delta_arr, size_arr, bcf_hdr_nsamples(hdr), cluster);
-        get_lrr_baf(delta_arr, size_arr, bcf_hdr_nsamples(hdr), cluster, baf_arr, lrr_arr);
+        get_baf_lrr(delta_arr, size_arr, bcf_hdr_nsamples(hdr), cluster, baf_arr, lrr_arr);
 
         bcf_update_genotypes(hdr, rec, gts, bcf_hdr_nsamples(hdr)*2);
         bcf_update_format_float(hdr, rec, "CONF", conf_arr, bcf_hdr_nsamples(hdr));
@@ -681,7 +683,7 @@ static const char *usage_text(void)
         "        --report <report.txt>                  apt-probeset-genotype report output\n"
         "        --calls <calls.txt>                    apt-probeset-genotype calls output\n"
         "        --confidences <confidences.txt>        apt-probeset-genotype confidences output\n"
-        "        --adjust-clusters                      adjust snp-posteriors cluster centers\n"
+        "        --adjust-clusters                      adjust cluster centers in (Contrast, Size) space\n"
         "    -x, --sex <file>                           output apt-probeset-genotype gender estimate into file\n"
         "        --no-version                           do not append version and command line to the header\n"
         "    -o, --output <file>                        write output to a file [standard output]\n"
@@ -709,6 +711,7 @@ int run(int argc, char *argv[])
 
     static struct option loptions[] =
     {
+        {"fasta-ref", required_argument, NULL, 'f'},
         {"annot", required_argument, NULL, 1},
         {"snp-posteriors", required_argument, NULL, 2},
         {"summary", required_argument, NULL, 3},
@@ -716,7 +719,6 @@ int run(int argc, char *argv[])
         {"calls", required_argument, NULL, 5},
         {"confidences", required_argument, NULL, 6},
         {"adjust-clusters", no_argument, NULL, 7},
-        {"fasta-ref", required_argument, NULL, 'f'},
         {"sex", required_argument, NULL, 'x'},
         {"output", required_argument, NULL, 'o'},
         {"output-type", required_argument, NULL, 'O'},

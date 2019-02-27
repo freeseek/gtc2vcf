@@ -1554,19 +1554,18 @@ static inline void get_ilmn_theta_r(float norm_x,
 }
 
 // compute BAF and LRR from Theta and R
-static void get_lrr_baf(float ilmn_theta,
-                        float ilmn_r,
-                        const egt_t *egt,
-                        int idx,
+static void get_baf_lrr(const float ilmn_theta,
+                        const float ilmn_r,
+                        const ClusterRecord *cluster_record,
                         float *baf,
                         float *lrr)
 {
-    float aa_theta = egt->cluster_records[idx].aa_cluster_stats.theta_mean;
-    float ab_theta = egt->cluster_records[idx].ab_cluster_stats.theta_mean;
-    float bb_theta = egt->cluster_records[idx].bb_cluster_stats.theta_mean;
-    float aa_r = egt->cluster_records[idx].aa_cluster_stats.r_mean;
-    float ab_r = egt->cluster_records[idx].ab_cluster_stats.r_mean;
-    float bb_r = egt->cluster_records[idx].bb_cluster_stats.r_mean;
+    float aa_theta = cluster_record->aa_cluster_stats.theta_mean;
+    float ab_theta = cluster_record->ab_cluster_stats.theta_mean;
+    float bb_theta = cluster_record->bb_cluster_stats.theta_mean;
+    float aa_r = cluster_record->aa_cluster_stats.r_mean;
+    float ab_r = cluster_record->ab_cluster_stats.r_mean;
+    float bb_r = cluster_record->bb_cluster_stats.r_mean;
 
     // compute LRR and BAF
     if ( ilmn_theta == ab_theta )
@@ -1610,7 +1609,7 @@ static inline void get_intensities(gtc_t *gtc,
 
     if ( bpm->norm_lookups && egt )
     {
-        get_lrr_baf(intensities->ilmn_theta, intensities->ilmn_r, egt, idx, &intensities->baf, &intensities->lrr);
+        get_baf_lrr(intensities->ilmn_theta, intensities->ilmn_r, &egt->cluster_records[idx], &intensities->baf, &intensities->lrr);
     }
     else if ( gtc->b_allele_freqs && gtc->logr_ratios )
     {
@@ -1624,20 +1623,73 @@ static inline void get_intensities(gtc_t *gtc,
     }
 }
 
+static void adjust_clusters(const int32_t *gts,
+                            const float *ilmn_theta,
+                            const float *ilmn_r,
+                            int n,
+                            const ClusterRecord *cluster_record,
+                            float *baf,
+                            float *lrr)
+{
+    ClusterRecord adj_cluster_record;
+    adj_cluster_record.aa_cluster_stats.N = cluster_record->aa_cluster_stats.N;
+    adj_cluster_record.ab_cluster_stats.N = cluster_record->ab_cluster_stats.N;
+    adj_cluster_record.bb_cluster_stats.N = cluster_record->bb_cluster_stats.N;
+    adj_cluster_record.aa_cluster_stats.theta_mean = cluster_record->aa_cluster_stats.theta_mean * ((float)cluster_record->aa_cluster_stats.N + 0.2f);
+    adj_cluster_record.ab_cluster_stats.theta_mean = cluster_record->ab_cluster_stats.theta_mean * ((float)cluster_record->ab_cluster_stats.N + 0.2f);
+    adj_cluster_record.bb_cluster_stats.theta_mean = cluster_record->bb_cluster_stats.theta_mean * ((float)cluster_record->bb_cluster_stats.N + 0.2f);
+    adj_cluster_record.aa_cluster_stats.r_mean = cluster_record->aa_cluster_stats.r_mean * ((float)cluster_record->aa_cluster_stats.N + 0.2f);
+    adj_cluster_record.ab_cluster_stats.r_mean = cluster_record->ab_cluster_stats.r_mean * ((float)cluster_record->ab_cluster_stats.N + 0.2f);
+    adj_cluster_record.bb_cluster_stats.r_mean = cluster_record->bb_cluster_stats.r_mean * ((float)cluster_record->bb_cluster_stats.N + 0.2f);
+
+    for (int i=0; i<n; i++)
+    {
+        if ( bcf_gt_is_missing(gts[2*i]) && bcf_gt_is_missing(gts[2*i+1]) ) continue;
+        switch ( bcf_gt_allele( gts[2*i] ) + bcf_gt_allele( gts[2*i+1] ) )
+        {
+            case 0:
+                adj_cluster_record.aa_cluster_stats.N++;
+                adj_cluster_record.aa_cluster_stats.theta_mean += ilmn_theta[i];
+                adj_cluster_record.aa_cluster_stats.r_mean += ilmn_r[i];
+                break;
+            case 1:
+                adj_cluster_record.ab_cluster_stats.N++;
+                adj_cluster_record.ab_cluster_stats.theta_mean += ilmn_theta[i];
+                adj_cluster_record.ab_cluster_stats.r_mean += ilmn_r[i];
+                break;
+            case 2:
+                adj_cluster_record.bb_cluster_stats.N++;
+                adj_cluster_record.bb_cluster_stats.theta_mean += ilmn_theta[i];
+                adj_cluster_record.bb_cluster_stats.r_mean += ilmn_r[i];
+                break;
+            default:
+                break;
+        }
+    }
+
+    adj_cluster_record.aa_cluster_stats.theta_mean /= ((float)adj_cluster_record.aa_cluster_stats.N + 0.2f);
+    adj_cluster_record.ab_cluster_stats.theta_mean /= ((float)adj_cluster_record.ab_cluster_stats.N + 0.2f);
+    adj_cluster_record.bb_cluster_stats.theta_mean /= ((float)adj_cluster_record.bb_cluster_stats.N + 0.2f);
+    adj_cluster_record.aa_cluster_stats.r_mean /= ((float)adj_cluster_record.aa_cluster_stats.N + 0.2f);
+    adj_cluster_record.ab_cluster_stats.r_mean /= ((float)adj_cluster_record.ab_cluster_stats.N + 0.2f);
+    adj_cluster_record.bb_cluster_stats.r_mean /= ((float)adj_cluster_record.bb_cluster_stats.N + 0.2f);
+}
+
 /****************************************
  * CONVERSION UTILITIES                 *
  ****************************************/
 
-#define EGT   (1<<0)
-#define IGC   (1<<1)
-#define BAF   (1<<2)
-#define LRR   (1<<3)
-#define NORMX (1<<4)
-#define NORMY (1<<5)
-#define R     (1<<6)
-#define THETA (1<<7)
-#define X     (1<<8)
-#define Y     (1<<9)
+#define EGT             (1<<0)
+#define IGC             (1<<1)
+#define BAF             (1<<2)
+#define LRR             (1<<3)
+#define NORMX           (1<<4)
+#define NORMY           (1<<5)
+#define R               (1<<6)
+#define THETA           (1<<7)
+#define X               (1<<8)
+#define Y               (1<<9)
+#define ADJUST_CLUSTERS (1<<10)
 
 static void gtcs_to_gs(gtc_t **gtc,
                        int n,
@@ -1826,16 +1878,17 @@ static void gtcs_to_vcf(gtc_t **gtc,
             }
             intensities_t intensities;
             get_intensities(gtc[i], bpm, egt, j, &intensities);
-            if ( flags & IGC   ) get_element(gtc[i]->genotype_scores, (void *)&igc[i], j);
-            if ( flags & BAF   ) baf[i] = intensities.baf;
-            if ( flags & LRR   ) lrr[i] = intensities.lrr;
-            if ( flags & NORMX ) norm_x[i] = intensities.norm_x;
-            if ( flags & NORMY ) norm_y[i] = intensities.norm_y;
-            if ( flags & R     ) ilmn_r[i] = intensities.ilmn_r;
-            if ( flags & THETA ) ilmn_theta[i] = intensities.ilmn_theta;
-            if ( flags & X     ) raw_x[i] = (int32_t)intensities.raw_x;
-            if ( flags & Y     ) raw_y[i] = (int32_t)intensities.raw_y;
+            get_element(gtc[i]->genotype_scores, (void *)&igc[i], j);
+            baf[i] = intensities.baf;
+            lrr[i] = intensities.lrr;
+            norm_x[i] = intensities.norm_x;
+            norm_y[i] = intensities.norm_y;
+            ilmn_r[i] = intensities.ilmn_r;
+            ilmn_theta[i] = intensities.ilmn_theta;
+            raw_x[i] = (int32_t)intensities.raw_x;
+            raw_y[i] = (int32_t)intensities.raw_y;
         }
+        if ( flags & ADJUST_CLUSTERS ) adjust_clusters(gts, ilmn_theta, ilmn_r, bcf_hdr_nsamples(hdr), &egt->cluster_records[j], baf, lrr);
         bcf_update_genotypes(hdr, rec, gts, n*2);
         if ( flags & IGC   ) bcf_update_format_float(hdr, rec, "IGC", igc, n);
         if ( flags & BAF   ) bcf_update_format_float(hdr, rec, "BAF", baf, n);
@@ -2218,13 +2271,14 @@ static const char *usage_text(void)
         "\n"
         "Plugin options:\n"
         "    -l, --list-tags                    list available tags with description for VCF output\n"
-        "    -t, --tags LIST                    list of output tags [IGC,BAF,LRR]\n"
+        "    -t, --tags LIST                    list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]\n"
         "    -i  --idat <file>                  IDAT file\n"
         "    -b  --bpm <file>                   BPM manifest file\n"
         "    -c  --csv <file>                   CSV manifest file\n"
         "    -e  --egt <file>                   EGT cluster file\n"
         "    -f, --fasta-ref <file>             reference sequence in fasta format\n"
         "    -g, --gtc-list <file>              read GTC file names from file\n"
+        "        --adjust-clusters              adjust cluster centers in (Theta, R) space\n"
         "    -x, --sex <file>                   output GenCall gender estimate into file\n"
         "        --do-not-check-bpm             do not check whether BPM and GTC files match manifest file name\n"
         "        --genome-studio                input a genome studio final report file (in matrix format)\n"
@@ -2287,7 +2341,7 @@ void list_tags(void)
 
 int run(int argc, char *argv[])
 {
-    char *tag_list = "IGC,BAF,LRR";
+    char *tag_list = "IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y";
     char *idat_fname = NULL;
     char *bpm_fname = NULL;
     char *csv_fname = NULL;
@@ -2297,6 +2351,7 @@ int run(int argc, char *argv[])
     char *ref_fname = NULL;
     char *gtc_list = NULL;
     char *sex_fname = NULL;
+    int flags = 0;
     int output_type = FT_VCF;
     int bpm_check = 1;
     int n_threads = 0;
@@ -2319,9 +2374,10 @@ int run(int argc, char *argv[])
         {"output-type", required_argument, NULL, 'O'},
         {"fasta-ref", required_argument, NULL, 'f'},
         {"gtc-list", required_argument, NULL, 'g'},
+        {"adjust-clusters", no_argument, NULL, 1},
         {"sex", required_argument, NULL, 'x'},
-        {"do-not-check-bpm", no_argument, NULL, 1},
-        {"genome-studio", required_argument, NULL, 2},
+        {"do-not-check-bpm", no_argument, NULL, 2},
+        {"genome-studio", required_argument, NULL, 3},
         {"no-version", no_argument, NULL, 8},
         {"threads", required_argument, NULL, 9},
         {NULL, 0, NULL, 0}
@@ -2350,9 +2406,10 @@ int run(int argc, char *argv[])
                       break;
             case 'f': ref_fname = optarg; break;
             case 'g': gtc_list = optarg; break;
+            case  1 : flags |= ADJUST_CLUSTERS; break;
             case 'x': sex_fname = optarg; break;
-            case  1 : bpm_check = 0; break;
-            case  2 : gs_fname = optarg; break;
+            case  2 : bpm_check = 0; break;
+            case  3 : gs_fname = optarg; break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
             case  8 : record_cmd_line = 0; break;
             case 'h':
@@ -2365,11 +2422,12 @@ int run(int argc, char *argv[])
     {
         if ( idat_fname ) { fprintf(stderr, "IDAT file only allowed when converting to CSV\n"); error("%s", usage_text()); }
         if ( !bpm_fname && !gs_fname ) { fprintf(stderr, "Manifest file required when converting to VCF\n"); error("%s", usage_text()); }
+        if ( !egt_fname && flags & ADJUST_CLUSTERS ) { fprintf(stderr, "Cluster file required when adjusting cluster centers\n"); error("%s", usage_text()); }
         if ( gs_fname && (argc-optind>0 || gtc_list || output_type & FT_GS) ) { fprintf(stderr, "If Genome Studio file provided, do not pass GTC files and do not output to GenomeStudio\n"); error("%s", usage_text()); }
         if ( argc-optind>0 && gtc_list ) { fprintf(stderr, "GTC files cannot be listed through both command interface and file list\n"); error("%s", usage_text()); }
         if ( !gs_fname && !(output_type & FT_GS) && sex_fname ) out_sex = get_file_handle( sex_fname );
     }
-    int flags = parse_tags(tag_list);
+    flags |= parse_tags(tag_list);
 
     int nfiles;
     char **files;
