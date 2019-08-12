@@ -14,7 +14,7 @@ Usage: bcftools +gtc2vcf [options] <A.gtc> [...]
 
 Plugin options:
     -l, --list-tags                    list available tags with description for VCF output
-    -t, --tags LIST                    list of output tags [IGC,BAF,LRR]
+    -t, --tags LIST                    list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
     -i  --idat <file>                  IDAT file
     -b  --bpm <file>                   BPM manifest file
     -c  --csv <file>                   CSV manifest file
@@ -183,9 +183,9 @@ Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumi
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 manifest_file="..."
 egt_file="..."
-gtc_list="..."
+gtc_list_file="..."
 out="..."
-$HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list -f $ref -x $out.sex | \
+$HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list_file -f $ref -x $out.sex | \
   $HOME/bin/bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
   $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -- -f $ref -m top --flip-baf | \
   $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \

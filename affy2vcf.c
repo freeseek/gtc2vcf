@@ -513,7 +513,7 @@ static void process(htsFile *out_fh,
 
     for (int i=1; i<ncols; i++) bcf_hdr_add_sample(hdr, &str.s[off[i]]);
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
-    bcf_hdr_sync( hdr ); // updates the number of samples
+    if ( bcf_hdr_sync( hdr ) < 0 ) error_errno("[%s] Failed to update header", __func__); // updates the number of samples
 
     htsFile *confidences_fp = unheader(confidences_fn, &str);
     ncols = ksplit_core(str.s, '\t', &moff, &off);

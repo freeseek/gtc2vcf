@@ -333,8 +333,8 @@ static idat_t *idat_init(const char *fn)
     idat_t *idat = (idat_t *)calloc(1, sizeof(idat_t));
     idat->fn = strdup(fn);
     idat->fp = hopen(idat->fn, "rb");
-    if ( idat->fp == NULL ) error("Could not open %s\n", idat->fn);
-    if ( is_gzip(idat->fp) ) error("File %s is gzip compressed and currently cannot be seeked\n", idat->fn);
+    if ( idat->fp == NULL ) error("Could not open %s: %s\n", idat->fn, strerror(errno));
+    if ( is_gzip(idat->fp) ) error("File %s is gzip compressed and currently cannot be sought\n", idat->fn);
 
     uint8_t buffer[4];
     if ( hread(idat->fp, (void *)buffer, 4) < 4 ) error("Failed to read magic number from %s file\n", idat->fn);
@@ -582,8 +582,8 @@ static bpm_t *bpm_init(const char *fn)
     bpm_t *bpm = (bpm_t *)calloc(1, sizeof(bpm_t));
     bpm->fn = strdup(fn);
     bpm->fp = hopen(bpm->fn, "rb");
-    if ( bpm->fp == NULL ) error("Could not open %s\n", bpm->fn);
-    if ( is_gzip(bpm->fp) ) error("File %s is gzip compressed and currently cannot be seeked\n", bpm->fn);
+    if ( bpm->fp == NULL ) error("Could not open %s: %s\n", bpm->fn, strerror(errno));
+    if ( is_gzip(bpm->fp) ) error("File %s is gzip compressed and currently cannot be sought\n", bpm->fn);
 
     uint8_t buffer[4];
     if ( hread(bpm->fp, (void *)buffer, 4) < 4 ) error("Failed to read magic number from %s file\n", bpm->fn);
@@ -822,8 +822,8 @@ static bpm_t *bpm_csv_init(const char *fn)
     bpm_t *bpm = (bpm_t *)calloc(1, sizeof(bpm_t));
     bpm->fn = strdup(fn);
     bpm->fp = hopen(bpm->fn, "r");
-    if ( bpm->fp == NULL ) error("Could not open %s\n", bpm->fn);
-    if ( is_gzip(bpm->fp) ) error("File %s is gzip compressed and currently cannot be seeked\n", bpm->fn);
+    if ( bpm->fp == NULL ) error("Could not open %s: %s\n", bpm->fn, strerror(errno));
+    if ( is_gzip(bpm->fp) ) error("File %s is gzip compressed and currently cannot be sought\n", bpm->fn);
 
     kstring_t str = {0, 0, NULL};
     if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Empty file: %s\n", bpm->fn);
@@ -988,8 +988,8 @@ static egt_t *egt_init(const char *fn)
     egt_t *egt = (egt_t *)calloc(1, sizeof(egt_t));
     egt->fn = strdup(fn);
     egt->fp = hopen(egt->fn, "rb");
-    if ( egt->fp == NULL ) error("Could not open %s\n", egt->fn);
-    if ( is_gzip(egt->fp) ) error("File %s is gzip compressed and currently cannot be seeked\n", egt->fn);
+    if ( egt->fp == NULL ) error("Could not open %s: %s\n", egt->fn, strerror(errno));
+    if ( is_gzip(egt->fp) ) error("File %s is gzip compressed and currently cannot be sought\n", egt->fn);
 
     read_bytes(egt->fp, (void *)&egt->version, sizeof(int32_t));
     if ( egt->version != 3 ) error("EGT cluster file version %d not supported\n", egt->version);
@@ -1358,7 +1358,7 @@ static gtc_t *gtc_init(const char *fn)
     gtc_t *gtc = (gtc_t *)calloc(1, sizeof(gtc_t));
     gtc->fn = strdup(fn);
     gtc->fp = hopen(gtc->fn, "rb");
-    if ( gtc->fp == NULL ) error("Could not open %s\n", gtc->fn);
+    if ( gtc->fp == NULL ) error("Could not open %s: %s\n", gtc->fn, strerror(errno));
     if ( is_gzip(gtc->fp) ) error("File %s is gzip compressed and currently cannot be seeked\n", gtc->fn);
 
     uint8_t buffer[4];
@@ -2138,7 +2138,7 @@ static void genomestudio_to_vcf(htsFile *gs_fh,
         }
     }
     free(off);
-    bcf_hdr_sync( hdr ); // updates the number of samples
+    if ( bcf_hdr_sync( hdr ) < 0 ) error_errno("[%s] Failed to update header", __func__); // updates the number of samples
     int nsamples = bcf_hdr_nsamples(hdr);
 
     tsv_t *tsv = tsv_init(str.s);
@@ -2265,7 +2265,7 @@ static const char *usage_text(void)
 {
     return
         "\n"
-        "About: convert Illumina GTC files containing intensity data into VCF (2019-02-18)\n"
+        "About: convert Illumina GTC files containing intensity data into VCF (2019-08-12)\n"
         "\n"
         "Usage: bcftools +gtc2vcf [options] <A.gtc> [...]\n"
         "\n"
@@ -2434,7 +2434,7 @@ int run(int argc, char *argv[])
     if ( gtc_list )
     {
         files = hts_readlines(gtc_list, &nfiles);
-        if ( !files ) error("Failed to read from %s\n", gtc_list);
+        if ( !files ) error("Failed to read from file %s\n", gtc_list);
     }
     else
     {
