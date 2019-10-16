@@ -55,14 +55,14 @@ Plugin options:
 Installation
 ============
 
-Install basic tools (Debian/Ubuntu specific)
+Install basic tools (Debian/Ubuntu specific if you have admin privileges)
 ```
 sudo apt install wget gzip unzip samtools wine64 mono-devel libgdiplus
 ```
 
-Optionally, you can install these libraries to activate further bcftools features:
+Optionally, you can install these libraries to activate further HTSlib features:
 ```
-sudo apt install liblzma-dev libbz2-dev libgsl0-dev
+sudo apt install libbz2-dev libssl-dev liblzma-dev libgsl0-dev
 ```
 
 Preparation steps
@@ -70,7 +70,7 @@ Preparation steps
 mkdir -p $HOME/bin $HOME/res && cd /tmp
 ```
 
-Download latest version of `htslib` and `bcftools` (if not downloaded already)
+Download latest version of <a href="https://github.com/samtools/htslib">HTSlib</a> and <a href="https://github.com/samtools/bcftools">BCFtools</a> (if not downloaded already)
 ```
 git clone --branch=develop git://github.com/samtools/htslib.git
 git clone --branch=develop git://github.com/samtools/bcftools.git
@@ -84,11 +84,16 @@ cd bcftools/plugins && patch < fixref.patch && cd ../..
 ```
 If for any reason the patch fails with an error message, contact the <a href="mailto:giulio.genovese@gmail.com">author</a> for a fix.
 
-Compile latest version of `htslib` (optionally disable `bz2` and `lzma`) and `bcftools` (make sure you are using gcc version 5 or newer)
+Compile latest version of HTSlib (optionally disable bz2, gcs, and lzma) and BCFtools (make sure you are using gcc version 5 or newer)
 ```
-cd htslib && autoheader && (autoconf || autoconf) && ./configure --disable-bz2 --disable-lzma && make && cd ..
+cd htslib && autoheader && (autoconf || autoconf) && ./configure --disable-bz2 --disable-gcs --disable-lzma && make && cd ..
 cd bcftools && make && cd ..
 /bin/cp bcftools/{bcftools,plugins/{fixref,gtc2vcf,affy2vcf}.so} $HOME/bin/
+```
+
+Make sure the directory with the plugins is available to bcftools
+```
+export BCFTOOLS_PLUGINS=$HOME/bin
 ```
 
 Install the GRCh37 human genome reference
@@ -185,11 +190,11 @@ manifest_file="..."
 egt_file="..."
 gtc_list_file="..."
 out="..."
-$HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list_file -f $ref -x $out.sex | \
-  $HOME/bin/bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
-  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -- -f $ref -m top --flip-baf | \
-  $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
-  $HOME/bin/bcftools index -f $out.bcf
+bcftools +gtc2vcf --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list_file -f $ref -x $out.sex | \
+  bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
+  bcftools +fixref --no-version -Ou -- -f $ref -m top --flip-baf | \
+  bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
+  bcftools index -f $out.bcf
 ```
 Notice that this will drop unlocalized variants and indels
 
@@ -210,11 +215,11 @@ It can be converted into VCF format with the following command
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 genome_studio_file="..."
 out="..."
-$HOME/bin/bcftools +$HOME/bin/gtc2vcf.so --no-version -Ou --genome-studio $genome_studio_file -f $ref | \
-  $HOME/bin/bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
-  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top --flip-baf | \
-  $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
-  $HOME/bin/bcftools index -f $out.bcf
+bcftools +gtc2vcf --no-version -Ou --genome-studio $genome_studio_file -f $ref | \
+  bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
+  bcftools +fixref --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top --flip-baf | \
+  bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
+  bcftools index -f $out.bcf
 ```
 Notice that this will drop unlocalized variants, monomorphic variants, and indels
 
@@ -254,19 +259,24 @@ Convert Affymetrix genotype calls and intensities to VCF
 The affy2vcf bcftools plugin can be used to convert Affymetrix genotype calls and intensity files to VCF
 ```
 ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
+annot_file="..." # for example annot_file="GenomeWideSNP_6.na35.annot.csv"
 dir="..."
 out="..."
-$HOME/bin/bcftools +$HOME/bin/affy2vcf.so --no-version -Ou --fasta-ref $ref --annot $annot_file --sex $out.sex \
+bcftools +affy2vcf --no-version -Ou --fasta-ref $ref \
+  --annot $annot_file \
+  --sex $out.sex \
   --snp-posteriors $dir/AxiomGT1.snp-posteriors.txt \
   --summary $dir/AxiomGT1.summary.txt \
   --report $dir/AxiomGT1.report.txt \
   --calls $dir/AxiomGT1.calls.txt \
   --confidences $dir/AxiomGT1.confidences.txt | \
-  $HOME/bin/bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
-  $HOME/bin/bcftools +$HOME/bin/fixref.so --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap --flip-baf | \
-  $HOME/bin/bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
-  $HOME/bin/bcftools index -f $out.bcf
+  bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
+  bcftools +fixref --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap --flip-baf | \
+  bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
+  bcftools index -f $out.bcf
 ```
+
+The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants.
 
 Acknowledgements
 ================

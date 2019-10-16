@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018 Giulio Genovese
+   Copyright (c) 2018-2019 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -34,6 +34,8 @@
 #include <htslib/kseq.h>
 #include "bcftools.h"
 #include "tsv2vcf.h"
+
+#define VERSION "2019-08-12"
 
 #define FT_GS (1<<4)
 
@@ -2258,14 +2260,14 @@ static void genomestudio_to_vcf(htsFile *gs_fh,
 
 const char *about(void)
 {
-    return "Convert GTC files to VCF\n";
+    return "Convert GTC files to VCF.\n";
 }
 
 static const char *usage_text(void)
 {
     return
         "\n"
-        "About: convert Illumina GTC files containing intensity data into VCF (2019-08-12)\n"
+        "About: convert Illumina GTC files containing intensity data into VCF. ("VERSION")\n"
         "\n"
         "Usage: bcftools +gtc2vcf [options] <A.gtc> [...]\n"
         "\n"
@@ -2420,11 +2422,11 @@ int run(int argc, char *argv[])
     if ( (idat_fname!=NULL) + (bpm_fname!=NULL) + (csv_fname!=NULL) + (egt_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
     if ( !binary_to_csv )
     {
-        if ( idat_fname ) { fprintf(stderr, "IDAT file only allowed when converting to CSV\n"); error("%s", usage_text()); }
-        if ( !bpm_fname && !gs_fname ) { fprintf(stderr, "Manifest file required when converting to VCF\n"); error("%s", usage_text()); }
-        if ( !egt_fname && flags & ADJUST_CLUSTERS ) { fprintf(stderr, "Cluster file required when adjusting cluster centers\n"); error("%s", usage_text()); }
-        if ( gs_fname && (argc-optind>0 || gtc_list || output_type & FT_GS) ) { fprintf(stderr, "If Genome Studio file provided, do not pass GTC files and do not output to GenomeStudio\n"); error("%s", usage_text()); }
-        if ( argc-optind>0 && gtc_list ) { fprintf(stderr, "GTC files cannot be listed through both command interface and file list\n"); error("%s", usage_text()); }
+        if ( idat_fname ) error("IDAT file only allowed when converting to CSV\n%s", usage_text());
+        if ( !bpm_fname && !gs_fname ) error("Manifest file required when converting to VCF\n%s", usage_text());
+        if ( !egt_fname && flags & ADJUST_CLUSTERS ) error("Cluster file required when adjusting cluster centers\n%s", usage_text());
+        if ( gs_fname && (argc-optind>0 || gtc_list || output_type & FT_GS) ) error("If Genome Studio file provided, do not pass GTC files and do not output to GenomeStudio\n%s", usage_text());
+        if ( argc-optind>0 && gtc_list ) error("GTC files cannot be listed through both command interface and file list\n%s", usage_text());
         if ( !gs_fname && !(output_type & FT_GS) && sex_fname ) out_sex = get_file_handle( sex_fname );
     }
     flags |= parse_tags(tag_list);

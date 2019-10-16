@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018 Giulio Genovese
+   Copyright (c) 2018-2019 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -31,6 +31,8 @@
 #include <htslib/kseq.h>
 #include "bcftools.h"
 #include "htslib/khash_str2int.h"
+
+#define VERSION "2019-08-30"
 
 static inline char revnt(char nt)
 {
@@ -663,14 +665,14 @@ static void process(htsFile *out_fh,
 
 const char *about(void)
 {
-    return "convert Affymetrix files to VCF\n";
+    return "convert Affymetrix files to VCF.\n";
 }
 
 static const char *usage_text(void)
 {
     return
         "\n"
-        "About: convert Affymetrix apt-probeset-genotype output files to VCF (2019-02-18)\n"
+        "About: convert Affymetrix apt-probeset-genotype output files to VCF. ("VERSION")\n"
         "\n"
         "Usage: bcftools +affy2vcf [options] --fasta-ref <fasta> --annot <file> --snp-posteriors <file>\n"
         "                                         --summary <file> --calls <file> --confidences <file> \n"
@@ -757,13 +759,13 @@ int run(int argc, char *argv[])
             default: error("%s", usage_text());
         }
     }
-    if ( !ref_fname ) error("Expected --fasta-ref option\n");
-    if ( !annot_fname ) error("Expected --annot option\n");
-    if ( !snp_posteriors_fname ) error("Expected --snp-posteriors option\n");
-    if ( !summary_fname ) error("Expected --summary option\n");
-    if ( sex_fname && !report_fname ) error("Expected --report option with --sex option\n");
-    if ( !calls_fname ) error("Expected --calls option\n");
-    if ( !confidences_fname ) error("Expected --confidences option\n");
+    if ( !ref_fname ) error("Expected --fasta-ref option\n%s", usage_text());
+    if ( !annot_fname ) error("Expected --annot option\n%s", usage_text());
+    if ( !snp_posteriors_fname ) error("Expected --snp-posteriors option\n%s", usage_text());
+    if ( !summary_fname ) error("Expected --summary option\n%s", usage_text());
+    if ( sex_fname && !report_fname ) error("Expected --report option with --sex option\n%s", usage_text());
+    if ( !calls_fname ) error("Expected --calls option\n%s", usage_text());
+    if ( !confidences_fname ) error("Expected --confidences option\n%s", usage_text());
 
     fai = fai_load(ref_fname);
     if ( !fai ) error("Could not load the reference %s\n", ref_fname);
@@ -775,12 +777,15 @@ int run(int argc, char *argv[])
     if ( out_fh == NULL ) error("Can't write to \"%s\": %s\n", output_fname, strerror(errno));
     if ( n_threads ) hts_set_threads(out_fh, n_threads);
 
+    fprintf(stderr, "Reading probeset annotation file %s\n", annot_fname);
     annot_t *annot = annot_init(annot_fname, hdr);
 
+    fprintf(stderr, "Reading apt-probeset-genotype snp-posteriors file %s\n", snp_posteriors_fname);
     snp_posteriors_t *snp_posteriors = snp_posteriors_init(snp_posteriors_fname);
 
     if ( sex_fname )
     {
+        fprintf(stderr, "Reading apt-probeset-genotype report file %s\n", report_fname);
         report_t *report = report_init(report_fname);
         FILE *sex_fh = fopen(sex_fname, "w");
         if ( !sex_fh ) error("Failed to open %s: %s\n", sex_fname, strerror(errno));
@@ -789,7 +794,8 @@ int run(int argc, char *argv[])
         report_destroy(report);
     }
 
-    process(out_fh, hdr, annot, snp_posteriors, summary_fname , calls_fname, confidences_fname, flags);
+    fprintf(stderr, "Reading apt-probeset-genotype summary %s, calls %s, and confidences %s files\n", summary_fname, calls_fname, confidences_fname);
+    process(out_fh, hdr, annot, snp_posteriors, summary_fname, calls_fname, confidences_fname, flags);
 
     snp_posteriors_destroy(snp_posteriors);
     annot_destroy(annot);
