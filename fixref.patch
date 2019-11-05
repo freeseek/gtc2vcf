@@ -1,6 +1,6 @@
---- fixref.c    2018-09-05 12:00:00.000000000 -0500
-+++ fixref.c    2018-09-05 12:00:00.000000000 -0500
-@@ -91,6 +91,7 @@
+--- fixref.c    2018-11-04 12:00:00.000000000 -0500
++++ fixref.c    2018-11-04 12:00:00.000000000 -0500
+@@ -92,6 +92,7 @@
  #define MODE_FLIP2FWD 3
  #define MODE_USE_ID   4
  #define MODE_REF_ALT  5
@@ -8,7 +8,7 @@
  
  typedef struct
  {
-@@ -105,12 +106,14 @@
+@@ -106,12 +107,14 @@
  typedef struct
  {
      char *dbsnp_fname;
@@ -24,7 +24,7 @@
      uint32_t nsite,nok,nflip,nunresolved,nswap,nflip_swap,nonSNP,nonACGT,nonbiallelic;
      uint32_t count[4][4], npos_err, unsorted;
  }
-@@ -132,6 +135,7 @@
+@@ -133,6 +136,7 @@
          "           flip    .. flip REF/ALT columns and GTs for non-ambiguous SNPs and ignore the rest\n"
          "           id      .. swap REF/ALT columns and GTs using the ID column to determine the REF allele\n"
          "           ref-alt .. swap REF/ALT columns to match the reference but not modify the genotypes\n"
@@ -32,7 +32,7 @@
          "           stats   .. collect and print stats\n"
          "           top     .. convert from Illumina TOP strand to fwd\n"
          "\n"
-@@ -153,7 +157,8 @@
+@@ -154,7 +158,8 @@
          "   -i, --use-id <file.vcf>     Swap REF/ALT using the ID column to determine the REF allele, implies -m id.\n"
          "                               Download the dbSNP file from\n"
          "                                   https://www.ncbi.nlm.nih.gov/variation/docs/human_variation_vcf\n"
@@ -42,7 +42,7 @@
          "\n"
          "Examples:\n"
          "   # run stats\n"
-@@ -183,10 +188,11 @@
+@@ -184,10 +189,11 @@
          {"discard",no_argument,NULL,'d'},
          {"fasta-ref",required_argument,NULL,'f'},
          {"use-id",required_argument,NULL,'i'},
@@ -55,7 +55,7 @@
      {
          switch (c) 
          {
-@@ -196,11 +202,13 @@
+@@ -197,11 +203,13 @@
                  else if ( !strcasecmp(optarg,"id") ) args.mode = MODE_USE_ID; 
                  else if ( !strcasecmp(optarg,"ref-alt") ) args.mode = MODE_REF_ALT; 
                  else if ( !strcasecmp(optarg,"stats") ) args.mode = MODE_STATS; 
@@ -69,7 +69,7 @@
              case 'h':
              case '?':
              default: error("%s", usage()); break;
-@@ -237,6 +245,13 @@
+@@ -240,6 +248,13 @@
          }
      }
      bcf_update_genotypes(args->hdr,rec,args->gts,args->ngts);
@@ -83,9 +83,9 @@
      
      return rec;
  }
-@@ -430,6 +445,13 @@
+@@ -434,6 +449,13 @@
          if ( ir==revint(ib) ) { args.nflip_swap++; return set_ref_alt(&args,rec,int2nt(revint(ib)),int2nt(revint(ia)),0); }
-         error("FIXME: this should not happen %s:%d\n", bcf_seqname(args.hdr,rec),rec->pos+1);
+         error("FIXME: this should not happen %s:%"PRId64"\n", bcf_seqname(args.hdr,rec),(int64_t) rec->pos+1);
      }
 +    else if ( args.mode==MODE_SWAP )
 +    {
@@ -97,7 +97,7 @@
      else if ( args.mode==MODE_FLIP2FWD )
      {
          int pair = 1 << ia | 1 << ib;
-@@ -581,6 +603,7 @@
+@@ -585,6 +607,7 @@
      fprintf(stderr,"NS\tnon-biallelic\t%u\n", args.nonbiallelic);
  
      free(args.gts);
