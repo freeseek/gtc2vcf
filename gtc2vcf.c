@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-11-24"
+#define GTC2VCF_VERSION "2019-11-25"
 
 #define FT_GS (1<<4)
 
@@ -2729,6 +2729,13 @@ static const char *usage_text(void)
         "    -o, --output <file>                write output to a file [standard output]\n"
         "    -O, --output-type b|u|z|v|g        b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g GenomeStudio [v]\n"
         "        --threads <int>                number of extra output compression threads [0]\n"
+        "\n"
+        "Examples:\n"
+        "    bcftools +gtc2vcf -i 5434246082_R03C01_Grn.idat\n"
+        "    bcftools +gtc2vcf 5434246082_R03C01.gtc\n"
+        "    bcftools +gtc2vcf -b HumanOmni2.5-4v1_H.bpm -c HumanOmni2.5-4v1_H.csv\n"
+        "    bcftools +gtc2vcf -e HumanOmni2.5-4v1_H.egt\n"
+        "    bcftools +gtc2vcf -c HumanOmni2.5-4v1_H.csv -f human_g1k_v37.fasta 5434246082_R03C01.gtc -o 5434246082_R03C01.vcf\n"
         "\n";
 }
 
