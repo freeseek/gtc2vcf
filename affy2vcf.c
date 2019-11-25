@@ -32,7 +32,7 @@
 #include "bcftools.h"
 #include "htslib/khash_str2int.h"
 
-#define AFFY2VCF_VERSION "2019-11-24"
+#define AFFY2VCF_VERSION "2019-11-25"
 
 static inline char revnt(char nt)
 {
@@ -745,11 +745,21 @@ static const char *usage_text(void)
         "        --calls <calls.txt>                    apt-probeset-genotype calls output\n"
         "        --confidences <confidences.txt>        apt-probeset-genotype confidences output\n"
         "        --adjust-clusters                      adjust cluster centers in (Contrast, Size) space\n"
-        "    -x, --sex <file>                           output apt-probeset-genotype gender estimate into file\n"
+        "    -x, --sex <file>                           output apt-probeset-genotype gender estimate into file (requires --report)\n"
         "        --no-version                           do not append version and command line to the header\n"
         "    -o, --output <file>                        write output to a file [standard output]\n"
-        "    -O, --output-type b|u|z|v                  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF\n"
+        "    -O, --output-type b|u|z|v                  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]\n"
         "        --threads <int>                        number of extra output compression threads [0]\n"
+        "\n"
+        "Example:\n"
+        "    bcftools +affy2vcf \\\n"
+        "        --fasta-ref human_g1k_v37.fasta \\\n"
+        "        --annot GenomeWideSNP_6.na35.annot.csv \\\n"
+        "        --snp-posteriors AxiomGT1.snp-posteriors.txt \\\n"
+        "        --summary AxiomGT1.summary.txt \\\n"
+        "        --calls AxiomGT1.calls.txt \\\n"
+        "        --confidences AxiomGT1.confidences.txt \\\n"
+        "        --output AxiomGT1.vcf\n"
         "\n";
 }
 
