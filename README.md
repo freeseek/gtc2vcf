@@ -20,6 +20,7 @@ Plugin options:
     -c  --csv <file>                   CSV manifest file
     -e  --egt <file>                   EGT cluster file
     -f, --fasta-ref <file>             reference sequence in fasta format
+        --set-cache-size <int>         select fasta cache size in bytes
     -g, --gtc-list <file>              read GTC file names from file
         --adjust-clusters              adjust cluster centers in (Theta, R) space
     -x, --sex <file>                   output GenCall gender estimate into file
@@ -33,23 +34,25 @@ Plugin options:
 
 Affymetrix tool:
 ```
-Usage: bcftools +affy2vcf [options] --fasta-ref <fasta> --annot <file> --summary <file>
-                            --snp-posteriors <file> --confidences <file> --calls <file>
+Usage: bcftools +affy2vcf [options] --fasta-ref <fasta> --annot <file> --snp-posteriors <file>
+                                    --summary <file> --calls <file> --confidences <file> 
 
 Plugin options:
     -f, --fasta-ref <file>                     reference sequence in fasta format
+        --set-cache-size <int>                 select fasta cache size in bytes
         --annot <file>                         probeset annotation file
-        --summary <summary.txt>                apt-probeset-genotype summary output
         --snp-posteriors <snp-posteriors.txt>  apt-probeset-genotype snp-posteriors output
+        --summary <summary.txt>                apt-probeset-genotype summary output
         --report <report.txt>                  apt-probeset-genotype report output
-        --confidences <confidences.txt>        apt-probeset-genotype confidences output
         --calls <calls.txt>                    apt-probeset-genotype calls output
+        --confidences <confidences.txt>        apt-probeset-genotype confidences output
         --adjust-clusters                      adjust cluster centers in (Contrast, Size) space
     -x, --sex <file>                           output apt-probeset-genotype gender estimate into file
         --no-version                           do not append version and command line to the header
     -o, --output <file>                        write output to a file [standard output]
     -O, --output-type b|u|z|v                  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF
         --threads <int>                        number of extra output compression threads [0]
+
 ```
 
 Installation
@@ -57,7 +60,7 @@ Installation
 
 Install basic tools (Debian/Ubuntu specific if you have admin privileges)
 ```
-sudo apt install wget gzip unzip samtools wine64 mono-devel libgdiplus
+sudo apt install wget gzip unzip samtools msitools cabextract mono-devel libgdiplus
 ```
 
 Optionally, you can install these libraries to activate further HTSlib features:
@@ -76,19 +79,17 @@ git clone --branch=develop git://github.com/samtools/htslib.git
 git clone --branch=develop git://github.com/samtools/bcftools.git
 ```
 
-Add patch (to allow the fixref plugin to flip BAF values) and code for plugins
+Download plugins code
 ```
-/bin/rm -f bcftools/plugins/{gtc2vcf.c,affy2vcf.c,fixref.patch}
-wget -P bcftools/plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{gtc2vcf.c,affy2vcf.c,fixref.patch}
-cd bcftools/plugins && patch < fixref.patch && cd ../..
+/bin/rm -f bcftools/plugins/{gtc,affy}2vcf.c
+wget -P bcftools/plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{gtc,affy}2vcf.c
 ```
-If for any reason the patch fails with an error message, contact the <a href="mailto:giulio.genovese@gmail.com">author</a> for a fix.
 
 Compile latest version of HTSlib (optionally disable bz2, gcs, and lzma) and BCFtools (make sure you are using gcc version 5 or newer)
 ```
 cd htslib && autoheader && (autoconf || autoconf) && ./configure --disable-bz2 --disable-gcs --disable-lzma && make && cd ..
 cd bcftools && make && cd ..
-/bin/cp bcftools/{bcftools,plugins/{fixref,gtc2vcf,affy2vcf}.so} $HOME/bin/
+/bin/cp bcftools/{bcftools,plugins/{gtc,affy}2vcf.so} $HOME/bin/
 ```
 
 Make sure the directory with the plugins is available to bcftools
@@ -111,25 +112,37 @@ wget -O- ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15
 samtools faidx $HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
 ```
 
-Illumina provides the <a href="https://support.illumina.com/array/array_software/beeline.html">Beeline</a> software for free and this includes the AutoConvert executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, with the exception of one small mathmatical function (findClosestSitesToPointsAlongAxis) which is contained instead within a Windows PE32+ library (MathRoutines.dll). As this is <a href="http://www.mono-project.com/docs/advanced/embedding/">unmanaged code</a>, to be run on Linux with <a href="https://www.mono-project.com/">Mono</a> it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the <a href="http://doi.org/10.1093/bioinformatics/btm443">normalization</a> of the raw intensities when sampling 400 <a href="http://patft.uspto.gov/netacgi/nph-Parser?patentnumber=7035740">candidate homozygotes</a> before calling genotypes. For some unclear reasons, you will also need to separately download an additional Mono/.Net library (Heatmap.dll) from <a href="https://support.illumina.com/array/array_software/genomestudio.html">GenomeStudio</a> and include it in your binary directory as shown below, most likely due to differences in which Mono and .Net resolve library dependencies.
+Software Installation
+=====================
+
+Illumina provides the <a href="https://support.illumina.com/array/array_software/illumina-array-analysis-platform.html">Illumina Array Analysis Platform</a> software for free and this includes the iaap-cli command line executable which runs natively on Linux
+```
+mkdir -p $HOME/bin && cd /tmp
+wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/software/iaap/iaap-cli-linux-x64-1.1.0.tar.gz
+tar xzvf iaap-cli-linux-x64-1.1.0.tar.gz -C $HOME/bin/ iaap-cli-linux-x64-1.1.0/iaap-cli --strip-components=1
+```
+However, notice that in some older Linux machines this approach does not work
+
+Alternatively, Illumina provides the <a href="https://support.illumina.com/array/array_software/beeline.html">Beeline</a> software for free and this includes the AutoConvert.exe command line executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, with the exception of one small mathmatical function (findClosestSitesToPointsAlongAxis) which is contained instead within a Windows PE32+ library (MathRoutines.dll). As this is <a href="http://www.mono-project.com/docs/advanced/embedding/">unmanaged code</a>, to be run on Linux with <a href="https://www.mono-project.com/">Mono</a> it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the <a href="http://doi.org/10.1093/bioinformatics/btm443">normalization</a> of the raw intensities when sampling 400 <a href="http://patft.uspto.gov/netacgi/nph-Parser?patentnumber=7035740">candidate homozygotes</a> before calling genotypes. For some unclear reasons, you will also need to separately download an additional Mono/.Net library (Heatmap.dll) from <a href="https://support.illumina.com/array/array_software/genomestudio.html">GenomeStudio</a> and include it in your binary directory as shown below, most likely due to differences in which Mono and .Net resolve library dependencies
 ```
 mkdir -p $HOME/bin && cd /tmp
 wget https://support.illumina.com/content/dam/illumina-support/documents/downloads/software/beeline/autoconvert-software-v2-0-1-installer.zip
 unzip -o autoconvert-software-v2-0-1-installer.zip
-wine64 msiexec /i AutoConvertInstaller.msi WIXUI_DONTVALIDATEPATH="1"
-wget http://download.microsoft.com/download/E/2/1/E21644B5-2DF2-47C2-91BD-63C560427900/NDP452-KB2901907-x86-x64-AllOS-ENU.exe
-wine64 NDP452-KB2901907-x86-x64-AllOS-ENU.exe
+msiextract AutoConvertInstaller.msi
+cp -R Illumina/AutoConvert\ 2.0 $HOME/bin/autoconvert
+
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/software/genomestudio/genomestudio-software-v2-0-4-5-installer.zip
 unzip -o genomestudio-software-v2-0-4-5-installer.zip
-wine64 GenomeStudio-software-v2-0-4-5-installer/GenomeStudioInstaller.exe
-cp -R $HOME/.wine/drive_c/Program\ Files/Illumina/AutoConvert\ 2.0 $HOME/bin/autoconvert
-cp $HOME/.wine/drive_c/Program\ Files/Illumina/GenomeStudio\ 2.0/Heatmap.dll $HOME/bin/autoconvert/
+cabextract GenomeStudio-software-v2-0-4-5-installer/GenomeStudioInstaller.exe
+msiextract a0
+cp Illumina/GenomeStudio\ 2.0/Heatmap.dll $HOME/bin/autoconvert/
+
 wget https://raw.githubusercontent.com/freeseek/gtc2vcf/master/nearest_neighbor.c
 gcc -fPIC -shared -O2 -o $HOME/bin/autoconvert/libMathRoutines.dll.so nearest_neighbor.c
 ```
-If you do not succeed at installing AutoConvert and GenomeStudio using wine following the instructions above, you can always resort to install them using a Windows machine, copy the files on Linux, and then add the required Linux ELF64 library as described in the last steps above. Notice that this approach to run AutoConvert on Linux is <strong>not</strong> supported by Illumina
+If you fail to download the autoconvert software, contact the <a href="mailto:giulio.genovese@gmail.com">author</a> for troubleshooting. Notice that this approach to run AutoConvert on Linux is <strong>not</strong> supported by Illumina
 
-Affymetrix provides the <a href="http://www.affymetrix.com/support/developer/powertools/changelog/index.html">Analysis Power Tools (APT)</a> for free which allow to call genotypes from raw intensity data using an algorithm derived from <a href="http://tools.thermofisher.com/content/sfs/brochures/brlmmp_whitepaper.pdf">BRLMM-P</a>.
+Affymetrix provides the <a href="http://www.affymetrix.com/support/developer/powertools/changelog/index.html">Analysis Power Tools (APT)</a> for free which allow to call genotypes from raw intensity data using an algorithm derived from <a href="http://tools.thermofisher.com/content/sfs/brochures/brlmmp_whitepaper.pdf">BRLMM-P</a>
 ```
 mkdir -p $HOME/bin && cd /tmp
 wget https://downloads.thermofisher.com/Affymetrix_Softwares/APT_2.10.0/apt-2.10.0-x86_64-intel-linux.zip
@@ -140,13 +153,18 @@ chmod a+x $HOME/bin/apt-probeset-genotype
 Convert Illumina IDAT files to GTC files
 ========================================
 
-Once Mono and AutoConvert are properly installed on your system, run Illumina's proprietary GenCall algorithm on a single IDAT file pair
+Once iaap-cli is properly installed in your system, run Illumina's proprietary GenCall algorithm on multiple IDAT file pairs
 ```
-mono $HOME/bin/autoconvert/AutoConvert.exe $idat_green_file $path_to_output_folder $manifest_file $egt_file
+$HOME/bin/iaap-cli/iaap-cli gencall $bpm_file $egt_file $path_to_output_folder -f $path_to_idat_folder -g
+```
+
+Alternatively, once Mono and AutoConvert are properly installed on your system, run Illumina's proprietary GenCall algorithm on a single IDAT file pair
+```
+mono $HOME/bin/autoconvert/AutoConvert.exe $idat_green_file $path_to_output_folder $bpm_file $egt_file
 ```
 Make sure that the red IDAT file is in the same folder as the green IDAT file. Alternatively you can run on multiple IDAT file pairs
 ```
-mono $HOME/bin/autoconvert/AutoConvert.exe $path_to_idat_folder $path_to_output_folder $manifest_file $egt_file
+mono $HOME/bin/autoconvert/AutoConvert.exe $path_to_idat_folder $path_to_output_folder $bpm_file $egt_file
 ```
 Make sure that the IDAT files have the same name prefix as the IDAT folder name. The software might require up to 8GB of RAM to run. Illumina provides manifest (BPM) and cluster (EGT) files for their arrays <a href="https://support.illumina.com/array/downloads.html">here</a>. Notice that if you provide the wrong BPM file, you will get an error such as: `Normalization failed!  Unable to normalize!` and if you provide the wrong EGT file, you will get an error such as `System.Exception: Unrecoverable Error...Exiting! Unable to find manifest entry ######## in the cluster file!`
 
@@ -179,50 +197,32 @@ tar xzf data.tar.gz -C lib ./lib/x86_64-linux-gnu/libpng12.so.0.46.0 --strip-com
 ln -s libpng12.so.0.46.0 lib/libpng12.so.0
 /bin/rm lib{gdiplus_2.10-2,tiff4_3.9.5-1ubuntu1,exif12_0.6.20-1,jpeg8_8b-1,png12-0_1.2.46-3ubuntu1}_amd64.deb data.tar.gz
 ```
-After downloading the binaries, replace `mono` with `LD_LIBRARY_PATH="lib" mono` when running AutoConvert through Mono.
+After downloading the binaries, replace `mono` with `LD_LIBRARY_PATH="lib" mono` when running AutoConvert through Mono
 
 Convert Illumina GTC files to VCF
 =================================
 
-Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package. Reference strand determination is performed using Illumina's <a href="https://www.illumina.com/documents/products/technotes/technote_topbot.pdf">TOP/BOT</a> strand assignment in the manifest file. The gtc2vcf bcftools plugin is hundreds of times faster than Illumina's script and can be used to convert GTC files to VCF
+Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package. Reference strand determination is performed using Illumina's <a href="https://www.illumina.com/documents/products/technotes/technote_topbot.pdf">TOP/BOT</a> strand assignment in the manifest file. The gtc2vcf bcftools plugin is faster than Illumina's script and can be used to convert GTC files to VCF
 ```
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
-manifest_file="..."
+bpm_file="..."
+csv_file="..."
 egt_file="..."
 gtc_list_file="..."
 out="..."
-bcftools +gtc2vcf --no-version -Ou -b $manifest_file -e $egt_file -g $gtc_list_file -f $ref -x $out.sex | \
+bcftools +gtc2vcf \
+  --no-version -Ou \
+  -b $bpm_file \
+  -c $csv_file \
+  -e $egt_file \
+  -g $gtc_list_file \
+  -f $ref \
+  -x $out.sex | \
   bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
-  bcftools +fixref --no-version -Ou -- -f $ref -m top --flip-baf | \
   bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   bcftools index -f $out.bcf
 ```
-Notice that this will drop unlocalized variants and indels
-
-Convert Illumina GenomeStudio final report to VCF
-=================================================
-
-Alternatively, if a GenomeStudio final report in <a href="https://support.illumina.com/content/dam/illumina-support/documents/documentation/software_documentation/genomestudio/genomestudio-2-0/genomestudio-genotyping-module-v2-user-guide-11319113-01.pdf#page=67">matrix format</a> is provided instead, and it follows the following convention (Illumina does not share specifications for this file format):
-```
-Chromosome	Position	IlmnStrand	SNP	Name	SM.GType	SM.Score	SM.Theta	SM.R	SM.B Allele Freq	SM.Log R Ratio
-9	139906359	BOT	[T/C]	200003	AA	0.9299	0.029	1.300	0.0027	0.2150
-9	139926402	TOP	[A/G]	200006	AB	0.7877	0.435	2.675	0.4742	0.3024
-2	220084902	BOT	[T/C]	200047	AA	0.8612	0.083	0.476	0.0532	-0.1173
-2	220089685	TOP	[C/G]	200050	BB	0.8331	0.995	1.499	1.0000	0.3068
-```
-
-It can be converted into VCF format with the following command
-```
-ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
-genome_studio_file="..."
-out="..."
-bcftools +gtc2vcf --no-version -Ou --genome-studio $genome_studio_file -f $ref | \
-  bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
-  bcftools +fixref --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m top --flip-baf | \
-  bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
-  bcftools index -f $out.bcf
-```
-Notice that this will drop unlocalized variants, monomorphic variants, and indels
+Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Without the BPM manifest file normalized intensities cannot be computed. Without the CSV manifest file indel alleles cannot be inferred and will be dropped. If the EGT cluster file is provided, information about genotype cluster centers are included in the VCF.
 
 Convert Affymetrix CEL files to genotype calls
 ==============================================
@@ -231,7 +231,7 @@ Affymetrix provides a best practice workflow for genotyping data generated using
 ```
 dir="..."
 cel_list="..."
-$HOME/bin/apt-probeset-genotype \
+apt-probeset-genotype \
   --out-dir $dir \
   --read-models-brlmmp GenomeWideSNP_6.generic_prior.txt \
   --analysis-files-path . \
@@ -240,7 +240,7 @@ $HOME/bin/apt-probeset-genotype \
   --summaries \
   --write-models
 ```
-Affymetrix provides Library and NetAffx Annotation files for their arrays <a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a>.
+Affymetrix provides Library and NetAffx Annotation files for their arrays <a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a>
 
 As an example, the following commands will obtain the files necessary to run the genotyping for the Affymetrix SNP6 array:
 ```
@@ -252,7 +252,7 @@ unzip -o SNP6_supplemental_axiom_analysis_files.zip GenomeWideSNP_6.{generic_pri
 unzip -o GenomeWideSNP_6.na35.annot.csv.zip GenomeWideSNP_6.na35.annot.csv
 ```
 
-Note: If the program exits due to different chip types or probe counts with error message such as `Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWideEx_6'` then add the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem.
+Note: If the program exits due to different chip types or probe counts with error message such as `Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWideEx_6'` then add the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem
 
 Convert Affymetrix genotype calls and intensities to VCF
 ========================================================
@@ -263,7 +263,9 @@ ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_
 annot_file="..." # for example annot_file="GenomeWideSNP_6.na35.annot.csv"
 dir="..."
 out="..."
-bcftools +affy2vcf --no-version -Ou --fasta-ref $ref \
+bcftools +affy2vcf \
+  --no-version -Ou \
+  --fasta-ref $ref \
   --annot $annot_file \
   --sex $out.sex \
   --snp-posteriors $dir/AxiomGT1.snp-posteriors.txt \
@@ -272,12 +274,11 @@ bcftools +affy2vcf --no-version -Ou --fasta-ref $ref \
   --calls $dir/AxiomGT1.calls.txt \
   --confidences $dir/AxiomGT1.confidences.txt | \
   bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
-  bcftools +fixref --no-version -Ou -e 'REF="N" || ALT="N"' -- -f $ref -m swap --flip-baf | \
   bcftools norm --no-version -Ob -o $out.bcf -c x -f $ref && \
   bcftools index -f $out.bcf
 ```
 
-The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants.
+The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants
 
 Acknowledgements
 ================
