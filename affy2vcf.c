@@ -32,7 +32,7 @@
 #include "bcftools.h"
 #include "htslib/khash_str2int.h"
 
-#define VERSION "2019-08-30"
+#define AFFY2VCF_VERSION "2019-11-24"
 
 static inline char revnt(char nt)
 {
@@ -353,6 +353,8 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai)
         int len = faidx_seq_len(fai, seq);
         bcf_hdr_printf(hdr, "##contig=<ID=%s,length=%d>", seq, len);
     }
+    bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_A,Number=1,Type=Integer,Description=\"A allele\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_B,Number=1,Type=Integer,Description=\"B allele\">");
     bcf_hdr_append(hdr, "##INFO=<ID=PROBESET_ID,Number=1,Type=String,Description=\"Affymetrix probe set ID\">");
     bcf_hdr_append(hdr, "##INFO=<ID=meanDELTA_AA,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AA cluster\">");
     bcf_hdr_append(hdr, "##INFO=<ID=meanDELTA_AB,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AB cluster\">");
@@ -404,7 +406,7 @@ static void get_delta_size(const float *norm_x,
 
 // adjust cluster centers (using apt-probeset-genotype posteriors as priors)
 // similar to https://github.com/WGLab/PennCNV/blob/master/affy/bin/generate_affy_geno_cluster.pl
-static void adjust_clusters(const int32_t *gts,
+static void adjust_clusters(const int *gts,
                             const float *delta,
                             const float *size,
                             int n,
@@ -422,25 +424,24 @@ static void adjust_clusters(const int32_t *gts,
 
     for (int i=0; i<n; i++)
     {
-        if ( bcf_gt_is_missing(gts[2*i]) && bcf_gt_is_missing(gts[2*i+1]) ) continue;
-        switch ( bcf_gt_allele( gts[2*i] ) + bcf_gt_allele( gts[2*i+1] ) )
+        switch ( gts[i] )
         {
-            case 0:
+            case 0: // AA
                 cluster->aa_n_mean++;
                 cluster->aa_delta_mean += delta[i];
                 cluster->aa_size_mean += size[i];
                 break;
-            case 1:
+            case 1: // AB
                 cluster->ab_n_mean++;
                 cluster->ab_delta_mean += delta[i];
                 cluster->ab_size_mean += size[i];
                 break;
-            case 2:
+            case 2: // BB
                 cluster->bb_n_mean++;
                 cluster->bb_delta_mean += delta[i];
                 cluster->bb_size_mean += size[i];
                 break;
-            default:
+            default: // NC
                 break;
         }
     }
@@ -497,23 +498,30 @@ static void get_baf_lrr(const float *delta,
     }
 }
 
-static void process(htsFile *out_fh,
-                    bcf_hdr_t *hdr,
+static void process(faidx_t *fai,
                     const annot_t *annot,
                     const snp_posteriors_t *snp_posteriors,
                     const char *summary_fn,
                     const char *calls_fn,
                     const char *confidences_fn,
+                    htsFile *out_fh,
+                    bcf_hdr_t *hdr,
                     int flags)
 {
     kstring_t str = {0, 0, NULL};
     int moff = 0, *off = NULL, ncols;
+
+    char reference_base[] = "\0\0";
+    char allele_a[] = "\0\0";
+    char allele_b[] = "\0\0";
 
     htsFile *summary_fp = unheader(summary_fn, &str);
     ncols = ksplit_core(str.s, '\t', &moff, &off);
     if ( strcmp(&str.s[off[0]], "probeset_id") ) error("Malformed first line from summary file: %s\n%s\n", summary_fn, str.s);
 
     for (int i=1; i<ncols; i++) bcf_hdr_add_sample(hdr, &str.s[off[i]]);
+    if ( ( flags & ADJUST_CLUSTERS ) && ( bcf_hdr_nsamples(hdr) < 100 ) )
+        fprintf(stderr, "Warning: adjusting clusters with %d sample(s) is not recommended\n", bcf_hdr_nsamples(hdr));
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
     if ( bcf_hdr_sync( hdr ) < 0 ) error_errno("[%s] Failed to update header", __func__); // updates the number of samples
 
@@ -526,7 +534,8 @@ static void process(htsFile *out_fh,
     if ( strcmp(&str.s[off[0]], "probeset_id") ) error("Malformed first line from calls file: %s\n%s\n", calls_fn, str.s);
 
     bcf1_t *rec = bcf_init();
-    int32_t *gts = (int32_t *)malloc(bcf_hdr_nsamples(hdr)* 2 * sizeof(int32_t));
+    int *gts = (int *)malloc(bcf_hdr_nsamples(hdr) * sizeof(int));
+    int32_t *gt_arr = (int32_t *)malloc(bcf_hdr_nsamples(hdr)* 2 * sizeof(int32_t));
     float *conf_arr = (float *)malloc(bcf_hdr_nsamples(hdr) * sizeof(float));
     float *norm_x_arr = (float *)malloc(bcf_hdr_nsamples(hdr) * sizeof(float));
     float *norm_y_arr = (float *)malloc(bcf_hdr_nsamples(hdr) * sizeof(float));
@@ -545,21 +554,69 @@ static void process(htsFile *out_fh,
         record_t *record = &annot->records[idx];
         bcf_clear(rec);
         rec->n_sample = bcf_hdr_nsamples(hdr);
-        bcf_update_alleles_str(hdr, rec, "N,N");
         rec->rid = record->chrom;
         rec->pos = record->pos - 1;
         if (record->dbsnp) bcf_update_id(hdr, rec, record->dbsnp);
         else bcf_update_id(hdr, rec, &str.s[off[0]]);
+
         if ( record->strand == '+' )
         {
-            rec->d.allele[0][0] = record->allele_a;
-            rec->d.allele[1][0] = record->allele_b;
+            allele_a[0] = record->allele_a;
+            allele_b[0] = record->allele_b;
         }
         else if ( record->strand == '-' )
         {
-            rec->d.allele[0][0] = revnt(record->allele_a);
-            rec->d.allele[1][0] = revnt(record->allele_b);
+            allele_a[0] = revnt(record->allele_a);
+            allele_b[0] = revnt(record->allele_b);
         }
+        int len;
+        char *genomic_seq = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
+        reference_base[0] = genomic_seq[0];
+        free(genomic_seq);
+        int allele_a_idx, allele_b_idx;
+        if ( reference_base[0] == allele_a[0] )
+        {
+            allele_a_idx = 0;
+            allele_b_idx = 1;
+        }
+        else if ( reference_base[0] == allele_b[0] )
+        {
+            allele_a_idx = 1;
+            allele_b_idx = 0;
+        }
+        else
+        {
+            allele_a_idx = 1;
+            allele_b_idx = 2;
+        }
+        const char *alleles[3];
+        int n_alleles;
+        switch ( allele_b_idx )
+        {
+            case 0:
+                alleles[0] = allele_b;
+                alleles[1] = allele_a;
+                n_alleles = 2;
+                break;
+            case 1:
+                alleles[0] = allele_a;
+                alleles[1] = allele_b;
+                n_alleles = 2;
+                break;
+            case 2:
+                alleles[0] = reference_base;
+                alleles[1] = allele_a;
+                alleles[2] = allele_b;
+                n_alleles = 3;
+                break;
+            default:
+                error("Unable to process marker %s\n", &str.s[off[0]]);
+                break;
+        }
+        bcf_update_alleles(hdr, rec, alleles, n_alleles);
+        bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
+        bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
+
         bcf_update_info_string(hdr, rec, "PROBESET_ID", &str.s[off[0]]);
         bcf_update_info_float(hdr, rec, "meanDELTA_AA", &cluster->aa_delta_mean, 1);
         bcf_update_info_float(hdr, rec, "meanDELTA_AB", &cluster->ab_delta_mean, 1);
@@ -587,24 +644,24 @@ static void process(htsFile *out_fh,
         // read genotypes
         for (int i=1; i<ncols; i++)
         {
-            int gt = strtol( &str.s[off[i]], &tmp, 10 );
-            switch ( gt )
+            gts[i-1] = strtol( &str.s[off[i]], &tmp, 10 );
+            switch ( gts[i-1] )
             {
-                case -1:
-                    gts[2*(i-1)] = bcf_gt_missing;
-                    gts[2*(i-1)+1] = bcf_gt_missing;
+                case -1: // NC
+                    gt_arr[2*(i-1)] = bcf_gt_missing;
+                    gt_arr[2*(i-1)+1] = bcf_gt_missing;
                     break;
-                case 0:
-                    gts[2*(i-1)] = bcf_gt_unphased(0);
-                    gts[2*(i-1)+1] = bcf_gt_unphased(0);
+                case 0: // AA
+                    gt_arr[2*(i-1)] = bcf_gt_unphased(allele_a_idx);
+                    gt_arr[2*(i-1)+1] = bcf_gt_unphased(allele_a_idx);
                     break;
-                case 1:
-                    gts[2*(i-1)] = bcf_gt_unphased(0);
-                    gts[2*(i-1)+1] = bcf_gt_unphased(1);
+                case 1: // AB
+                    gt_arr[2*(i-1)] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx ) / 2 );
+                    gt_arr[2*(i-1)+1] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx + 1 ) / 2 );
                     break;
-                case 2:
-                    gts[2*(i-1)] = bcf_gt_unphased(1);
-                    gts[2*(i-1)+1] = bcf_gt_unphased(1);
+                case 2: // BB
+                    gt_arr[2*(i-1)] = bcf_gt_unphased(allele_b_idx);
+                    gt_arr[2*(i-1)+1] = bcf_gt_unphased(allele_b_idx);
                     break;
                 default:
                     error("Genotype for probeset ID %s is malformed: %s\n", &str.s[off[0]], &str.s[off[i]]);
@@ -631,7 +688,7 @@ static void process(htsFile *out_fh,
         if ( flags & ADJUST_CLUSTERS ) adjust_clusters(gts, delta_arr, size_arr, bcf_hdr_nsamples(hdr), cluster);
         get_baf_lrr(delta_arr, size_arr, bcf_hdr_nsamples(hdr), cluster, baf_arr, lrr_arr);
 
-        bcf_update_genotypes(hdr, rec, gts, bcf_hdr_nsamples(hdr)*2);
+        bcf_update_genotypes(hdr, rec, gt_arr, bcf_hdr_nsamples(hdr)*2);
         bcf_update_format_float(hdr, rec, "CONF", conf_arr, bcf_hdr_nsamples(hdr));
         bcf_update_format_float(hdr, rec, "NORMX", norm_x_arr, bcf_hdr_nsamples(hdr));
         bcf_update_format_float(hdr, rec, "NORMY", norm_y_arr, bcf_hdr_nsamples(hdr));
@@ -643,6 +700,7 @@ static void process(htsFile *out_fh,
         if ( snp_posteriors ) cluster++;
     }
     free(gts);
+    free(gt_arr);
     free(conf_arr);
     free(norm_x_arr);
     free(norm_y_arr);
@@ -672,13 +730,14 @@ static const char *usage_text(void)
 {
     return
         "\n"
-        "About: convert Affymetrix apt-probeset-genotype output files to VCF. ("VERSION")\n"
+        "About: convert Affymetrix apt-probeset-genotype output files to VCF. (version "AFFY2VCF_VERSION" https://github.com/freeseek/gtc2vcf)\n"
         "\n"
         "Usage: bcftools +affy2vcf [options] --fasta-ref <fasta> --annot <file> --snp-posteriors <file>\n"
-        "                                         --summary <file> --calls <file> --confidences <file> \n"
+        "                                    --summary <file> --calls <file> --confidences <file> \n"
         "\n"
         "Plugin options:\n"
         "    -f, --fasta-ref <file>                     reference sequence in fasta format\n"
+        "        --set-cache-size <int>                 select fasta cache size in bytes\n"
         "        --annot <file>                         probeset annotation file\n"
         "        --snp-posteriors <snp-posteriors.txt>  apt-probeset-genotype snp-posteriors output\n"
         "        --summary <summary.txt>                apt-probeset-genotype summary output\n"
@@ -707,6 +766,7 @@ int run(int argc, char *argv[])
     char *output_fname = "-";
     int flags = 0;
     int output_type = FT_VCF;
+    int cache_size = 0;
     int n_threads = 0;
     int record_cmd_line = 1;
     faidx_t *fai = NULL;
@@ -714,13 +774,14 @@ int run(int argc, char *argv[])
     static struct option loptions[] =
     {
         {"fasta-ref", required_argument, NULL, 'f'},
-        {"annot", required_argument, NULL, 1},
-        {"snp-posteriors", required_argument, NULL, 2},
-        {"summary", required_argument, NULL, 3},
-        {"report", required_argument, NULL, 4},
-        {"calls", required_argument, NULL, 5},
-        {"confidences", required_argument, NULL, 6},
-        {"adjust-clusters", no_argument, NULL, 7},
+        {"set-cache-size", required_argument, NULL, 1},
+        {"annot", required_argument, NULL, 2},
+        {"snp-posteriors", required_argument, NULL, 3},
+        {"summary", required_argument, NULL, 4},
+        {"report", required_argument, NULL, 5},
+        {"calls", required_argument, NULL, 6},
+        {"confidences", required_argument, NULL, 7},
+        {"adjust-clusters", no_argument, NULL, 10},
         {"sex", required_argument, NULL, 'x'},
         {"output", required_argument, NULL, 'o'},
         {"output-type", required_argument, NULL, 'O'},
@@ -744,14 +805,15 @@ int run(int argc, char *argv[])
                       }
                       break;
             case 'f': ref_fname = optarg; break;
+            case  1 : cache_size = strtol(optarg, NULL, 0); break;
             case 'x': sex_fname = optarg; break;
-            case  1 : annot_fname = optarg; break;
-            case  2 : snp_posteriors_fname = optarg; break;
-            case  3 : summary_fname = optarg; break;
-            case  4 : report_fname = optarg; break;
-            case  5 : calls_fname = optarg; break;
-            case  6 : confidences_fname = optarg; break;
-            case  7 : flags |= ADJUST_CLUSTERS; break;
+            case  2 : annot_fname = optarg; break;
+            case  3 : snp_posteriors_fname = optarg; break;
+            case  4 : summary_fname = optarg; break;
+            case  5 : report_fname = optarg; break;
+            case  6 : calls_fname = optarg; break;
+            case  7 : confidences_fname = optarg; break;
+            case  10 : flags |= ADJUST_CLUSTERS; break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
             case  8 : record_cmd_line = 0; break;
             case 'h':
@@ -769,8 +831,8 @@ int run(int argc, char *argv[])
 
     fai = fai_load(ref_fname);
     if ( !fai ) error("Could not load the reference %s\n", ref_fname);
+    if ( cache_size ) fai_set_cache_size( fai, cache_size );
     bcf_hdr_t *hdr = hdr_init(fai);
-    fai_destroy(fai);
 
     if (record_cmd_line) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+affy2vcf");
     htsFile *out_fh = hts_open(output_fname, hts_bcf_wmode(output_type));
@@ -795,8 +857,9 @@ int run(int argc, char *argv[])
     }
 
     fprintf(stderr, "Reading apt-probeset-genotype summary %s, calls %s, and confidences %s files\n", summary_fname, calls_fname, confidences_fname);
-    process(out_fh, hdr, annot, snp_posteriors, summary_fname, calls_fname, confidences_fname, flags);
+    process(fai, annot, snp_posteriors, summary_fname, calls_fname, confidences_fname, out_fh, hdr, flags);
 
+    fai_destroy(fai);
     snp_posteriors_destroy(snp_posteriors);
     annot_destroy(annot);
     bcf_hdr_destroy(hdr);
