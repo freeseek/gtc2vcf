@@ -202,7 +202,7 @@ After downloading the binaries, replace `mono` with `LD_LIBRARY_PATH="lib" mono`
 Convert Illumina GTC files to VCF
 =================================
 
-Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package. Reference strand determination is performed using Illumina's <a href="https://www.illumina.com/documents/products/technotes/technote_topbot.pdf">TOP/BOT</a> strand assignment in the manifest file. The gtc2vcf bcftools plugin is faster than Illumina's script and can be used to convert GTC files to VCF
+Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package.
 ```
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 bpm_file="..."
