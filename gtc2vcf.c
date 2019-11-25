@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define VERSION "2019-08-12"
+#define GTC2VCF_VERSION "2019-11-24"
 
 #define FT_GS (1<<4)
 
@@ -454,10 +454,7 @@ static void idat_to_csv(const idat_t *idat, FILE *stream)
  ****************************************/
 
 // see BeadPoolManifest.py from https://github.com/Illumina/BeadArrayFiles
-
-#define UNKNOWN 0
-#define PLUS 1
-#define MINUS 2
+// see also https://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html
 
 typedef struct
 {
@@ -688,7 +685,7 @@ static void bpm_to_csv(const bpm_t *bpm, FILE *stream)
     for (int i=0; i<bpm->num_loci; i++)
     {
         LocusEntry *locus_entry = &bpm->locus_entries[i];
-        fprintf(stream, "%d,%d,%s,%s,%s,%s,%010d,,%010d,,%s,%s,%s,%s,%s,%s,,%s,,,,%d,%d,%d,%f,%f,%f,%f,%s\n",
+        fprintf(stream, "%d,%d,%s,%s,%s,%s,%010d,%-s,%010d,%-s,%s,%s,%s,%s,%s,%s,%s,%s,%-s,%-s,%d,%d,%d,%d,%f,%f,%f,%f,%s\n",
             locus_entry->index,
             locus_entry->norm_id,
             locus_entry->ilmn_id,
@@ -696,14 +693,20 @@ static void bpm_to_csv(const bpm_t *bpm, FILE *stream)
             locus_entry->ilmn_strand,
             locus_entry->snp,
             locus_entry->address_a,
+            locus_entry->allele_a_probe_seq,
             locus_entry->address_b,
+            locus_entry->allele_b_probe_seq,
             locus_entry->genome_build,
             locus_entry->chrom,
             locus_entry->map_info,
             locus_entry->ploidy,
             locus_entry->species,
             locus_entry->source,
+            locus_entry->source_version,
             locus_entry->source_strand,
+            locus_entry->source_seq,
+            locus_entry->top_genomic_seq,
+            locus_entry->beadset_id,
             locus_entry->exp_clusters,
             locus_entry->intensity_only,
             locus_entry->assay_type,
@@ -805,10 +808,11 @@ static uint8_t get_assay_type(const char *allele_a_probe_seq,
                               const char *allele_b_probe_seq,
                               const char *source_seq)
 {
-    if (!allele_b_probe_seq) return 0;
+    if ( !allele_a_probe_seq || !source_seq ) return 0xFF;
+    if ( !allele_b_probe_seq ) return 0;
     char *ptr1 = strchr(source_seq, '[');
     char *ptr2 = strchr(source_seq, ']');
-    if (!ptr1 || !ptr2) error("Source sequence is malformed: %s\n", source_seq);
+    if ( !ptr1 || !ptr2 ) error("Source sequence is malformed: %s\n", source_seq);
     char trail1 = *(ptr1-1);
     char trail2 = *(ptr2+1);
     if ( (trail1 == 'a' || trail1 == 'A' || trail1 == 't' || trail1 == 'T') && (trail2 == 'a' || trail2 == 'A' || trail2 == 't' || trail2 == 'T') ) return 1;
@@ -819,30 +823,77 @@ static uint8_t get_assay_type(const char *allele_a_probe_seq,
     error("Unable to retrieve assay type: %s %s\n", allele_a_probe_seq, source_seq);
 }
 
-static bpm_t *bpm_csv_init(const char *fn)
+static void locus_merge(LocusEntry *dest, LocusEntry *src)
 {
-    bpm_t *bpm = (bpm_t *)calloc(1, sizeof(bpm_t));
+    if ( src->version ) dest->version = src->version;
+    if ( src->norm_id != 0xFF ) dest->norm_id = src->norm_id;
+    if ( strcmp(dest->ilmn_id, src->ilmn_id) ) error("BPM and CSV manifests have conflicting IDs: %s and %s\n", dest->ilmn_id, src->ilmn_id);
+    else { free(dest->ilmn_id); dest->ilmn_id = src->ilmn_id; }
+    if ( src->name ) { free(dest->name); dest->name = src->name; }
+    if ( src->index != 0 ) dest->index = src->index;
+    if ( src->ilmn_strand ) { free(dest->ilmn_strand); dest->ilmn_strand = src->ilmn_strand; }
+    if ( src->snp ) { free(dest->snp); dest->snp = src->snp; }
+    if ( src->chrom ) { free(dest->chrom); dest->chrom = src->chrom; }
+    if ( src->ploidy ) { free(dest->ploidy); dest->ploidy = src->ploidy; }
+    if ( src->species ) { free(dest->species); dest->species = src->species; }
+    if ( src->map_info ) { free(dest->map_info); dest->map_info = src->map_info; }
+    if ( src->unknown_strand ) { free(dest->unknown_strand); dest->unknown_strand = src->unknown_strand; }
+    if ( src->address_a != 0 ) dest->address_a = src->address_a;
+    if ( src->allele_a_probe_seq ) { free(dest->allele_a_probe_seq); dest->allele_a_probe_seq = src->allele_a_probe_seq; }
+    if ( src->address_b != 0 ) dest->address_b = src->address_b;
+    if ( src->allele_b_probe_seq ) { free(dest->allele_b_probe_seq); dest->allele_b_probe_seq = src->allele_b_probe_seq; }
+    if ( src->genome_build ) { free(dest->genome_build); dest->genome_build = src->genome_build; }
+    if ( src->source ) { free(dest->source); dest->source = src->source; }
+    if ( src->source_version ) { free(dest->source_version); dest->source_version = src->source_version; }
+    if ( src->source_strand ) { free(dest->source_strand); dest->source_strand = src->source_strand; }
+    if ( src->source_seq ) { free(dest->source_seq); dest->source_seq = src->source_seq; }
+    if ( src->top_genomic_seq ) { free(dest->top_genomic_seq); dest->top_genomic_seq = src->top_genomic_seq; }
+    if ( src->beadset_id ) dest->beadset_id = src->beadset_id;
+    if ( src->exp_clusters ) dest->exp_clusters = src->exp_clusters;
+    if ( src->intensity_only ) dest->intensity_only = src->intensity_only;
+    if ( src->assay_type != 0xFF ) dest->assay_type = src->assay_type;
+    if ( src->frac_a ) dest->frac_a = src->frac_a;
+    if ( src->frac_c ) dest->frac_c = src->frac_c;
+    if ( src->frac_g ) dest->frac_g = src->frac_g;
+    if ( src->frac_t ) dest->frac_t = src->frac_t;
+    if ( src->ref_strand ) { free(dest->ref_strand); dest->ref_strand = src->ref_strand; }
+}
+
+// this line will read a CSV file and if a BPM object is provided it will fill it rather than create a new one
+static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm)
+{
+    int bpm_available = bpm != NULL;
+    if ( !bpm_available ) bpm = (bpm_t *)calloc(1, sizeof(bpm_t));
+    int bpm_prev_num_loci = bpm->num_loci;
+
+    free(bpm->fn);
     bpm->fn = strdup(fn);
+    if ( bpm->fp && hclose(bpm->fp) < 0 ) error("Error closing BPM file\n");
     bpm->fp = hopen(bpm->fn, "r");
     if ( bpm->fp == NULL ) error("Could not open %s: %s\n", bpm->fn, strerror(errno));
     if ( is_gzip(bpm->fp) ) error("File %s is gzip compressed and currently cannot be sought\n", bpm->fn);
 
     kstring_t str = {0, 0, NULL};
     if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Empty file: %s\n", bpm->fn);
-    if ( strcmp(str.s, "Illumina, Inc.") ) error("Header of file %s is incorrect: %s\n", bpm->fn, str.s);
+    if ( strncmp(str.s, "Illumina, Inc.", 14) )
+        error("Header of file %s is incorrect: %s\n", bpm->fn, str.s);
     char *tmp = NULL;
     size_t prev = 0;
-    while ( strcmp(str.s + prev, "[Assay]") )
+    while ( strncmp(str.s + prev, "[Assay]", 7) )
     {
-        if ( strncmp(str.s + prev, "Descriptor File Name,", 21) == 0 ) bpm->manifest_name = strdup(str.s + prev + 21);
+        if ( strncmp(str.s + prev, "Descriptor File Name,", 21) == 0 ) { free(bpm->manifest_name); bpm->manifest_name = strdup(str.s + prev + 21); }
         else if ( strncmp(str.s + prev, "Loci Count ,", 12) == 0 ) bpm->num_loci = (int)strtol(str.s + prev + 12, &tmp, 0);
         kputc('\n', &str);
         prev = str.l;
         if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Error reading from file: %s\n", bpm->fn);
     }
     if ( bpm->num_loci == 0 ) error("Could not understand number of loci from header of manifest file %s\n", bpm->fn);
+    else if ( bpm_available && bpm_prev_num_loci != bpm->num_loci )
+      error("BPM manifest file has %d loci while CSV manifest file %s has %d loci\n", bpm_prev_num_loci, bpm->fn, bpm->num_loci);
     int moff = 0, *off = NULL;
+    for (int i=0; i<bpm->m_header; i++) free(bpm->header[i]);
     bpm->m_header = ksplit_core(str.s, '\n', &moff, &off);
+    free(bpm->header);
     bpm->header = (char **)malloc(bpm->m_header * sizeof(char *));
     for (int i=0; i<bpm->m_header; i++) bpm->header[i] = strdup(&str.s[off[i]]);
     free(off);
@@ -881,7 +932,7 @@ static bpm_t *bpm_csv_init(const char *fn)
     tsv_register(tsv, "Frac T", tsv_read_float, &locus_entry.frac_t);
     tsv_register(tsv, "RefStrand", tsv_read_string, &locus_entry.ref_strand);
 
-    bpm->locus_entries = (LocusEntry *)malloc(bpm->num_loci * sizeof(LocusEntry));
+    if ( !bpm_available ) bpm->locus_entries = (LocusEntry *)malloc(bpm->num_loci * sizeof(LocusEntry));
     for (int i=0; i<bpm->num_loci; i++)
     {
         memset(&locus_entry, 0, sizeof(LocusEntry));
@@ -892,11 +943,17 @@ static bpm_t *bpm_csv_init(const char *fn)
         locus_entry.assay_type = get_assay_type(locus_entry.allele_a_probe_seq, locus_entry.allele_b_probe_seq, locus_entry.source_seq);
         int idx = locus_entry.index ? locus_entry.index - 1 : i;
         if ( idx < 0 || idx >= bpm->num_loci ) error("Locus entry index %d is out of boundaries\n", idx);
-        memcpy(&bpm->locus_entries[ idx ], &locus_entry, sizeof(LocusEntry));
+        if ( !bpm_available ) memcpy(&bpm->locus_entries[ idx ], &locus_entry, sizeof(LocusEntry));
+        else locus_merge(&bpm->locus_entries[ idx ], &locus_entry);
     }
+    tsv_destroy(tsv);
     free(str.s);
 
-    if ( norm_id == 0 ) bpm->norm_lookups = bpm_norm_lookups(bpm);
+    if ( norm_id == 0 )
+    {
+        free(bpm->norm_lookups);
+        bpm->norm_lookups = bpm_norm_lookups(bpm);
+    }
 
     return bpm;
 }
@@ -1625,73 +1682,249 @@ static inline void get_intensities(gtc_t *gtc,
     }
 }
 
-static void adjust_clusters(const int32_t *gts,
+static void adjust_clusters(const uint8_t *gts,
                             const float *ilmn_theta,
                             const float *ilmn_r,
                             int n,
-                            const ClusterRecord *cluster_record,
-                            float *baf,
-                            float *lrr)
+                            ClusterRecord *cluster_record)
 {
-    ClusterRecord adj_cluster_record;
-    adj_cluster_record.aa_cluster_stats.N = cluster_record->aa_cluster_stats.N;
-    adj_cluster_record.ab_cluster_stats.N = cluster_record->ab_cluster_stats.N;
-    adj_cluster_record.bb_cluster_stats.N = cluster_record->bb_cluster_stats.N;
-    adj_cluster_record.aa_cluster_stats.theta_mean = cluster_record->aa_cluster_stats.theta_mean * ((float)cluster_record->aa_cluster_stats.N + 0.2f);
-    adj_cluster_record.ab_cluster_stats.theta_mean = cluster_record->ab_cluster_stats.theta_mean * ((float)cluster_record->ab_cluster_stats.N + 0.2f);
-    adj_cluster_record.bb_cluster_stats.theta_mean = cluster_record->bb_cluster_stats.theta_mean * ((float)cluster_record->bb_cluster_stats.N + 0.2f);
-    adj_cluster_record.aa_cluster_stats.r_mean = cluster_record->aa_cluster_stats.r_mean * ((float)cluster_record->aa_cluster_stats.N + 0.2f);
-    adj_cluster_record.ab_cluster_stats.r_mean = cluster_record->ab_cluster_stats.r_mean * ((float)cluster_record->ab_cluster_stats.N + 0.2f);
-    adj_cluster_record.bb_cluster_stats.r_mean = cluster_record->bb_cluster_stats.r_mean * ((float)cluster_record->bb_cluster_stats.N + 0.2f);
+    cluster_record->aa_cluster_stats.N = 0;
+    cluster_record->ab_cluster_stats.N = 0;
+    cluster_record->bb_cluster_stats.N = 0;
+    cluster_record->aa_cluster_stats.theta_mean *= 0.2f;
+    cluster_record->ab_cluster_stats.theta_mean *= 0.2f;
+    cluster_record->bb_cluster_stats.theta_mean *= 0.2f;
+    cluster_record->aa_cluster_stats.r_mean *= 0.2f;
+    cluster_record->ab_cluster_stats.r_mean *= 0.2f;
+    cluster_record->bb_cluster_stats.r_mean *= 0.2f;
 
     for (int i=0; i<n; i++)
     {
-        if ( bcf_gt_is_missing(gts[2*i]) && bcf_gt_is_missing(gts[2*i+1]) ) continue;
-        switch ( bcf_gt_allele( gts[2*i] ) + bcf_gt_allele( gts[2*i+1] ) )
+        switch ( gts[i] )
         {
-            case 0:
-                adj_cluster_record.aa_cluster_stats.N++;
-                adj_cluster_record.aa_cluster_stats.theta_mean += ilmn_theta[i];
-                adj_cluster_record.aa_cluster_stats.r_mean += ilmn_r[i];
+            case 1: // AA
+                cluster_record->aa_cluster_stats.N++;
+                cluster_record->aa_cluster_stats.theta_mean += ilmn_theta[i];
+                cluster_record->aa_cluster_stats.r_mean += ilmn_r[i];
                 break;
-            case 1:
-                adj_cluster_record.ab_cluster_stats.N++;
-                adj_cluster_record.ab_cluster_stats.theta_mean += ilmn_theta[i];
-                adj_cluster_record.ab_cluster_stats.r_mean += ilmn_r[i];
+            case 2: // AB
+                cluster_record->ab_cluster_stats.N++;
+                cluster_record->ab_cluster_stats.theta_mean += ilmn_theta[i];
+                cluster_record->ab_cluster_stats.r_mean += ilmn_r[i];
                 break;
-            case 2:
-                adj_cluster_record.bb_cluster_stats.N++;
-                adj_cluster_record.bb_cluster_stats.theta_mean += ilmn_theta[i];
-                adj_cluster_record.bb_cluster_stats.r_mean += ilmn_r[i];
+            case 3: // BB
+                cluster_record->bb_cluster_stats.N++;
+                cluster_record->bb_cluster_stats.theta_mean += ilmn_theta[i];
+                cluster_record->bb_cluster_stats.r_mean += ilmn_r[i];
                 break;
-            default:
+            default: // NC
                 break;
         }
     }
 
-    adj_cluster_record.aa_cluster_stats.theta_mean /= ((float)adj_cluster_record.aa_cluster_stats.N + 0.2f);
-    adj_cluster_record.ab_cluster_stats.theta_mean /= ((float)adj_cluster_record.ab_cluster_stats.N + 0.2f);
-    adj_cluster_record.bb_cluster_stats.theta_mean /= ((float)adj_cluster_record.bb_cluster_stats.N + 0.2f);
-    adj_cluster_record.aa_cluster_stats.r_mean /= ((float)adj_cluster_record.aa_cluster_stats.N + 0.2f);
-    adj_cluster_record.ab_cluster_stats.r_mean /= ((float)adj_cluster_record.ab_cluster_stats.N + 0.2f);
-    adj_cluster_record.bb_cluster_stats.r_mean /= ((float)adj_cluster_record.bb_cluster_stats.N + 0.2f);
+    cluster_record->aa_cluster_stats.theta_mean /= ((float)cluster_record->aa_cluster_stats.N + 0.2f);
+    cluster_record->ab_cluster_stats.theta_mean /= ((float)cluster_record->ab_cluster_stats.N + 0.2f);
+    cluster_record->bb_cluster_stats.theta_mean /= ((float)cluster_record->bb_cluster_stats.N + 0.2f);
+    cluster_record->aa_cluster_stats.r_mean /= ((float)cluster_record->aa_cluster_stats.N + 0.2f);
+    cluster_record->ab_cluster_stats.r_mean /= ((float)cluster_record->ab_cluster_stats.N + 0.2f);
+    cluster_record->bb_cluster_stats.r_mean /= ((float)cluster_record->bb_cluster_stats.N + 0.2f);
+}
+
+/****************************************
+ * INDEL IMPLEMENTATION                 *
+ ****************************************/
+
+// see BPMRecord.py from https://github.com/Illumina/GTCtoVCF
+
+static inline int is_indel(const LocusEntry *locusentry)
+{
+    return locusentry->snp[1] == 'D' || locusentry->snp[3] == 'D';
+}
+
+static inline void strupper(char *str) {
+    char *s = str;
+    while (*s) {
+        *s = toupper((unsigned char) *s);
+        s++;
+     }
+}
+
+static inline char complement(char c)
+{
+    switch(toupper(c))
+    {
+        case 'A': return 'T';
+        case 'C': return 'G';
+        case 'G': return 'C';
+        case 'T': return 'A';
+        case 'N': return 'N';
+        case 'R': return 'Y';
+        case 'Y': return 'R';
+        case 'S': return 'S';
+        case 'W': return 'W';
+        case 'K': return 'M';
+        case 'M': return 'K';
+        case 'B': return 'V';
+        case 'D': return 'H';
+        case 'H': return 'D';
+        case 'V': return 'B';
+        default:
+            error("Sequence nucleotide character %c is not in IUPAC notation\n", c);
+    }
+}
+
+static void reverse_complement(char *str)
+{
+    size_t len = strlen(str);
+    for (size_t i=0; i<len/2; i++)
+    {
+        char tmp = str[i];
+        str[i] = complement( str[len-i-1] );
+        str[len-i-1] = complement( tmp );
+    }
+    if (len % 2 == 1) str[len/2] = complement( str[len/2] );
+}
+
+#define NUC_A (1<<0)
+#define NUC_C (1<<1)
+#define NUC_G (1<<2)
+#define NUC_T (1<<3)
+
+static inline int degeneracy(char c)
+{
+    switch(toupper(c))
+    {
+        case 'A': return NUC_A;
+        case 'C': return NUC_C;
+        case 'G': return NUC_G;
+        case 'T': return NUC_T;
+        case 'N': return NUC_A | NUC_C | NUC_G | NUC_T;
+        case 'R': return NUC_A || NUC_G;
+        case 'Y': return NUC_C || NUC_T;
+        case 'S': return NUC_C || NUC_G;
+        case 'W': return NUC_A || NUC_T;
+        case 'K': return NUC_G || NUC_T;
+        case 'M': return NUC_A || NUC_C;
+        case 'B': return NUC_C || NUC_G || NUC_T;
+        case 'D': return NUC_A || NUC_G || NUC_T;
+        case 'H': return NUC_A || NUC_C || NUC_T;
+        case 'V': return NUC_A || NUC_C || NUC_G;
+        default:
+            error("Sequence nucleotide character %c is not in IUPAC notation\n", c);
+    }
+}
+
+static int max_suffix_match(const char *str1, const char *str2, size_t str1_len, size_t str2_len)
+{
+    int ret = 0;
+    for (size_t i=str1_len, j=str2_len; i > 0 && j > 0; i--, j--)
+    {
+        if ( degeneracy(str1[i-1]) & degeneracy(str2[j-1]) )
+            ret++;
+        else
+        {
+            return ret;
+        }
+    }
+    return ret;
+}
+
+static int max_prefix_match(const char *str1, const char *str2, size_t str1_len, size_t str2_len)
+{
+    int ret = 0;
+    for (size_t i=0, j=0; i < str1_len && j < str2_len; i++, j++)
+    {
+        if ( degeneracy(str1[i]) & degeneracy(str2[j]) )
+            ret++;
+        else
+            return ret;
+    }
+    return ret;
+}
+
+typedef struct
+{
+    char *five_prime;
+    const char *indel;
+    const char *three_prime;
+    const char *end;
+}
+indel_t;
+
+static int inline five_prime_len(indel_t *self) { return (int)(self->indel - self->five_prime); }
+static int inline indel_len(indel_t *self) { return (int)(self->three_prime - self->indel); }
+static int inline three_prime_len(indel_t *self) { return (int)(self->end - self->three_prime); }
+
+static void indel_reverse_complement(indel_t *self)
+{
+    reverse_complement(self->five_prime);
+    int three_prime_n = three_prime_len(self);
+    int indel_n = indel_len(self);
+    self->indel = self->five_prime + three_prime_n;
+    self->three_prime = self->indel + indel_n;
+}
+
+static void indel_left_shift(indel_t *self)
+{
+    while( self->indel > self->five_prime && *(self->indel-1) == *(self->three_prime-1) )
+    {
+        self->indel--;
+        self->three_prime--;
+    }
+}
+
+static indel_t indel_source_seq_init(const char *source_seq, int generate_reverse_complement)
+{
+    indel_t self;
+    const char *left_pos = strchr(source_seq, '/');
+    if ( *(left_pos-1) != '-' ) error("Not an indel: %s\n", source_seq);
+    const char *right_pos = strchr(source_seq, ']');
+    int five_prime_n = (int)( left_pos - source_seq - 2 );
+    int indel_n = (int)( right_pos - left_pos - 1 );
+    int three_prime_n = strlen( right_pos + 1 );
+    self.five_prime = (char *)malloc(sizeof(char) * (five_prime_n + indel_n + three_prime_n + 1));
+    sprintf(self.five_prime, "%.*s%.*s%s", five_prime_n, source_seq, indel_n, left_pos + 1, right_pos + 1);
+    strupper(self.five_prime);
+    self.indel = self.five_prime + five_prime_n;
+    self.three_prime = self.indel + indel_n;
+    self.end = self.three_prime + three_prime_n;
+    if ( generate_reverse_complement ) indel_reverse_complement( &self );
+    return self;
+}
+
+static indel_t indel_init(const char *five_prime,
+                          int five_prime_n,
+                          const char *indel,
+                          int indel_n,
+                          const char *three_prime,
+                          int three_prime_n)
+{
+    indel_t self;
+    self.five_prime = (char *)malloc(sizeof(char) * (five_prime_n + indel_n + three_prime_n + 1));
+    sprintf(self.five_prime, "%.*s%.*s%.*s", five_prime_n, five_prime, indel_n, indel, three_prime_n, three_prime);
+    strupper(self.five_prime);
+    self.indel = self.five_prime + five_prime_n;
+    self.three_prime = self.indel + indel_n;
+    self.end = self.three_prime + three_prime_n;
+    return self;
 }
 
 /****************************************
  * CONVERSION UTILITIES                 *
  ****************************************/
 
-#define EGT             (1<<0)
-#define IGC             (1<<1)
-#define BAF             (1<<2)
-#define LRR             (1<<3)
-#define NORMX           (1<<4)
-#define NORMY           (1<<5)
-#define R               (1<<6)
-#define THETA           (1<<7)
-#define X               (1<<8)
-#define Y               (1<<9)
-#define ADJUST_CLUSTERS (1<<10)
+#define BPM_LOOKUPS     (1<<0)
+#define EGT_LOADED      (1<<1)
+#define ADJUST_CLUSTERS (1<<2)
+#define FORMAT_IGC      (1<<3)
+#define FORMAT_BAF      (1<<4)
+#define FORMAT_LRR      (1<<5)
+#define FORMAT_NORMX    (1<<6)
+#define FORMAT_NORMY    (1<<7)
+#define FORMAT_R        (1<<8)
+#define FORMAT_THETA    (1<<9)
+#define FORMAT_X        (1<<10)
+#define FORMAT_Y        (1<<11)
 
 static void gtcs_to_gs(gtc_t **gtc,
                        int n,
@@ -1707,12 +1940,12 @@ static void gtcs_to_gs(gtc_t **gtc,
     // print loci
     for (int j=0; j<bpm->num_loci; j++)
     {
-        fprintf(stream, "%d\t%s\t%d\t%s\t%s\t%f\t%f\t%f\t%f\t%f", bpm->indexes[j],
-                                                                  bpm->names[j],
+        fprintf(stream, "%d\t%s\t%d\t%s\t%s\t%f\t%f\t%f\t%f\t%f", bpm->indexes ? bpm->indexes[j] : j,
+                                                                  bpm->locus_entries[j].name,
                                                                   bpm->locus_entries[j].address_a,
                                                                   bpm->locus_entries[j].chrom,
                                                                   bpm->locus_entries[j].map_info,
-                                                                  egt->cluster_records[j].cluster_score.total_score,
+                                                                  egt ? egt->cluster_records[j].cluster_score.total_score : NAN,
                                                                   bpm->locus_entries[j].frac_a,
                                                                   bpm->locus_entries[j].frac_c,
                                                                   bpm->locus_entries[j].frac_g,
@@ -1765,7 +1998,7 @@ static int bcf_hdr_name2id_flexible(const bcf_hdr_t *hdr, char *chr)
     return rid;
 }
 
-static bcf_hdr_t *get_hdr(faidx_t *fai, int flags)
+static bcf_hdr_t *get_hdr(const faidx_t *fai, int flags)
 {
     bcf_hdr_t *hdr = bcf_hdr_init("w");
     int n = faidx_nseq(fai);
@@ -1775,7 +2008,9 @@ static bcf_hdr_t *get_hdr(faidx_t *fai, int flags)
         int len = faidx_seq_len(fai, seq);
         bcf_hdr_printf(hdr, "##contig=<ID=%s,length=%d>", seq, len);
     }
-    if ( flags & EGT )
+    bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_A,Number=1,Type=Integer,Description=\"A allele\">");
+    bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_B,Number=1,Type=Integer,Description=\"B allele\">");
+    if ( flags & EGT_LOADED )
     {
         bcf_hdr_append(hdr, "##INFO=<ID=N_AA,Number=1,Type=Integer,Description=\"Number of AA calls in training set\">");
         bcf_hdr_append(hdr, "##INFO=<ID=N_AB,Number=1,Type=Integer,Description=\"Number of AB calls in training set\">");
@@ -1794,22 +2029,32 @@ static bcf_hdr_t *get_hdr(faidx_t *fai, int flags)
         bcf_hdr_append(hdr, "##INFO=<ID=meanTHETA_BB,Number=1,Type=Float,Description=\"Mean of normalized THETA for BB cluster\">");
     }
     bcf_hdr_append(hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">");
-    if ( flags & IGC   ) bcf_hdr_append(hdr, "##FORMAT=<ID=IGC,Number=1,Type=Float,Description=\"Illumina GenCall Confidence Score\">");
-    if ( flags & BAF   ) bcf_hdr_append(hdr, "##FORMAT=<ID=BAF,Number=1,Type=Float,Description=\"B Allele Frequency\">");
-    if ( flags & LRR   ) bcf_hdr_append(hdr, "##FORMAT=<ID=LRR,Number=1,Type=Float,Description=\"Log R Ratio\">");
-    if ( flags & NORMX ) bcf_hdr_append(hdr, "##FORMAT=<ID=NORMX,Number=1,Type=Float,Description=\"Normalized X intensity\">");
-    if ( flags & NORMY ) bcf_hdr_append(hdr, "##FORMAT=<ID=NORMY,Number=1,Type=Float,Description=\"Normalized Y intensity\">");
-    if ( flags & R     ) bcf_hdr_append(hdr, "##FORMAT=<ID=R,Number=1,Type=Float,Description=\"Normalized R value\">");
-    if ( flags & THETA ) bcf_hdr_append(hdr, "##FORMAT=<ID=THETA,Number=1,Type=Float,Description=\"Normalized Theta value\">");
-    if ( flags & X     ) bcf_hdr_append(hdr, "##FORMAT=<ID=X,Number=1,Type=Integer,Description=\"Raw X intensity\">");
-    if ( flags & Y     ) bcf_hdr_append(hdr, "##FORMAT=<ID=Y,Number=1,Type=Integer,Description=\"Raw Y intensity\">");
+    bcf_hdr_append(hdr, "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"Genotype Quality\">");
+    if ( flags & FORMAT_IGC ) bcf_hdr_append(hdr, "##FORMAT=<ID=IGC,Number=1,Type=Float,Description=\"Illumina GenCall Confidence Score\">");
+    if ( flags & FORMAT_BAF ) bcf_hdr_append(hdr, "##FORMAT=<ID=BAF,Number=1,Type=Float,Description=\"B Allele Frequency\">");
+    if ( flags & FORMAT_LRR ) bcf_hdr_append(hdr, "##FORMAT=<ID=LRR,Number=1,Type=Float,Description=\"Log R Ratio\">");
+    if ( flags & BPM_LOOKUPS )
+    {
+        if ( flags & FORMAT_NORMX ) bcf_hdr_append(hdr, "##FORMAT=<ID=NORMX,Number=1,Type=Float,Description=\"Normalized X intensity\">");
+        if ( flags & FORMAT_NORMY ) bcf_hdr_append(hdr, "##FORMAT=<ID=NORMY,Number=1,Type=Float,Description=\"Normalized Y intensity\">");
+        if ( flags & FORMAT_R     ) bcf_hdr_append(hdr, "##FORMAT=<ID=R,Number=1,Type=Float,Description=\"Normalized R value\">");
+        if ( flags & FORMAT_THETA ) bcf_hdr_append(hdr, "##FORMAT=<ID=THETA,Number=1,Type=Float,Description=\"Normalized Theta value\">");
+    }
+    if ( flags & FORMAT_X ) bcf_hdr_append(hdr, "##FORMAT=<ID=X,Number=1,Type=Integer,Description=\"Raw X intensity\">");
+    if ( flags & FORMAT_Y ) bcf_hdr_append(hdr, "##FORMAT=<ID=Y,Number=1,Type=Integer,Description=\"Raw Y intensity\">");
     return hdr;
 }
 
-static void gtcs_to_vcf(gtc_t **gtc,
-                        int n,
+#define min(a,b) \
+  ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+    _a < _b ? _a : _b; })
+
+static void gtcs_to_vcf(faidx_t *fai,
                         const bpm_t *bpm,
                         const egt_t *egt,
+                        gtc_t **gtc,
+                        int n,
                         htsFile *out_fh,
                         bcf_hdr_t *hdr,
                         int flags)
@@ -1817,113 +2062,307 @@ static void gtcs_to_vcf(gtc_t **gtc,
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
     bcf1_t *rec = bcf_init();
     rec->n_sample = n;
-    char a_top[] = "\0\0";
-    char b_top[] = "\0\0";
-    const char *alleles[2] = {a_top, b_top};
     bcf_float_set_missing(rec->qual);
 
-    int32_t *gts = (int32_t *) malloc(n*2 * sizeof(int32_t));
-    float *igc = (float *) malloc(n * sizeof(float));
-    float *baf = (float *) malloc(n * sizeof(float));
-    float *lrr = (float *) malloc(n * sizeof(float));
-    float *norm_x = (float *) malloc(n * sizeof(float));
-    float *norm_y = (float *) malloc(n * sizeof(float));
-    float *ilmn_r = (float *) malloc(n * sizeof(float));
-    float *ilmn_theta = (float *) malloc(n * sizeof(float));
-    int32_t *raw_x = (int32_t *) malloc(n * sizeof(int32_t));
-    int32_t *raw_y = (int32_t *) malloc(n * sizeof(int32_t));
+    char reference_base[] = "\0\0";
+    kstring_t allele_a = {0, 0, NULL};
+    kstring_t allele_b = {0, 0, NULL};
+    kstring_t indel_seq = {0, 0, NULL};
 
+    uint8_t *gts = (uint8_t *) malloc(n * sizeof(uint8_t));
+    int32_t *gt_arr = (int32_t *) malloc(n*2 * sizeof(int32_t));
+    int32_t *gq_arr = (int32_t *) malloc(n * sizeof(int32_t));
+    float *igc_arr = (float *) malloc(n * sizeof(float));
+    float *baf_arr = (float *) malloc(n * sizeof(float));
+    float *lrr_arr = (float *) malloc(n * sizeof(float));
+    float *norm_x_arr = (float *) malloc(n * sizeof(float));
+    float *norm_y_arr = (float *) malloc(n * sizeof(float));
+    float *ilmn_r_arr = (float *) malloc(n * sizeof(float));
+    float *ilmn_theta_arr = (float *) malloc(n * sizeof(float));
+    int32_t *raw_x_arr = (int32_t *) malloc(n * sizeof(int32_t));
+    int32_t *raw_y_arr = (int32_t *) malloc(n * sizeof(int32_t));
+
+    int skipped_markers = 0;
     for (int j=0; j<bpm->num_loci; j++)
     {
         bcf_clear(rec);
         rec->rid = bcf_hdr_name2id_flexible(hdr, bpm->locus_entries[j].chrom);
-        if ( rec->rid < 0 ) continue;
         char *endptr;
         rec->pos = strtol(bpm->locus_entries[j].map_info, &endptr, 10) - 1;
-        if ( bpm->locus_entries[j].map_info==endptr ) error("Map info %s from BPM file %s is not understood\n", bpm->locus_entries[j].map_info, bpm->fn);
-        bcf_update_id(hdr, rec, bpm->names[j]);
-        a_top[0] = bpm->locus_entries[j].snp[1];
-        b_top[0] = bpm->locus_entries[j].snp[3];
-        // REF and ALT from the VCF file will be filled with Illumina alleles A and B on the TOP strand
-        if ( strcmp(bpm->locus_entries[j].ilmn_strand, "BOT") == 0 )
+        if ( bpm->locus_entries[j].map_info==endptr )
+            error("Map info %s for marker %s is not understood\n",bpm->locus_entries[j].map_info, bpm->locus_entries[j].ilmn_id);
+        if ( rec->rid < 0 || rec->pos < 0 )
         {
-            a_top[0] = revnt(a_top[0]);
-            b_top[0] = revnt(b_top[0]);
+            fprintf(stderr, "Unable to determine location for marker %s with chromosome %s and position %s\n",
+                bpm->locus_entries[j].ilmn_id, bpm->locus_entries[j].chrom, bpm->locus_entries[j].map_info);
+            skipped_markers++;
+            continue;
         }
-        bcf_update_alleles(hdr, rec, alleles, 2);
-        bcf_update_info_int32(hdr, rec, "N_AA", &egt->cluster_records[j].aa_cluster_stats.N, 1);
-        bcf_update_info_int32(hdr, rec, "N_AB", &egt->cluster_records[j].ab_cluster_stats.N, 1);
-        bcf_update_info_int32(hdr, rec, "N_BB", &egt->cluster_records[j].bb_cluster_stats.N, 1);
-        bcf_update_info_float(hdr, rec, "devR_AA", &egt->cluster_records[j].aa_cluster_stats.r_dev, 1);
-        bcf_update_info_float(hdr, rec, "devR_AB", &egt->cluster_records[j].ab_cluster_stats.r_dev, 1);
-        bcf_update_info_float(hdr, rec, "devR_BB", &egt->cluster_records[j].bb_cluster_stats.r_dev, 1);
-        bcf_update_info_float(hdr, rec, "devTHETA_AA", &egt->cluster_records[j].aa_cluster_stats.theta_dev, 1);
-        bcf_update_info_float(hdr, rec, "devTHETA_AB", &egt->cluster_records[j].ab_cluster_stats.theta_dev, 1);
-        bcf_update_info_float(hdr, rec, "devTHETA_BB", &egt->cluster_records[j].bb_cluster_stats.theta_dev, 1);
-        bcf_update_info_float(hdr, rec, "meanR_AA", &egt->cluster_records[j].aa_cluster_stats.r_mean, 1);
-        bcf_update_info_float(hdr, rec, "meanR_AB", &egt->cluster_records[j].ab_cluster_stats.r_mean, 1);
-        bcf_update_info_float(hdr, rec, "meanR_BB", &egt->cluster_records[j].bb_cluster_stats.r_mean, 1);
-        bcf_update_info_float(hdr, rec, "meanTHETA_AA", &egt->cluster_records[j].aa_cluster_stats.theta_mean, 1);
-        bcf_update_info_float(hdr, rec, "meanTHETA_AB", &egt->cluster_records[j].ab_cluster_stats.theta_mean, 1);
-        bcf_update_info_float(hdr, rec, "meanTHETA_BB", &egt->cluster_records[j].bb_cluster_stats.theta_mean, 1);
+        bcf_update_id( hdr, rec, bpm->locus_entries[j].name );
+
+        int allele_a_idx, allele_b_idx;
+        allele_a.l = allele_b.l = 0;
+        if ( is_indel(&bpm->locus_entries[j]) )
+        {
+            if ( !bpm->locus_entries[j].source_seq )
+            {
+                fprintf(stderr, "Unable to determine reference allele for indel %s as source sequence is missing\n",
+                    bpm->locus_entries[j].ilmn_id);
+                skipped_markers++;
+                continue;
+            }
+            // see BPMRecord.py from https://github.com/Illumina/GTCtoVCF
+            char source_strand = toupper(bpm->locus_entries[j].source_strand[0]);
+            char ilmn_strand = toupper(bpm->locus_entries[j].ilmn_strand[0]);
+            char ref_strand = bpm->locus_entries[j].ref_strand[0];
+            if ( ( source_strand != 'P' && source_strand != 'M' && source_strand != 'T' && source_strand != 'B' ) ||
+                 ( ( source_strand == 'P' || source_strand == 'M' ) && ilmn_strand != 'P' && ilmn_strand != 'M' ) ||
+                 ( ( source_strand == 'T' || source_strand == 'B' ) && ilmn_strand != 'T' && ilmn_strand != 'B' ) ||
+                 ( ref_strand != '+' && ref_strand != '-' ) )
+                error("Unable to process indel %s with source strand %s, Illumina strand %s, and reference strand %s\n",
+                    bpm->locus_entries[j].ilmn_id, bpm->locus_entries[j].source_strand,
+                    bpm->locus_entries[j].ilmn_strand, bpm->locus_entries[j].ref_strand);
+
+            int reverse_complement = (source_strand == ilmn_strand) != (ref_strand == '+');
+            indel_t source_seq = indel_source_seq_init(bpm->locus_entries[j].source_seq, reverse_complement);
+            indel_seq.l = 0;
+            ksprintf(&indel_seq, "%.*s", indel_len(&source_seq), source_seq.indel);
+            indel_left_shift( &source_seq );
+
+            int len;
+            char *genomic_seq = faidx_fetch_seq(fai, bcf_seqname(hdr, rec),
+                rec->pos-five_prime_len(&source_seq), rec->pos-1+indel_seq.l+three_prime_len(&source_seq), &len);
+            strupper(genomic_seq);
+            int indel_sequence_match = strncmp(genomic_seq + five_prime_len(&source_seq), indel_seq.s, indel_seq.l) == 0;
+
+            indel_t genomic_del = indel_init(genomic_seq, five_prime_len(&source_seq), indel_seq.s, indel_seq.l,
+                genomic_seq + five_prime_len(&source_seq) + indel_seq.l, three_prime_len(&source_seq));
+            indel_left_shift( &genomic_del );
+            int del_context_match_lengths_five_prime = max_suffix_match(genomic_del.five_prime,
+                source_seq.five_prime, five_prime_len(&genomic_del), five_prime_len(&source_seq));
+            int del_context_match_lengths_three_prime = max_prefix_match(genomic_del.three_prime,
+                source_seq.three_prime, three_prime_len(&genomic_del), three_prime_len(&source_seq));
+            int max_del_context = min( five_prime_len(&genomic_del), five_prime_len(&source_seq) ) +
+                min( three_prime_len(&genomic_del), three_prime_len(&source_seq) ) + indel_seq.l;
+            float del_context_score = (float)(del_context_match_lengths_five_prime + del_context_match_lengths_three_prime +
+                ( indel_sequence_match ? indel_seq.l : 0) ) / (float)max_del_context;
+
+            indel_t genomic_ins = indel_init(genomic_seq + 1, five_prime_len(&source_seq), indel_seq.s, indel_seq.l,
+                genomic_seq + five_prime_len(&source_seq) + 1, three_prime_len(&source_seq));
+            indel_left_shift( &genomic_ins );
+            int ins_context_match_lengths_five_prime = max_suffix_match(genomic_ins.five_prime,
+                source_seq.five_prime, five_prime_len(&genomic_ins), five_prime_len(&source_seq));
+            int ins_context_match_lengths_three_prime = max_prefix_match(genomic_ins.three_prime,
+                source_seq.three_prime, three_prime_len(&genomic_ins), three_prime_len(&source_seq));
+            int max_ins_context = min( five_prime_len(&genomic_ins), five_prime_len(&source_seq) ) +
+                min( three_prime_len(&genomic_ins), three_prime_len(&source_seq) );
+            float ins_context_score = (float)(ins_context_match_lengths_five_prime + ins_context_match_lengths_three_prime) /
+                (float)max_ins_context;
+
+            int is_del = indel_sequence_match && del_context_score > ins_context_score &&
+                ( del_context_match_lengths_five_prime >= 1 && del_context_match_lengths_three_prime >= 1);
+            int is_ins = ins_context_score > del_context_score &&
+                ( ins_context_match_lengths_five_prime >= 1 && ins_context_match_lengths_three_prime >= 1);
+
+            if ( is_del ) rec->pos--;
+            reference_base[0] = genomic_seq[five_prime_len(&source_seq) - is_del];
+            free(source_seq.five_prime);
+            free(genomic_del.five_prime);
+            free(genomic_ins.five_prime);
+            free(genomic_seq);
+
+            if ( is_del == is_ins )
+            {
+                fprintf(stderr, "Unable to determine reference allele for indel %s with source sequence %s\n",
+                    bpm->locus_entries[j].ilmn_id, bpm->locus_entries[j].source_seq);
+                skipped_markers++;
+                continue;
+            }
+
+            kputc(reference_base[0], &allele_a);
+            kputc(reference_base[0], &allele_b);
+            if ( bpm->locus_entries[j].snp[1] == 'I' )
+            {
+                ksprintf(&allele_a, "%s", indel_seq.s);
+                allele_a_idx = !is_del;
+                allele_b_idx = is_del;
+            }
+            else
+            {
+                ksprintf(&allele_b, "%s", indel_seq.s);
+                allele_a_idx = is_del;
+                allele_b_idx = !is_del;
+            }
+
+        }
+        else
+        {
+            if ( strcmp(bpm->locus_entries[j].ref_strand, "+") == 0 )
+            {
+                kputc(bpm->locus_entries[j].snp[1], &allele_a);
+                kputc(bpm->locus_entries[j].snp[3], &allele_b);
+            }
+            else if ( strcmp(bpm->locus_entries[j].ref_strand, "-") == 0 )
+            {
+                kputc(revnt(bpm->locus_entries[j].snp[1]), &allele_a);
+                kputc(revnt(bpm->locus_entries[j].snp[3]), &allele_b);
+            }
+            int len;
+            char *genomic_seq = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
+            reference_base[0] = genomic_seq[0];
+            free(genomic_seq);
+            if ( reference_base[0] == allele_a.s[0] )
+            {
+                allele_a_idx = 0;
+                allele_b_idx = 1;
+            }
+            else if ( reference_base[0] == allele_b.s[0] )
+            {
+                allele_a_idx = 1;
+                allele_b_idx = 0;
+            }
+            else
+            {
+                allele_a_idx = 1;
+                allele_b_idx = 2;
+            }
+        }
+
+        const char *alleles[3];
+        int n_alleles;
+        switch ( allele_b_idx )
+        {
+            case 0:
+                alleles[0] = allele_b.s;
+                alleles[1] = allele_a.s;
+                n_alleles = 2;
+                break;
+            case 1:
+                alleles[0] = allele_a.s;
+                alleles[1] = allele_b.s;
+                n_alleles = 2;
+                break;
+            case 2:
+                alleles[0] = reference_base;
+                alleles[1] = allele_a.s;
+                alleles[2] = allele_b.s;
+                n_alleles = 3;
+                break;
+            default:
+                error("Unable to process marker %s\n", bpm->locus_entries[j].ilmn_id);
+                break;
+        }
+        bcf_update_alleles(hdr, rec, alleles, n_alleles);
+        bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
+        bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
 
         for (int i=0; i<n; i++)
         {
-            uint8_t genotype;
-            get_element(gtc[i]->genotypes, (void *)&genotype, j);
-            switch (genotype)
+            get_element(gtc[i]->genotypes, (void *)&gts[i], j);
+            switch ( gts[i] )
             {
-                case 1: gts[2*i] = bcf_gt_unphased(0); gts[2*i+1] = bcf_gt_unphased(0); break;
-                case 2: gts[2*i] = bcf_gt_unphased(0); gts[2*i+1] = bcf_gt_unphased(1); break;
-                case 3: gts[2*i] = bcf_gt_unphased(1); gts[2*i+1] = bcf_gt_unphased(1); break;
-                default: gts[2*i] = bcf_gt_missing; gts[2*i+1] = bcf_gt_missing; break;
+                case 1: // AA
+                    gt_arr[2*i] = bcf_gt_unphased(allele_a_idx);
+                    gt_arr[2*i+1] = bcf_gt_unphased(allele_a_idx);
+                    break;
+                case 2: // AB
+                    gt_arr[2*i] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx ) / 2 );
+                    gt_arr[2*i+1] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx + 1 ) / 2 );
+                    break;
+                case 3: // BB
+                    gt_arr[2*i] = bcf_gt_unphased(allele_b_idx);
+                    gt_arr[2*i+1] = bcf_gt_unphased(allele_b_idx);
+                    break;
+                default: // NC
+                    gt_arr[2*i] = bcf_gt_missing;
+                    gt_arr[2*i+1] = bcf_gt_missing;
+                    break;
             }
+            get_element(gtc[i]->genotype_scores, (void *)&igc_arr[i], j);
+            gq_arr[i] = (int)(-10*log10(1 - igc_arr[i]) + .5);
+            if ( gq_arr[i] < 0 ) gq_arr[i] = 0;
+            if ( gq_arr[i] > 50 ) gq_arr[i] = 50;
             intensities_t intensities;
             get_intensities(gtc[i], bpm, egt, j, &intensities);
-            get_element(gtc[i]->genotype_scores, (void *)&igc[i], j);
-            baf[i] = intensities.baf;
-            lrr[i] = intensities.lrr;
-            norm_x[i] = intensities.norm_x;
-            norm_y[i] = intensities.norm_y;
-            ilmn_r[i] = intensities.ilmn_r;
-            ilmn_theta[i] = intensities.ilmn_theta;
-            raw_x[i] = (int32_t)intensities.raw_x;
-            raw_y[i] = (int32_t)intensities.raw_y;
+            baf_arr[i] = intensities.baf;
+            lrr_arr[i] = intensities.lrr;
+            norm_x_arr[i] = intensities.norm_x;
+            norm_y_arr[i] = intensities.norm_y;
+            ilmn_r_arr[i] = intensities.ilmn_r;
+            ilmn_theta_arr[i] = intensities.ilmn_theta;
+            raw_x_arr[i] = (int32_t)intensities.raw_x;
+            raw_y_arr[i] = (int32_t)intensities.raw_y;
         }
-        if ( flags & ADJUST_CLUSTERS ) adjust_clusters(gts, ilmn_theta, ilmn_r, bcf_hdr_nsamples(hdr), &egt->cluster_records[j], baf, lrr);
-        bcf_update_genotypes(hdr, rec, gts, n*2);
-        if ( flags & IGC   ) bcf_update_format_float(hdr, rec, "IGC", igc, n);
-        if ( flags & BAF   ) bcf_update_format_float(hdr, rec, "BAF", baf, n);
-        if ( flags & LRR   ) bcf_update_format_float(hdr, rec, "LRR", lrr, n);
-        if ( flags & NORMX ) bcf_update_format_float(hdr, rec, "NORMX", norm_x, n);
-        if ( flags & NORMY ) bcf_update_format_float(hdr, rec, "NORMY", norm_y, n);
-        if ( flags & R     ) bcf_update_format_float(hdr, rec, "R", ilmn_r, n);
-        if ( flags & THETA ) bcf_update_format_float(hdr, rec, "THETA", ilmn_theta, n);
-        if ( flags & X     ) bcf_update_format_int32(hdr, rec, "X", raw_x, n);
-        if ( flags & Y     ) bcf_update_format_int32(hdr, rec, "Y", raw_y, n);
+
+        if ( flags & EGT_LOADED )
+        {
+            if ( flags & ADJUST_CLUSTERS )
+            {
+                adjust_clusters(gts, ilmn_theta_arr, ilmn_r_arr, n, &egt->cluster_records[j]);
+                for (int i=0; i<n; i++)
+                {
+                    get_baf_lrr(ilmn_theta_arr[i], ilmn_r_arr[i], &egt->cluster_records[j], &baf_arr[i], &lrr_arr[i]);
+                }
+            }
+            bcf_update_info_int32(hdr, rec, "N_AA", &egt->cluster_records[j].aa_cluster_stats.N, 1);
+            bcf_update_info_int32(hdr, rec, "N_AB", &egt->cluster_records[j].ab_cluster_stats.N, 1);
+            bcf_update_info_int32(hdr, rec, "N_BB", &egt->cluster_records[j].bb_cluster_stats.N, 1);
+            bcf_update_info_float(hdr, rec, "devR_AA", &egt->cluster_records[j].aa_cluster_stats.r_dev, 1);
+            bcf_update_info_float(hdr, rec, "devR_AB", &egt->cluster_records[j].ab_cluster_stats.r_dev, 1);
+            bcf_update_info_float(hdr, rec, "devR_BB", &egt->cluster_records[j].bb_cluster_stats.r_dev, 1);
+            bcf_update_info_float(hdr, rec, "devTHETA_AA", &egt->cluster_records[j].aa_cluster_stats.theta_dev, 1);
+            bcf_update_info_float(hdr, rec, "devTHETA_AB", &egt->cluster_records[j].ab_cluster_stats.theta_dev, 1);
+            bcf_update_info_float(hdr, rec, "devTHETA_BB", &egt->cluster_records[j].bb_cluster_stats.theta_dev, 1);
+            bcf_update_info_float(hdr, rec, "meanR_AA", &egt->cluster_records[j].aa_cluster_stats.r_mean, 1);
+            bcf_update_info_float(hdr, rec, "meanR_AB", &egt->cluster_records[j].ab_cluster_stats.r_mean, 1);
+            bcf_update_info_float(hdr, rec, "meanR_BB", &egt->cluster_records[j].bb_cluster_stats.r_mean, 1);
+            bcf_update_info_float(hdr, rec, "meanTHETA_AA", &egt->cluster_records[j].aa_cluster_stats.theta_mean, 1);
+            bcf_update_info_float(hdr, rec, "meanTHETA_AB", &egt->cluster_records[j].ab_cluster_stats.theta_mean, 1);
+            bcf_update_info_float(hdr, rec, "meanTHETA_BB", &egt->cluster_records[j].bb_cluster_stats.theta_mean, 1);
+        }
+
+        bcf_update_genotypes(hdr, rec, gt_arr, n*2);
+        bcf_update_format_int32(hdr, rec, "GQ", gq_arr, n);
+        if ( flags & FORMAT_IGC   ) bcf_update_format_float(hdr, rec, "IGC", igc_arr, n);
+        if ( flags & FORMAT_BAF   ) bcf_update_format_float(hdr, rec, "BAF", baf_arr, n);
+        if ( flags & FORMAT_LRR   ) bcf_update_format_float(hdr, rec, "LRR", lrr_arr, n);
+        if ( flags & FORMAT_NORMX ) bcf_update_format_float(hdr, rec, "NORMX", norm_x_arr, n);
+        if ( flags & FORMAT_NORMY ) bcf_update_format_float(hdr, rec, "NORMY", norm_y_arr, n);
+        if ( flags & FORMAT_R     ) bcf_update_format_float(hdr, rec, "R", ilmn_r_arr, n);
+        if ( flags & FORMAT_THETA ) bcf_update_format_float(hdr, rec, "THETA", ilmn_theta_arr, n);
+        if ( flags & FORMAT_X     ) bcf_update_format_int32(hdr, rec, "X", raw_x_arr, n);
+        if ( flags & FORMAT_Y     ) bcf_update_format_int32(hdr, rec, "Y", raw_y_arr, n);
         if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
     }
+    fprintf(stderr, "%d markers skipped in the conversion to VCF\n", skipped_markers);
     bcf_hdr_name2id_flexible(hdr, NULL);
 
     free(gts);
-    free(igc);
-    free(baf);
-    free(lrr);
-    free(norm_x);
-    free(norm_y);
-    free(ilmn_r);
-    free(ilmn_theta);
-    free(raw_x);
-    free(raw_y);
+    free(gt_arr);
+    free(gq_arr);
+    free(igc_arr);
+    free(baf_arr);
+    free(lrr_arr);
+    free(norm_x_arr);
+    free(norm_y_arr);
+    free(ilmn_r_arr);
+    free(ilmn_theta_arr);
+    free(raw_x_arr);
+    free(raw_y_arr);
+
+    free(allele_a.s);
+    free(allele_b.s);
+    free(indel_seq.s);
 
     bcf_destroy(rec);
     bcf_hdr_destroy(hdr);
     hts_close(out_fh);
 }
 
-#define STRAND_PLUS 0
-#define STRAND_TOP  1
-#define STRAND_BOT  2
+#define STRAND_PLUS  0
+#define STRAND_MINUS 1
+#define STRAND_TOP   2
+#define STRAND_BOT   3
 
 #define GS_GT    0
 #define GS_TOP   1
@@ -2022,6 +2461,7 @@ static int tsv_setter_strand(tsv_t *tsv,
                              void *usr)
 {
     if ( strncmp(tsv->ss, "PLUS", 4) == 0 ) ((int *)usr)[0] = STRAND_PLUS;
+    if ( strncmp(tsv->ss, "MINUS", 5) == 0 ) ((int *)usr)[0] = STRAND_MINUS;
     else if ( strncmp(tsv->ss, "TOP", 3) == 0 ) ((int *)usr)[0] = STRAND_TOP;
     else if ( strncmp(tsv->ss, "BOT", 3) == 0 ) ((int *)usr)[0] = STRAND_BOT;
     else return -1;
@@ -2079,10 +2519,10 @@ int tsv_parse_delimiter(tsv_t *tsv,
     return status ? 0 : -1;
 }
 
-static void genomestudio_to_vcf(htsFile *gs_fh,
-                                htsFile *out_fh,
-                                bcf_hdr_t *hdr,
-                                int flags)
+static void gs_to_vcf(htsFile *gs_fh,
+                      htsFile *out_fh,
+                      bcf_hdr_t *hdr,
+                      int flags)
 {
     // read the header of the table
     kstring_t line = {0, 0, NULL};
@@ -2153,38 +2593,38 @@ static void genomestudio_to_vcf(htsFile *gs_fh,
     char *snp;
     tsv_register(tsv, "SNP", tsv_setter_snp, &snp);
 
-    int32_t *gts = (int32_t *)malloc(nsamples*2 * sizeof(int32_t));
-    gs_col_t gs_gts = {col2sample, GS_GT, gts};
-    if ( tsv_register_all(tsv, "GT", tsv_setter_gs_col, &gs_gts) < 0 ) error("Expected GType column\n");
-    gs_col_t gs_top = {col2sample, GS_TOP, gts};
+    int32_t *gt_arr = (int32_t *)malloc(nsamples*2 * sizeof(int32_t));
+    gs_col_t gs_gt_arr = {col2sample, GS_GT, gt_arr};
+    if ( tsv_register_all(tsv, "GT", tsv_setter_gs_col, &gs_gt_arr) < 0 ) error("Expected GType column\n");
+    gs_col_t gs_top = {col2sample, GS_TOP, gt_arr};
     tsv_register_all(tsv, "TOP", tsv_setter_gs_col, &gs_top);
 
     gs_col_t gs_igc = {col2sample, GS_IGC, NULL};
-    if ( (flags & IGC) && tsv_register_all(tsv, "IGC", tsv_setter_gs_col, &gs_igc) == 0 ) gs_igc.ptr = malloc(nsamples * sizeof(float));
+    if ( (flags & FORMAT_IGC) && tsv_register_all(tsv, "IGC", tsv_setter_gs_col, &gs_igc) == 0 ) gs_igc.ptr = malloc(nsamples * sizeof(float));
 
     gs_col_t gs_baf = {col2sample, GS_BAF, NULL};
-    if ( (flags & BAF) && tsv_register_all(tsv, "BAF", tsv_setter_gs_col, &gs_baf) == 0 ) gs_baf.ptr = malloc(nsamples * sizeof(float));
+    if ( (flags & FORMAT_BAF) && tsv_register_all(tsv, "BAF", tsv_setter_gs_col, &gs_baf) == 0 ) gs_baf.ptr = malloc(nsamples * sizeof(float));
 
     gs_col_t gs_lrr = {col2sample, GS_LRR, NULL};
-    if ( (flags & LRR) && tsv_register_all(tsv, "LRR", tsv_setter_gs_col, &gs_lrr) == 0 ) gs_lrr.ptr = malloc(nsamples * sizeof(float));
+    if ( (flags & FORMAT_LRR) && tsv_register_all(tsv, "LRR", tsv_setter_gs_col, &gs_lrr) == 0 ) gs_lrr.ptr = malloc(nsamples * sizeof(float));
 
     gs_col_t gs_norm_x = {col2sample, GS_NORMX, NULL};
-    if ( (flags & NORMX) && tsv_register_all(tsv, "NORMX", tsv_setter_gs_col, &gs_norm_x) == 0 ) gs_norm_x.ptr = malloc(nsamples * sizeof(float));
+    if ( (flags & FORMAT_NORMX) && tsv_register_all(tsv, "NORMX", tsv_setter_gs_col, &gs_norm_x) == 0 ) gs_norm_x.ptr = malloc(nsamples * sizeof(float));
 
     gs_col_t gs_norm_y = {col2sample, GS_NORMY, NULL};
-    if ( (flags & NORMY) && tsv_register_all(tsv, "NORMY", tsv_setter_gs_col, &gs_norm_y) == 0 ) gs_norm_y.ptr = malloc(nsamples * sizeof(float));
+    if ( (flags & FORMAT_NORMY) && tsv_register_all(tsv, "NORMY", tsv_setter_gs_col, &gs_norm_y) == 0 ) gs_norm_y.ptr = malloc(nsamples * sizeof(float));
 
     gs_col_t gs_ilmn_r = {col2sample, GS_R, NULL};
-    if ( (flags & R) && tsv_register_all(tsv, "R", tsv_setter_gs_col, &gs_ilmn_r) == 0 ) gs_ilmn_r.ptr = malloc(nsamples * sizeof(float));
+    if ( (flags & FORMAT_R) && tsv_register_all(tsv, "R", tsv_setter_gs_col, &gs_ilmn_r) == 0 ) gs_ilmn_r.ptr = malloc(nsamples * sizeof(float));
 
     gs_col_t gs_ilmn_theta = {col2sample, GS_THETA, NULL};
-    if ( (flags & THETA) && tsv_register_all(tsv, "THETA", tsv_setter_gs_col, &gs_ilmn_theta) == 0 ) gs_ilmn_theta.ptr = malloc(nsamples * sizeof(float));
+    if ( (flags & FORMAT_THETA) && tsv_register_all(tsv, "THETA", tsv_setter_gs_col, &gs_ilmn_theta) == 0 ) gs_ilmn_theta.ptr = malloc(nsamples * sizeof(float));
 
     gs_col_t gs_raw_x = {col2sample, GS_X, NULL};
-    if ( (flags & X) && tsv_register_all(tsv, "X", tsv_setter_gs_col, &gs_raw_x) == 0 ) gs_raw_x.ptr = malloc(nsamples * sizeof(int32_t));
+    if ( (flags & FORMAT_X) && tsv_register_all(tsv, "X", tsv_setter_gs_col, &gs_raw_x) == 0 ) gs_raw_x.ptr = malloc(nsamples * sizeof(int32_t));
 
     gs_col_t gs_raw_y = {col2sample, GS_Y, NULL};
-    if ( (flags & Y) && tsv_register_all(tsv, "Y", tsv_setter_gs_col, &gs_raw_y) == 0 ) gs_raw_y.ptr = malloc(nsamples * sizeof(int32_t));
+    if ( (flags & FORMAT_Y) && tsv_register_all(tsv, "Y", tsv_setter_gs_col, &gs_raw_y) == 0 ) gs_raw_y.ptr = malloc(nsamples * sizeof(int32_t));
 
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
 
@@ -2216,7 +2656,7 @@ static void genomestudio_to_vcf(htsFile *gs_fh,
                     rec->d.allele[1][0] = revnt(snp[3]);
                 }
             }
-            bcf_update_genotypes(hdr, rec, gts, nsamples*2);
+            bcf_update_genotypes(hdr, rec, gt_arr, nsamples*2);
             if ( gs_igc.ptr ) bcf_update_format_float(hdr, rec, "IGC", (float *)gs_igc.ptr, nsamples);
             if ( gs_baf.ptr ) bcf_update_format_float(hdr, rec, "BAF", (float *)gs_baf.ptr, nsamples);
             if ( gs_lrr.ptr ) bcf_update_format_float(hdr, rec, "LRR", (float *)gs_lrr.ptr, nsamples);
@@ -2239,7 +2679,7 @@ static void genomestudio_to_vcf(htsFile *gs_fh,
     tsv_destroy(tsv);
     bcf_destroy(rec);
     free(col2sample);
-    free(gts);
+    free(gt_arr);
     free(gs_igc.ptr);
     free(gs_baf.ptr);
     free(gs_lrr.ptr);
@@ -2267,7 +2707,7 @@ static const char *usage_text(void)
 {
     return
         "\n"
-        "About: convert Illumina GTC files containing intensity data into VCF. ("VERSION")\n"
+        "About: convert Illumina GTC files containing intensity data into VCF. (version "GTC2VCF_VERSION" https://github.com/freeseek/gtc2vcf)\n"
         "\n"
         "Usage: bcftools +gtc2vcf [options] <A.gtc> [...]\n"
         "\n"
@@ -2279,6 +2719,7 @@ static const char *usage_text(void)
         "    -c  --csv <file>                   CSV manifest file\n"
         "    -e  --egt <file>                   EGT cluster file\n"
         "    -f, --fasta-ref <file>             reference sequence in fasta format\n"
+        "        --set-cache-size <int>         select fasta cache size in bytes\n"
         "    -g, --gtc-list <file>              read GTC file names from file\n"
         "        --adjust-clusters              adjust cluster centers in (Theta, R) space\n"
         "    -x, --sex <file>                   output GenCall gender estimate into file\n"
@@ -2310,15 +2751,15 @@ static int parse_tags(const char *str)
     char **tags = hts_readlist(str, 0, &n);
     for (int i=0; i<n; i++)
     {
-        if ( !strcasecmp(tags[i], "IGC") ) flags |= IGC;
-        else if ( !strcasecmp(tags[i], "X") ) flags |= X;
-        else if ( !strcasecmp(tags[i], "Y") ) flags |= Y;
-        else if ( !strcasecmp(tags[i], "NORMX") ) flags |= NORMX;
-        else if ( !strcasecmp(tags[i], "NORMY") ) flags |= NORMY;
-        else if ( !strcasecmp(tags[i], "R") ) flags |= R;
-        else if ( !strcasecmp(tags[i], "THETA") ) flags |= THETA;
-        else if ( !strcasecmp(tags[i], "LRR") ) flags |= LRR;
-        else if ( !strcasecmp(tags[i], "BAF") ) flags |= BAF;
+        if ( !strcasecmp(tags[i], "IGC") ) flags |= FORMAT_IGC;
+        else if ( !strcasecmp(tags[i], "X") ) flags |= FORMAT_X;
+        else if ( !strcasecmp(tags[i], "Y") ) flags |= FORMAT_Y;
+        else if ( !strcasecmp(tags[i], "NORMX") ) flags |= FORMAT_NORMX;
+        else if ( !strcasecmp(tags[i], "NORMY") ) flags |= FORMAT_NORMY;
+        else if ( !strcasecmp(tags[i], "R") ) flags |= FORMAT_R;
+        else if ( !strcasecmp(tags[i], "THETA") ) flags |= FORMAT_THETA;
+        else if ( !strcasecmp(tags[i], "LRR") ) flags |= FORMAT_LRR;
+        else if ( !strcasecmp(tags[i], "BAF") ) flags |= FORMAT_BAF;
         else error("Error parsing \"--tags %s\": the tag \"%s\" is not supported\n", str, tags[i]);
         free(tags[i]);
     }
@@ -2355,6 +2796,7 @@ int run(int argc, char *argv[])
     char *sex_fname = NULL;
     int flags = 0;
     int output_type = FT_VCF;
+    int cache_size = 0;
     int bpm_check = 1;
     int n_threads = 0;
     int record_cmd_line = 1;
@@ -2375,11 +2817,12 @@ int run(int argc, char *argv[])
         {"output", required_argument, NULL, 'o'},
         {"output-type", required_argument, NULL, 'O'},
         {"fasta-ref", required_argument, NULL, 'f'},
+        {"set-cache-size", required_argument, NULL, 1},
         {"gtc-list", required_argument, NULL, 'g'},
-        {"adjust-clusters", no_argument, NULL, 1},
+        {"adjust-clusters", no_argument, NULL, 2},
         {"sex", required_argument, NULL, 'x'},
-        {"do-not-check-bpm", no_argument, NULL, 2},
-        {"genome-studio", required_argument, NULL, 3},
+        {"do-not-check-bpm", no_argument, NULL, 3},
+        {"genome-studio", required_argument, NULL, 4},
         {"no-version", no_argument, NULL, 8},
         {"threads", required_argument, NULL, 9},
         {NULL, 0, NULL, 0}
@@ -2407,11 +2850,12 @@ int run(int argc, char *argv[])
                       }
                       break;
             case 'f': ref_fname = optarg; break;
+            case  1 : cache_size = strtol(optarg, NULL, 0); break;
             case 'g': gtc_list = optarg; break;
-            case  1 : flags |= ADJUST_CLUSTERS; break;
+            case  2 : flags |= ADJUST_CLUSTERS; break;
             case 'x': sex_fname = optarg; break;
-            case  2 : bpm_check = 0; break;
-            case  3 : gs_fname = optarg; break;
+            case  3 : bpm_check = 0; break;
+            case  4 : gs_fname = optarg; break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
             case  8 : record_cmd_line = 0; break;
             case 'h':
@@ -2419,13 +2863,13 @@ int run(int argc, char *argv[])
             default: error("%s", usage_text());
         }
     }
-    if ( (idat_fname!=NULL) + (bpm_fname!=NULL) + (csv_fname!=NULL) + (egt_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
+    if ( (idat_fname!=NULL) + ( (bpm_fname!=NULL) || (csv_fname!=NULL) ) + (egt_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
     if ( !binary_to_csv )
     {
         if ( idat_fname ) error("IDAT file only allowed when converting to CSV\n%s", usage_text());
-        if ( !bpm_fname && !gs_fname ) error("Manifest file required when converting to VCF\n%s", usage_text());
-        if ( !egt_fname && flags & ADJUST_CLUSTERS ) error("Cluster file required when adjusting cluster centers\n%s", usage_text());
-        if ( gs_fname && (argc-optind>0 || gtc_list || output_type & FT_GS) ) error("If Genome Studio file provided, do not pass GTC files and do not output to GenomeStudio\n%s", usage_text());
+        if ( !bpm_fname && !csv_fname && !gs_fname ) error("Manifest file required when converting to VCF\n%s", usage_text());
+        if ( !egt_fname && ( flags & ADJUST_CLUSTERS ) ) error("Cluster file required when adjusting cluster centers\n%s", usage_text());
+        if ( gs_fname && (argc-optind>0 || gtc_list || output_type & FT_GS) ) error("If Genome Studio file provided, do not pass GTC files and do not output to GenomeStudio format\n%s", usage_text());
         if ( argc-optind>0 && gtc_list ) error("GTC files cannot be listed through both command interface and file list\n%s", usage_text());
         if ( !gs_fname && !(output_type & FT_GS) && sex_fname ) out_sex = get_file_handle( sex_fname );
     }
@@ -2452,6 +2896,8 @@ int run(int argc, char *argv[])
         lim.rlim_cur = nfiles + 7;
         setrlimit(RLIMIT_NOFILE, &lim);
     }
+    if ( ( flags & ADJUST_CLUSTERS ) && nfiles < 100 )
+        fprintf(stderr, "Warning: adjusting clusters with %d sample(s) is not recommended\n", nfiles);
 
     if ( binary_to_csv || output_type & FT_GS ) out_txt = get_file_handle( output_fname );
     else
@@ -2462,6 +2908,7 @@ int run(int argc, char *argv[])
         if ( !ref_fname ) error("VCF output requires the --fasta-ref option\n");
         fai = fai_load(ref_fname);
         if ( !fai ) error("Could not load the reference %s\n", ref_fname);
+        if ( cache_size ) fai_set_cache_size( fai, cache_size );
     }
 
     if ( idat_fname )
@@ -2482,16 +2929,21 @@ int run(int argc, char *argv[])
         fprintf(stderr, "Reading BPM file %s\n", bpm_fname);
         bpm = bpm_init(bpm_fname);
         bpm_summary(bpm, stderr);
-        if ( binary_to_csv ) bpm_to_csv(bpm, out_txt);
+        if ( binary_to_csv && !csv_fname ) bpm_to_csv(bpm, out_txt);
     }
-    else if ( csv_fname )
+
+    if ( csv_fname )
     {
         fprintf(stderr, "================================================================================\n");
         fprintf(stderr, "Reading CSV file %s\n", csv_fname);
-        bpm = bpm_csv_init(csv_fname);
+        bpm = bpm_csv_init(csv_fname, bpm);
         bpm_summary(bpm, stderr);
         if ( binary_to_csv ) bpm_to_csv(bpm, out_txt);
     }
+
+    if ( bpm->norm_lookups ) flags |= BPM_LOOKUPS;
+    if ( ( flags & ADJUST_CLUSTERS ) && !( flags & BPM_LOOKUPS ) )
+        error("Cannot adjust clusters as couldn't generate the normalization lookup table\n");
 
     egt_t *egt = NULL;
     if ( egt_fname )
@@ -2501,7 +2953,7 @@ int run(int argc, char *argv[])
         egt = egt_init(egt_fname);
         egt_summary(egt, stderr);
         if ( binary_to_csv ) egt_to_csv(egt, out_txt);
-        else flags |= EGT;
+        else flags |= EGT_LOADED;
     }
 
     gtc_t **gtc = (gtc_t **)malloc(nfiles * sizeof(gtc_t *));
@@ -2510,7 +2962,7 @@ int run(int argc, char *argv[])
         fprintf(stderr, "================================================================================\n");
         fprintf(stderr, "Reading GTC file %s\n", files[i]);
         gtc[i] = gtc_init(files[i]);
-        // AutoConvert fills the GTC SNP manifest with the BPM file name rather than the BPM manifest name
+        // GenCall fills the GTC SNP manifest with the BPM file name rather than the BPM manifest name
         if ( bpm_check && bpm && strcmp( bpm->manifest_name, gtc[i]->snp_manifest ) &&
              strcmp( strrchr(bpm->fn, '/') ? strrchr(bpm->fn, '/') + 1 : bpm->fn, gtc[i]->snp_manifest ) )
             error("Manifest name %s in BPM file %s does not match manifest name %s in GTC file %s\n", bpm->manifest_name, bpm->fn, gtc[i]->snp_manifest, gtc[i]->fn);
@@ -2523,12 +2975,16 @@ int run(int argc, char *argv[])
         if ( output_type & FT_GS ) gtcs_to_gs(gtc, nfiles, bpm, egt, out_txt);
         else
         {
+            // if it couldn't generate the normalization lookup table from the BPM / CSV manifests
             bcf_hdr_t *hdr = get_hdr(fai, flags);
-            if (record_cmd_line) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+gtc2vcf");
+            if ( bpm_fname ) bcf_hdr_printf(hdr, "##BPM=%s", strrchr(bpm_fname, '/') ? strrchr(bpm_fname, '/') + 1 : bpm_fname);
+            if ( csv_fname ) bcf_hdr_printf(hdr, "##CSV=%s", strrchr(csv_fname, '/') ? strrchr(csv_fname, '/') + 1 : csv_fname);
+            if ( egt_fname ) bcf_hdr_printf(hdr, "##EGT=%s", strrchr(egt_fname, '/') ? strrchr(egt_fname, '/') + 1 : egt_fname);
+            if ( record_cmd_line ) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+gtc2vcf");
             if ( gs_fname )
             {
                 htsFile *gs_fh = hts_open(gs_fname, "r");
-                genomestudio_to_vcf(gs_fh, out_fh, hdr, flags);
+                gs_to_vcf(gs_fh, out_fh, hdr, flags);
             }
             else
             {
@@ -2543,7 +2999,7 @@ int run(int argc, char *argv[])
                     if ( out_sex ) fprintf(out_sex, "%s\t%c\n", str, gtc[i]->gender);
                     if (ptr) *ptr = '.';
                 }
-                gtcs_to_vcf(gtc, nfiles, bpm, egt, out_fh, hdr, flags);
+                gtcs_to_vcf(fai, bpm, egt, gtc, nfiles, out_fh, hdr, flags);
             }
         }
      }
