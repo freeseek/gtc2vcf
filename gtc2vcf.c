@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-11-25"
+#define GTC2VCF_VERSION "2019-11-26"
 
 #define FT_GS (1<<4)
 
@@ -815,11 +815,11 @@ static uint8_t get_assay_type(const char *allele_a_probe_seq,
     if ( !ptr1 || !ptr2 ) error("Source sequence is malformed: %s\n", source_seq);
     char trail1 = *(ptr1-1);
     char trail2 = *(ptr2+1);
-    if ( (trail1 == 'a' || trail1 == 'A' || trail1 == 't' || trail1 == 'T') && (trail2 == 'a' || trail2 == 'A' || trail2 == 't' || trail2 == 'T') ) return 1;
-    if ( (trail1 == 'c' || trail1 == 'C' || trail1 == 'g' || trail1 == 'G') && (trail2 == 'c' || trail2 == 'C' || trail2 == 'g' || trail2 == 'G') ) return 2;
-    char last = allele_a_probe_seq[(strlen(allele_a_probe_seq)-1)];
-    if ( (last == 'g' || last == 'G' || last == 't' || last == 'T') ) return 1;
-    if ( (last == 'a' || last == 'A' || last == 'c' || last == 'C') ) return 2;
+    if ( ( toupper(trail1) == 'A' || toupper(trail1) == 'T' ) && ( toupper(trail2) == 'A' || toupper(trail2) == 'T' ) ) return 1;
+    if ( ( toupper(trail1) == 'C' || toupper(trail1) == 'G' ) && ( toupper(trail2) == 'C' || toupper(trail2) == 'G' ) ) return 2;
+    char last = allele_a_probe_seq[(strlen(allele_a_probe_seq)-2)];
+    if ( ( toupper(last) == 'C' || toupper(last) == 'G') ) return 1;
+    if ( ( toupper(last) == 'A' || toupper(last) == 'T') ) return 2;
     error("Unable to retrieve assay type: %s %s\n", allele_a_probe_seq, source_seq);
 }
 
@@ -2727,7 +2727,7 @@ static const char *usage_text(void)
         "        --genome-studio                input a genome studio final report file (in matrix format)\n"
         "        --no-version                   do not append version and command line to the header\n"
         "    -o, --output <file>                write output to a file [standard output]\n"
-        "    -O, --output-type b|u|z|v|g        b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g GenomeStudio [v]\n"
+        "    -O, --output-type b|u|z|v|g        b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g: GenomeStudio [v]\n"
         "        --threads <int>                number of extra output compression threads [0]\n"
         "\n"
         "Examples:\n"
