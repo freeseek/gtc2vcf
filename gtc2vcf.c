@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-11-26"
+#define GTC2VCF_VERSION "2019-11-27"
 
 #define FT_GS (1<<4)
 
@@ -2948,7 +2948,7 @@ int run(int argc, char *argv[])
         if ( binary_to_csv ) bpm_to_csv(bpm, out_txt);
     }
 
-    if ( bpm->norm_lookups ) flags |= BPM_LOOKUPS;
+    if ( bpm && bpm->norm_lookups ) flags |= BPM_LOOKUPS;
     if ( ( flags & ADJUST_CLUSTERS ) && !( flags & BPM_LOOKUPS ) )
         error("Cannot adjust clusters as couldn't generate the normalization lookup table\n");
 
