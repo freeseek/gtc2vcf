@@ -32,7 +32,12 @@
 #include "bcftools.h"
 #include "htslib/khash_str2int.h"
 
-#define AFFY2VCF_VERSION "2019-11-25"
+#define AFFY2VCF_VERSION "2019-11-28"
+
+#define GT_NC 0
+#define GT_AA 1
+#define GT_AB 2
+#define GT_BB 3
 
 static inline char revnt(char nt)
 {
@@ -426,22 +431,22 @@ static void adjust_clusters(const int *gts,
     {
         switch ( gts[i] )
         {
-            case 0: // AA
+            case GT_AA:
                 cluster->aa_n_mean++;
                 cluster->aa_delta_mean += delta[i];
                 cluster->aa_size_mean += size[i];
                 break;
-            case 1: // AB
+            case GT_AB:
                 cluster->ab_n_mean++;
                 cluster->ab_delta_mean += delta[i];
                 cluster->ab_size_mean += size[i];
                 break;
-            case 2: // BB
+            case GT_BB:
                 cluster->bb_n_mean++;
                 cluster->bb_delta_mean += delta[i];
                 cluster->bb_size_mean += size[i];
                 break;
-            default: // NC
+            default:
                 break;
         }
     }
@@ -647,19 +652,19 @@ static void process(faidx_t *fai,
             gts[i-1] = strtol( &str.s[off[i]], &tmp, 10 );
             switch ( gts[i-1] )
             {
-                case -1: // NC
+                case GT_NC:
                     gt_arr[2*(i-1)] = bcf_gt_missing;
                     gt_arr[2*(i-1)+1] = bcf_gt_missing;
                     break;
-                case 0: // AA
+                case GT_AA:
                     gt_arr[2*(i-1)] = bcf_gt_unphased(allele_a_idx);
                     gt_arr[2*(i-1)+1] = bcf_gt_unphased(allele_a_idx);
                     break;
-                case 1: // AB
+                case GT_AB:
                     gt_arr[2*(i-1)] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx ) / 2 );
                     gt_arr[2*(i-1)+1] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx + 1 ) / 2 );
                     break;
-                case 2: // BB
+                case GT_BB:
                     gt_arr[2*(i-1)] = bcf_gt_unphased(allele_b_idx);
                     gt_arr[2*(i-1)+1] = bcf_gt_unphased(allele_b_idx);
                     break;
