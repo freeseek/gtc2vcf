@@ -3087,6 +3087,7 @@ int run(int argc, char *argv[])
             if ( bpm_fname ) bcf_hdr_printf(hdr, "##BPM=%s", strrchr(bpm_fname, '/') ? strrchr(bpm_fname, '/') + 1 : bpm_fname);
             if ( csv_fname ) bcf_hdr_printf(hdr, "##CSV=%s", strrchr(csv_fname, '/') ? strrchr(csv_fname, '/') + 1 : csv_fname);
             if ( egt_fname ) bcf_hdr_printf(hdr, "##EGT=%s", strrchr(egt_fname, '/') ? strrchr(egt_fname, '/') + 1 : egt_fname);
+            if ( gs_fname ) bcf_hdr_printf(hdr, "##GenomeStudio=%s", strrchr(gs_fname, '/') ? strrchr(gs_fname, '/') + 1 : gs_fname);
             if ( record_cmd_line ) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+gtc2vcf");
             if ( gs_fname )
             {
