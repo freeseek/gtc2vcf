@@ -35,9 +35,19 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-11-27"
+#define GTC2VCF_VERSION "2019-11-28"
 
 #define FT_GS (1<<4)
+
+#define NT_A (1<<0)
+#define NT_C (1<<1)
+#define NT_G (1<<2)
+#define NT_T (1<<3)
+
+#define GT_NC 0
+#define GT_AA 1
+#define GT_AB 2
+#define GT_BB 3
 
 static inline char revnt(char nt)
 {
@@ -1702,22 +1712,22 @@ static void adjust_clusters(const uint8_t *gts,
     {
         switch ( gts[i] )
         {
-            case 1: // AA
+            case GT_AA:
                 cluster_record->aa_cluster_stats.N++;
                 cluster_record->aa_cluster_stats.theta_mean += ilmn_theta[i];
                 cluster_record->aa_cluster_stats.r_mean += ilmn_r[i];
                 break;
-            case 2: // AB
+            case GT_AB:
                 cluster_record->ab_cluster_stats.N++;
                 cluster_record->ab_cluster_stats.theta_mean += ilmn_theta[i];
                 cluster_record->ab_cluster_stats.r_mean += ilmn_r[i];
                 break;
-            case 3: // BB
+            case GT_BB:
                 cluster_record->bb_cluster_stats.N++;
                 cluster_record->bb_cluster_stats.theta_mean += ilmn_theta[i];
                 cluster_record->bb_cluster_stats.r_mean += ilmn_r[i];
                 break;
-            default: // NC
+            default:
                 break;
         }
     }
@@ -1785,30 +1795,25 @@ static void reverse_complement(char *str)
     if (len % 2 == 1) str[len/2] = complement( str[len/2] );
 }
 
-#define NUC_A (1<<0)
-#define NUC_C (1<<1)
-#define NUC_G (1<<2)
-#define NUC_T (1<<3)
-
 static inline int degeneracy(char c)
 {
     switch(toupper(c))
     {
-        case 'A': return NUC_A;
-        case 'C': return NUC_C;
-        case 'G': return NUC_G;
-        case 'T': return NUC_T;
-        case 'N': return NUC_A | NUC_C | NUC_G | NUC_T;
-        case 'R': return NUC_A || NUC_G;
-        case 'Y': return NUC_C || NUC_T;
-        case 'S': return NUC_C || NUC_G;
-        case 'W': return NUC_A || NUC_T;
-        case 'K': return NUC_G || NUC_T;
-        case 'M': return NUC_A || NUC_C;
-        case 'B': return NUC_C || NUC_G || NUC_T;
-        case 'D': return NUC_A || NUC_G || NUC_T;
-        case 'H': return NUC_A || NUC_C || NUC_T;
-        case 'V': return NUC_A || NUC_C || NUC_G;
+        case 'A': return NT_A;
+        case 'C': return NT_C;
+        case 'G': return NT_G;
+        case 'T': return NT_T;
+        case 'N': return NT_A | NT_C | NT_G | NT_T;
+        case 'R': return NT_A || NT_G;
+        case 'Y': return NT_C || NT_T;
+        case 'S': return NT_C || NT_G;
+        case 'W': return NT_A || NT_T;
+        case 'K': return NT_G || NT_T;
+        case 'M': return NT_A || NT_C;
+        case 'B': return NT_C || NT_G || NT_T;
+        case 'D': return NT_A || NT_G || NT_T;
+        case 'H': return NT_A || NT_C || NT_T;
+        case 'V': return NT_A || NT_C || NT_G;
         default:
             error("Sequence nucleotide character %c is not in IUPAC notation\n", c);
     }
@@ -2100,7 +2105,7 @@ static void gtcs_to_vcf(faidx_t *fai,
         }
         bcf_update_id( hdr, rec, bpm->locus_entries[j].name );
 
-        int allele_a_idx, allele_b_idx;
+        int32_t allele_a_idx, allele_b_idx;
         allele_a.l = allele_b.l = 0;
         if ( is_indel(&bpm->locus_entries[j]) )
         {
@@ -2359,22 +2364,18 @@ static void gtcs_to_vcf(faidx_t *fai,
     hts_close(out_fh);
 }
 
-#define STRAND_PLUS  0
-#define STRAND_MINUS 1
-#define STRAND_TOP   2
-#define STRAND_BOT   3
-
-#define GS_GT    0
-#define GS_TOP   1
-#define GS_IGC   2
-#define GS_BAF   3
-#define GS_LRR   4
-#define GS_NORMX 5
-#define GS_NORMY 6
-#define GS_R     7
-#define GS_THETA 8
-#define GS_X     9
-#define GS_Y     10
+#define GS_GT         0
+#define GS_TOP_STRAND 1
+#define GS_REF_STRAND 2
+#define GS_IGC        3
+#define GS_BAF        4
+#define GS_LRR        5
+#define GS_NORMX      6
+#define GS_NORMY      7
+#define GS_R          8
+#define GS_THETA      9
+#define GS_X          10
+#define GS_Y          11
 
 typedef struct
 {
@@ -2389,40 +2390,23 @@ static int tsv_setter_gs_col(tsv_t *tsv,
                              void *usr)
 {
     gs_col_t *gs_col = (gs_col_t *)usr;
-    int32_t *gts;
-    char *endptr;
+    int *gts;
+    char *strand_alleles, *endptr;
     switch ( gs_col->type )
     {
         case GS_GT:
-            gts = (int32_t *)gs_col->ptr + 2 * gs_col->col2sample[ tsv->icol ];
-            if ( tsv->ss[0]=='A' && tsv->ss[1]=='A' )
-            {
-                gts[0] = bcf_gt_unphased(0);
-                gts[1] = bcf_gt_unphased(0);
-            }
-            else if ( tsv->ss[0]=='A' && tsv->ss[1]=='B' )
-            {
-                gts[0] = bcf_gt_unphased(0);
-                gts[1] = bcf_gt_unphased(1);
-            }
-            else if ( tsv->ss[0]=='B' && tsv->ss[1]=='B' )
-            {
-                gts[0] = bcf_gt_unphased(1);
-                gts[1] = bcf_gt_unphased(1);
-            }
-            else if ( tsv->ss[0]=='N' && tsv->ss[1]=='C' )
-            {
-                gts[0] = bcf_gt_missing;
-                gts[1] = bcf_gt_missing;
-            }
+            gts = (int *)gs_col->ptr + gs_col->col2sample[ tsv->icol ];
+            if ( tsv->ss[0]=='N' && tsv->ss[1]=='C' ) *gts = GT_NC;
+            else if ( tsv->ss[0]=='A' && tsv->ss[1]=='A' ) *gts = GT_AA;
+            else if ( tsv->ss[0]=='A' && tsv->ss[1]=='B' ) *gts = GT_AB;
+            else if ( tsv->ss[0]=='B' && tsv->ss[1]=='B' ) *gts = GT_BB;
             else return -1;
             break;
-        case GS_TOP:
-            gts = (int32_t *)gs_col->ptr + 2 * gs_col->col2sample[ tsv->icol ];
-            if ( gts[0] == bcf_gt_unphased(0) ) rec->d.allele[0][0] = tsv->ss[0];
-            if ( gts[0] == bcf_gt_unphased(1) ) rec->d.allele[1][0] = tsv->ss[0];
-            if ( gts[1] == bcf_gt_unphased(0) ) rec->d.allele[0][0] = tsv->ss[1];
-            if ( gts[1] == bcf_gt_unphased(1) ) rec->d.allele[1][0] = tsv->ss[1];
+        case GS_TOP_STRAND:
+        case GS_REF_STRAND:
+            strand_alleles = (char *)gs_col->ptr + 2 * gs_col->col2sample[ tsv->icol ];
+            strand_alleles[0] = tsv->ss[0];
+            strand_alleles[1] = tsv->ss[1];
             break;
         case GS_IGC:
         case GS_BAF:
@@ -2454,28 +2438,6 @@ static int tsv_setter_chrom_flexible(tsv_t *tsv,
     rec->rid = bcf_hdr_name2id_flexible((bcf_hdr_t*)usr, tsv->ss);
     *tsv->se = tmp;
     return rec->rid==-1 ? -1 : 0;
-}
-
-static int tsv_setter_strand(tsv_t *tsv,
-                             bcf1_t *rec,
-                             void *usr)
-{
-    if ( strncmp(tsv->ss, "PLUS", 4) == 0 ) ((int *)usr)[0] = STRAND_PLUS;
-    if ( strncmp(tsv->ss, "MINUS", 5) == 0 ) ((int *)usr)[0] = STRAND_MINUS;
-    else if ( strncmp(tsv->ss, "TOP", 3) == 0 ) ((int *)usr)[0] = STRAND_TOP;
-    else if ( strncmp(tsv->ss, "BOT", 3) == 0 ) ((int *)usr)[0] = STRAND_BOT;
-    else return -1;
-    return 0;
-}
-
-static int tsv_setter_snp(tsv_t *tsv,
-                          bcf1_t *rec,
-                          void *usr)
-{
-    char **snp = (char **)usr;
-    if ( strncmp(tsv->ss, "[N/A]", 5) == 0 ) *snp = NULL;
-    else *snp = tsv->ss;
-    return 0;
 }
 
 int tsv_register_all(tsv_t *tsv,
@@ -2519,7 +2481,8 @@ int tsv_parse_delimiter(tsv_t *tsv,
     return status ? 0 : -1;
 }
 
-static void gs_to_vcf(htsFile *gs_fh,
+static void gs_to_vcf(faidx_t *fai,
+                      htsFile *gs_fh,
                       htsFile *out_fh,
                       bcf_hdr_t *hdr,
                       int flags)
@@ -2549,8 +2512,8 @@ static void gs_to_vcf(htsFile *gs_fh,
             else if ( strcmp(ptr, "Y")==0 ) ksprintf(&str, "NORMY");
             else if ( strcmp(ptr, "B Allele Freq")==0 ) ksprintf(&str, "BAF");
             else if ( strcmp(ptr, "Log R Ratio")==0 ) ksprintf(&str, "LRR");
-            else if ( strcmp(ptr, "Top Alleles")==0 ) ksprintf(&str, "TOP");
-            else if ( strcmp(ptr, "Plus/Minus Alleles")==0 ) ksprintf(&str, "-");
+            else if ( strcmp(ptr, "Top Alleles")==0 ) ksprintf(&str, "TOP_STRAND");
+            else if ( strcmp(ptr, "Plus/Minus Alleles")==0 ) ksprintf(&str, "REF_STRAND");
             else if ( strcmp(ptr, "Import Calls")==0 ) ksprintf(&str, "-");
             else if ( strcmp(ptr, "Concordance")==0 ) ksprintf(&str, "-");
             else if ( strcmp(ptr, "Orig Call")==0 ) ksprintf(&str, "-");
@@ -2573,8 +2536,8 @@ static void gs_to_vcf(htsFile *gs_fh,
             else if ( strcmp(ptr, "Frac C")==0 ) ksprintf(&str, "-");
             else if ( strcmp(ptr, "Frac G")==0 ) ksprintf(&str, "-");
             else if ( strcmp(ptr, "Frac T")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "IlmnStrand")==0 ) ksprintf(&str, "STRAND");
-            else if ( strcmp(ptr, "SNP")==0 ) ksprintf(&str, "SNP");
+            else if ( strcmp(ptr, "IlmnStrand")==0 ) ksprintf(&str, "-");
+            else if ( strcmp(ptr, "SNP")==0 ) ksprintf(&str, "-");
             else error("Could not recognize INFO field: %s\n", ptr);
             col2sample[ i ] = -1;
         }
@@ -2588,16 +2551,19 @@ static void gs_to_vcf(htsFile *gs_fh,
     if ( tsv_register(tsv, "POS", tsv_setter_pos, NULL) < 0 ) error("Expected POS column\n");
     tsv_register(tsv, "ID", tsv_setter_id, hdr);
 
-    int strand;
-    tsv_register(tsv, "STRAND", tsv_setter_strand, &strand);
-    char *snp;
-    tsv_register(tsv, "SNP", tsv_setter_snp, &snp);
-
+    int *gts = (int *)malloc(nsamples * sizeof(int));
     int32_t *gt_arr = (int32_t *)malloc(nsamples*2 * sizeof(int32_t));
-    gs_col_t gs_gt_arr = {col2sample, GS_GT, gt_arr};
-    if ( tsv_register_all(tsv, "GT", tsv_setter_gs_col, &gs_gt_arr) < 0 ) error("Expected GType column\n");
-    gs_col_t gs_top = {col2sample, GS_TOP, gt_arr};
-    tsv_register_all(tsv, "TOP", tsv_setter_gs_col, &gs_top);
+    gs_col_t gs_gts = {col2sample, GS_GT, gts};
+    if ( tsv_register_all(tsv, "GT", tsv_setter_gs_col, &gs_gts) < 0 ) error("Expected GType column\n");
+    int32_t *gq_arr = (int32_t *)malloc(nsamples * sizeof(int32_t));
+
+    char *top_strand_alleles = (char *)malloc(nsamples*2 * sizeof(char));
+    gs_col_t gs_top_strand = {col2sample, GS_TOP_STRAND, top_strand_alleles};
+    tsv_register_all(tsv, "TOP_STRAND", tsv_setter_gs_col, &gs_top_strand);
+
+    char *ref_strand_alleles = (char *)malloc(nsamples*2 * sizeof(char));
+    gs_col_t gs_ref_strand = {col2sample, GS_REF_STRAND, ref_strand_alleles};
+    tsv_register_all(tsv, "REF_STRAND", tsv_setter_gs_col, &gs_ref_strand);
 
     gs_col_t gs_igc = {col2sample, GS_IGC, NULL};
     if ( (flags & FORMAT_IGC) && tsv_register_all(tsv, "IGC", tsv_setter_gs_col, &gs_igc) == 0 ) gs_igc.ptr = malloc(nsamples * sizeof(float));
@@ -2630,34 +2596,164 @@ static void gs_to_vcf(htsFile *gs_fh,
 
     bcf1_t *rec = bcf_init();
     // bcf_float_set_missing(rec->qual);
+    char reference_base[] = "\0\0";
+    char allele_a[] = "\0\0";
+    char allele_b[] = "\0\0";
+    int32_t allele_a_idx, allele_b_idx;
     int n_total = 0, n_skipped = 0;
     while ( hts_getline(gs_fh, KS_SEP_LINE, &line) > 0 )
     {
         if ( line.s[0]=='#' ) continue;     // skip comments
-        strand = STRAND_PLUS;
-        snp = NULL;
         bcf_clear(rec);
         rec->n_sample = nsamples;
-        bcf_update_alleles_str(hdr, rec, "N,N");
 
         n_total++;
         if ( !tsv_parse_delimiter(tsv, rec, line.s, '\t') )
         {
-            if ( snp )
+            // determine A and B alleles
+            allele_a[0] = '.';
+            allele_b[0] = '.';
+            for (int i=0; i<nsamples; i++)
             {
-                if ( strand == STRAND_TOP )
+                switch ( gts[i] )
                 {
-                    rec->d.allele[0][0] = snp[1];
-                    rec->d.allele[1][0] = snp[3];
+                    case GT_NC:
+                        break;
+                    case GT_AA:
+                        allele_a[0] = ref_strand_alleles[2*i];
+                        break;
+                    case GT_AB:
+                        allele_a[0] = ref_strand_alleles[2*i];
+                        allele_b[0] = ref_strand_alleles[2*i+1];
+                        break;
+                    case GT_BB:
+                        allele_b[0] = ref_strand_alleles[2*i];
+                        break;
+                    default:
+                        error("Genotype for probeset ID %s is malformed: %s\n", &str.s[off[0]], &str.s[off[i]]);
+                        break;
                 }
-                else if ( strand == STRAND_BOT )
+            }
+
+            if ( allele_a[0] == '.' && allele_b[0] == '.' )
+            {
+                allele_a_idx = -1;
+                allele_b_idx = -1;
+            }
+            else if ( allele_a[0] == 'D' || allele_a[0] == 'I' || allele_b[0] == 'D' || allele_b[0] == 'I' )
+            {
+                if ( allele_a[0] == 'D' && allele_b[0] == '.' ) allele_b[0] = 'I';
+                if ( allele_a[0] == 'I' && allele_b[0] == '.' ) allele_b[0] = 'D';
+                if ( allele_a[0] == '.' && allele_b[0] == 'D' ) allele_a[0] = 'I';
+                if ( allele_a[0] == '.' && allele_b[0] == 'I' ) allele_a[0] = 'D';
+                allele_a_idx = 0;
+                allele_b_idx = 1;
+            }
+            else
+            {
+                int len;
+                char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
+                if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
+                reference_base[0] = ref[0];
+                free(ref);
+                if ( reference_base[0] == allele_a[0] )
                 {
-                    rec->d.allele[0][0] = revnt(snp[1]);
-                    rec->d.allele[1][0] = revnt(snp[3]);
+                    allele_a_idx = 0;
+                    allele_b_idx = 1;
+                }
+                else if ( reference_base[0] == allele_b[0] )
+                {
+                    allele_a_idx = 1;
+                    allele_b_idx = 0;
+                }
+                else if ( allele_a[0] == '.' )
+                {
+                    allele_a[0] = reference_base[0];
+                    allele_a_idx = 0;
+                    allele_b_idx = 1;
+                }
+                else if ( allele_b[0] == '.' )
+                {
+                    allele_b[0] = reference_base[0];
+                    allele_a_idx = 1;
+                    allele_b_idx = 0;
+                }
+                else
+                {
+                    allele_a_idx = 1;
+                    allele_b_idx = 2;
+                }
+            }
+
+            const char *alleles[3];
+            int n_alleles;
+            switch ( allele_b_idx )
+            {
+                case -1:
+                    n_alleles = 0;
+                    break;
+                case 0:
+                    alleles[0] = allele_b;
+                    alleles[1] = allele_a;
+                    n_alleles = allele_a[0] == '.' ? 1 : 2;
+                    break;
+                case 1:
+                    alleles[0] = allele_a;
+                    alleles[1] = allele_b;
+                    n_alleles = allele_b[0] == '.' ? 1 : 2;
+                    break;
+                case 2:
+                    alleles[0] = reference_base;
+                    alleles[1] = allele_a;
+                    alleles[2] = allele_b;
+                    n_alleles = 3;
+                    break;
+                default:
+                    error("Unable to process marker %s\n", rec->d.id);
+                    break;
+            }
+            bcf_update_alleles(hdr, rec, alleles, n_alleles);
+            bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
+            bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
+
+            // TODO make this a function
+            for (int i=0; i<nsamples; i++)
+            {
+                switch ( gts[i] )
+                {
+                    case GT_NC:
+                        gt_arr[2*i] = bcf_gt_missing;
+                        gt_arr[2*i+1] = bcf_gt_missing;
+                        break;
+                    case GT_AA:
+                        gt_arr[2*i] = bcf_gt_unphased(allele_a_idx);
+                        gt_arr[2*i+1] = bcf_gt_unphased(allele_a_idx);
+                        break;
+                    case GT_AB:
+                        gt_arr[2*i] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx ) / 2 );
+                        gt_arr[2*i+1] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx + 1 ) / 2 );
+                        break;
+                    case GT_BB:
+                        gt_arr[2*i] = bcf_gt_unphased(allele_b_idx);
+                        gt_arr[2*i+1] = bcf_gt_unphased(allele_b_idx);
+                        break;
+                    default:
+                        error("Genotype for probeset ID %s is malformed: %s\n", &str.s[off[0]], &str.s[off[i]]);
+                        break;
                 }
             }
             bcf_update_genotypes(hdr, rec, gt_arr, nsamples*2);
-            if ( gs_igc.ptr ) bcf_update_format_float(hdr, rec, "IGC", (float *)gs_igc.ptr, nsamples);
+            if ( gs_igc.ptr )
+            {
+                for (int i=0; i<nsamples; i++)
+                {
+                    gq_arr[i] = (int)(-10*log10(1 - ((float *)gs_igc.ptr)[i]) + .5);
+                    if ( gq_arr[i] < 0 ) gq_arr[i] = 0;
+                    if ( gq_arr[i] > 50 ) gq_arr[i] = 50;
+                }
+                bcf_update_format_int32(hdr, rec, "GQ", gq_arr, nsamples);
+                bcf_update_format_float(hdr, rec, "IGC", (float *)gs_igc.ptr, nsamples);
+            }
             if ( gs_baf.ptr ) bcf_update_format_float(hdr, rec, "BAF", (float *)gs_baf.ptr, nsamples);
             if ( gs_lrr.ptr ) bcf_update_format_float(hdr, rec, "LRR", (float *)gs_lrr.ptr, nsamples);
             if ( gs_norm_x.ptr ) bcf_update_format_float(hdr, rec, "NORMX", (float *)gs_norm_x.ptr, nsamples);
@@ -2679,7 +2775,11 @@ static void gs_to_vcf(htsFile *gs_fh,
     tsv_destroy(tsv);
     bcf_destroy(rec);
     free(col2sample);
+    free(gts);
     free(gt_arr);
+    free(gq_arr);
+    free(top_strand_alleles);
+    free(ref_strand_alleles);
     free(gs_igc.ptr);
     free(gs_baf.ptr);
     free(gs_lrr.ptr);
@@ -2991,7 +3091,7 @@ int run(int argc, char *argv[])
             if ( gs_fname )
             {
                 htsFile *gs_fh = hts_open(gs_fname, "r");
-                gs_to_vcf(gs_fh, out_fh, hdr, flags);
+                gs_to_vcf(fai, gs_fh, out_fh, hdr, flags);
             }
             else
             {
