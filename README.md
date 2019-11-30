@@ -13,23 +13,24 @@ Illumina tool:
 Usage: bcftools +gtc2vcf [options] <A.gtc> [...]
 
 Plugin options:
-    -l, --list-tags                    list available tags with description for VCF output
-    -t, --tags LIST                    list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
-    -i  --idat <file>                  IDAT file
-    -b  --bpm <file>                   BPM manifest file
-    -c  --csv <file>                   CSV manifest file
-    -e  --egt <file>                   EGT cluster file
-    -f, --fasta-ref <file>             reference sequence in fasta format
-        --set-cache-size <int>         select fasta cache size in bytes
-    -g, --gtc-list <file>              read GTC file names from file
-        --adjust-clusters              adjust cluster centers in (Theta, R) space
-    -x, --sex <file>                   output GenCall gender estimate into file
-        --do-not-check-bpm             do not check whether BPM and GTC files match manifest file name
-        --genome-studio                input a genome studio final report file (in matrix format)
-        --no-version                   do not append version and command line to the header
-    -o, --output <file>                write output to a file [standard output]
-    -O, --output-type b|u|z|v|g        b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g: GenomeStudio [v]
-        --threads <int>                number of extra output compression threads [0]
+    -l, --list-tags              list available tags with description for VCF output
+    -t, --tags LIST              list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
+    -i  --idat <file>            IDAT file
+    -b  --bpm <file>             BPM manifest file
+    -c  --csv <file>             CSV manifest file
+    -e  --egt <file>             EGT cluster file
+    -f, --fasta-ref <file>       reference sequence in fasta format
+        --set-cache-size <int>   select fasta cache size in bytes
+    -g, --gtc-list <file>        read GTC file names from file
+        --adjust-clusters        adjust cluster centers in (Theta, R) space
+    -x, --sex <file>             output GenCall gender estimate into file
+        --do-not-check-bpm       do not check whether BPM and GTC files match manifest file name
+        --genome-studio <file>   input a genome studio final report file (in matrix format)
+        --beadset-map            output BeadSetID to NormID map (requires --bpm and --csv)
+        --no-version             do not append version and command line to the header
+    -o, --output <file>          write output to a file [standard output]
+    -O, --output-type b|u|z|v|g  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g: GenomeStudio [v]
+        --threads <int>          number of extra output compression threads [0]
 
 Examples:
     bcftools +gtc2vcf -i 5434246082_R03C01_Grn.idat
@@ -37,28 +38,29 @@ Examples:
     bcftools +gtc2vcf -b HumanOmni2.5-4v1_H.bpm -c HumanOmni2.5-4v1_H.csv
     bcftools +gtc2vcf -e HumanOmni2.5-4v1_H.egt
     bcftools +gtc2vcf -c HumanOmni2.5-4v1_H.csv -f human_g1k_v37.fasta 5434246082_R03C01.gtc -o 5434246082_R03C01.vcf
+    bcftools +gtc2vcf -f human_g1k_v37.fasta --genome-studio GenotypeReport.txt -o GenotypeReport.vcf
 ```
 
 Affymetrix tool:
 ```
-Usage: bcftools +affy2vcf [options] --fasta-ref <fasta> --annot <file> --snp-posteriors <file>
-                                    --summary <file> --calls <file> --confidences <file> 
+Usage: bcftools +affy2vcf [options] --fasta-ref <file> --annot <file> --snp-posteriors <file>
+                                    --summary <file> --calls <file> --confidences <file>
 
 Plugin options:
-    -f, --fasta-ref <file>                     reference sequence in fasta format
-        --set-cache-size <int>                 select fasta cache size in bytes
-        --annot <file>                         probeset annotation file
-        --snp-posteriors <snp-posteriors.txt>  apt-probeset-genotype snp-posteriors output
-        --summary <summary.txt>                apt-probeset-genotype summary output
-        --report <report.txt>                  apt-probeset-genotype report output
-        --calls <calls.txt>                    apt-probeset-genotype calls output
-        --confidences <confidences.txt>        apt-probeset-genotype confidences output
-        --adjust-clusters                      adjust cluster centers in (Contrast, Size) space
-    -x, --sex <file>                           output apt-probeset-genotype gender estimate into file (requires --report)
-        --no-version                           do not append version and command line to the header
-    -o, --output <file>                        write output to a file [standard output]
-    -O, --output-type b|u|z|v                  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]
-        --threads <int>                        number of extra output compression threads [0]
+    -f, --fasta-ref <file>       reference sequence in fasta format
+        --set-cache-size <int>   select fasta cache size in bytes
+        --annot <file>           probeset annotation file
+        --snp-posteriors <file>  apt-probeset-genotype snp-posteriors output
+        --summary <file>         apt-probeset-genotype summary output
+        --report <file>          apt-probeset-genotype report output
+        --calls <file>           apt-probeset-genotype calls output
+        --confidences <file>     apt-probeset-genotype confidences output
+        --adjust-clusters        adjust cluster centers in (Contrast, Size) space
+    -x, --sex <file>             output apt-probeset-genotype gender estimate into file (requires --report)
+        --no-version             do not append version and command line to the header
+    -o, --output <file>          write output to a file [standard output]
+    -O, --output-type b|u|z|v    b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]
+        --threads <int>          number of extra output compression threads [0]
 
 Example:
     bcftools +affy2vcf \
