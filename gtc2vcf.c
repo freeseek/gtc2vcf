@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-11-28"
+#define GTC2VCF_VERSION "2019-11-29"
 
 #define FT_GS (1<<4)
 
@@ -49,12 +49,24 @@
 #define GT_AB 2
 #define GT_BB 3
 
+#define min(a,b) \
+  ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+    _a < _b ? _a : _b; })
+
+#define max(a,b) \
+  ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+    _a > _b ? _a : _b; })
+
 static inline char revnt(char nt)
 {
     if ( nt=='A' ) return 'T';
     if ( nt=='C' ) return 'G';
     if ( nt=='G' ) return 'C';
     if ( nt=='T' ) return 'A';
+    if ( nt=='D' ) return 'D';
+    if ( nt=='I' ) return 'I';
     return -1;
 }
 
@@ -814,22 +826,29 @@ int csv_parse(tsv_t *tsv,
     return status ? 0 : -1;
 }
 
+// retrieve assay type according to the following (allele_a_probe_seq, source_seq) -> assay_type map
+// (...W., ...W[./.]W...) -> 1
+// (...S., ...S[./.]S...) -> 2
+// (...S., ...S[./.]W...) -> 1
+// (...S., ...W[./.]S...) -> 1
+// (...W., ...S[./.]W...) -> 2
+// (...W., ...W[./.]S...) -> 2
 static uint8_t get_assay_type(const char *allele_a_probe_seq,
                               const char *allele_b_probe_seq,
                               const char *source_seq)
 {
     if ( !allele_a_probe_seq || !source_seq ) return 0xFF;
     if ( !allele_b_probe_seq ) return 0;
-    char *ptr1 = strchr(source_seq, '[');
-    char *ptr2 = strchr(source_seq, ']');
-    if ( !ptr1 || !ptr2 ) error("Source sequence is malformed: %s\n", source_seq);
-    char trail1 = *(ptr1-1);
-    char trail2 = *(ptr2+1);
-    if ( ( toupper(trail1) == 'A' || toupper(trail1) == 'T' ) && ( toupper(trail2) == 'A' || toupper(trail2) == 'T' ) ) return 1;
-    if ( ( toupper(trail1) == 'C' || toupper(trail1) == 'G' ) && ( toupper(trail2) == 'C' || toupper(trail2) == 'G' ) ) return 2;
-    char last = allele_a_probe_seq[(strlen(allele_a_probe_seq)-2)];
-    if ( ( toupper(last) == 'C' || toupper(last) == 'G') ) return 1;
-    if ( ( toupper(last) == 'A' || toupper(last) == 'T') ) return 2;
+    char *ptr_5 = strchr(source_seq, '[');
+    char *ptr_3 = strchr(source_seq, ']');
+    if ( !ptr_5 || !ptr_3 ) error("Source sequence is malformed: %s\n", source_seq);
+    char trail_5 = *(ptr_5 - 1);
+    char trail_3 = *(ptr_3 + 1);
+    if ( ( toupper(trail_5) == 'A' || toupper(trail_5) == 'T' ) && ( toupper(trail_3) == 'A' || toupper(trail_3) == 'T' ) ) return 1;
+    if ( ( toupper(trail_5) == 'C' || toupper(trail_5) == 'G' ) && ( toupper(trail_3) == 'C' || toupper(trail_3) == 'G' ) ) return 2;
+    char trail_a = allele_a_probe_seq[strlen(allele_a_probe_seq) - 2];
+    if ( ( toupper(trail_a) == 'C' || toupper(trail_a) == 'G') ) return 1;
+    if ( ( toupper(trail_a) == 'A' || toupper(trail_a) == 'T') ) return 2;
     error("Unable to retrieve assay type: %s %s\n", allele_a_probe_seq, source_seq);
 }
 
@@ -1746,11 +1765,6 @@ static void adjust_clusters(const uint8_t *gts,
 
 // see BPMRecord.py from https://github.com/Illumina/GTCtoVCF
 
-static inline int is_indel(const LocusEntry *locusentry)
-{
-    return locusentry->snp[1] == 'D' || locusentry->snp[3] == 'D';
-}
-
 static inline void strupper(char *str) {
     char *s = str;
     while (*s) {
@@ -1965,14 +1979,54 @@ static void gtcs_to_gs(gtc_t **gtc,
             get_element(gtc[i]->base_calls, (void *)&base_call, j);
             intensities_t intensities;
             get_intensities(gtc[i], bpm, egt, j, &intensities);
-            fprintf(stream, "\t%s\t%f\t%f\t%f\t%f\t%f\t%c%c\t--", code2genotype[genotype],
-                                                                  genotype_score,
-                                                                  intensities.ilmn_theta,
-                                                                  intensities.ilmn_r,
-                                                                  intensities.baf,
-                                                                  intensities.lrr,
-                                                                  base_call[0],
-                                                                  base_call[1]);
+            char allele_a, allele_b;
+            if ( strcmp(bpm->locus_entries[j].ref_strand, "+") == 0 )
+            {
+                allele_a = bpm->locus_entries[j].snp[1];
+                allele_b = bpm->locus_entries[j].snp[3];
+            }
+            else if ( strcmp(bpm->locus_entries[j].ref_strand, "-") == 0 )
+            {
+                allele_a = revnt(bpm->locus_entries[j].snp[1]);
+                allele_b = revnt(bpm->locus_entries[j].snp[3]);
+            }
+            else
+            {
+                error("Unable to process reference strand %s\n", bpm->locus_entries[j].ref_strand);
+            }
+            BaseCall ref_call;
+            switch ( genotype )
+            {
+                case GT_NC:
+                    ref_call[0] = '-';
+                    ref_call[1] = '-';
+                    break;
+                case GT_AA:
+                    ref_call[0] = allele_a;
+                    ref_call[1] = allele_a;
+                    break;
+                case GT_AB:
+                    ref_call[0] = allele_a;
+                    ref_call[1] = allele_b;
+                    break;
+                case GT_BB:
+                    ref_call[0] = allele_b;
+                    ref_call[1] = allele_b;
+                    break;
+                default:
+                    error("Unable to process marker %s\n", bpm->locus_entries[j].name);
+                    break;
+            }
+            fprintf(stream, "\t%s\t%f\t%f\t%f\t%f\t%f\t%c%c\t%c%c", code2genotype[genotype],
+                                                                    genotype_score,
+                                                                    intensities.ilmn_theta,
+                                                                    intensities.ilmn_r,
+                                                                    intensities.baf,
+                                                                    intensities.lrr,
+                                                                    base_call[0],
+                                                                    base_call[1],
+                                                                    ref_call[0],
+                                                                    ref_call[1]);
         }
         fprintf(stream, "\n");
     }
@@ -2050,10 +2104,114 @@ static bcf_hdr_t *get_hdr(const faidx_t *fai, int flags)
     return hdr;
 }
 
-#define min(a,b) \
-  ({ __typeof__ (a) _a = (a); \
-     __typeof__ (b) _b = (b); \
-    _a < _b ? _a : _b; })
+static int get_allele_b_idx(faidx_t *fai,
+                            const bcf_hdr_t *hdr,
+                            bcf1_t *rec,
+                            char *reference_base,
+                            char *allele_a,
+                            char *allele_b)
+{
+    if ( *allele_a == 'D' || *allele_a == 'I' || *allele_b == 'D' || *allele_b == 'I' ) return 1;
+
+    int len;
+    char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
+    if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
+    *reference_base = ref[0];
+    free(ref);
+
+    if ( *reference_base == *allele_a ) return 1;
+    else if ( *reference_base == *allele_b ) return 0;
+    else if ( *allele_a == '.' )
+    {
+        *allele_a = *reference_base;
+        return 1;
+    }
+    else if ( *allele_b == '.' )
+    {
+        *allele_b = *reference_base;
+        return 0;
+    }
+    return 2;
+}
+
+static int get_allele_a_idx(int allele_b_idx)
+{
+    switch ( allele_b_idx )
+    {
+        case 0:
+            return 1;
+        case 1:
+            return 0;
+        case 2:
+            return 1;
+        default:
+            return -1;
+    }
+}
+
+static int alleles_ab_to_vcf(const char **alleles,
+                             const char *reference_base,
+                             const char *allele_a,
+                             const char *allele_b,
+                             int allele_b_idx)
+{
+    switch ( allele_b_idx )
+    {
+        case -1:
+            alleles[0] = ".";
+            return 1;
+        case 0:
+            alleles[0] = allele_b;
+            if ( allele_a[0] == '.' ) return 1;
+            alleles[1] = allele_a;
+            return 2;
+        case 1:
+            alleles[0] = allele_a;
+            if ( allele_b[0] == '.' ) return 1;
+            alleles[1] = allele_b;
+            return 2;
+        case 2:
+            alleles[0] = reference_base;
+            alleles[1] = allele_a;
+            alleles[2] = allele_b;
+            return 3;
+        default:
+            return -1;
+    }
+}
+
+static int gts_to_gt_arr(int32_t *gt_arr,
+                         const uint8_t *gts,
+                         int n,
+                         int allele_a_idx,
+                         int allele_b_idx)
+{
+    for (int i=0; i<n; i++)
+    {
+        switch ( gts[i] )
+        {
+            case GT_NC:
+                gt_arr[2*i] = bcf_gt_missing;
+                gt_arr[2*i+1] = bcf_gt_missing;
+                break;
+            case GT_AA:
+                gt_arr[2*i] = bcf_gt_unphased(allele_a_idx);
+                gt_arr[2*i+1] = bcf_gt_unphased(allele_a_idx);
+                break;
+            case GT_AB:
+                gt_arr[2*i] = bcf_gt_unphased( min( allele_a_idx, allele_b_idx ) );
+                gt_arr[2*i+1] = bcf_gt_unphased( max( allele_a_idx, allele_b_idx ) );
+                break;
+            case GT_BB:
+                gt_arr[2*i] = bcf_gt_unphased(allele_b_idx);
+                gt_arr[2*i+1] = bcf_gt_unphased(allele_b_idx);
+                break;
+            default:
+                return -1;
+        }
+    }
+    return 0;
+}
 
 static void gtcs_to_vcf(faidx_t *fai,
                         const bpm_t *bpm,
@@ -2066,10 +2224,7 @@ static void gtcs_to_vcf(faidx_t *fai,
 {
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
     bcf1_t *rec = bcf_init();
-    rec->n_sample = n;
-    bcf_float_set_missing(rec->qual);
-
-    char reference_base[] = "\0\0";
+    char reference_base[] = {'\0', '\0'};
     kstring_t allele_a = {0, 0, NULL};
     kstring_t allele_b = {0, 0, NULL};
     kstring_t indel_seq = {0, 0, NULL};
@@ -2087,10 +2242,11 @@ static void gtcs_to_vcf(faidx_t *fai,
     int32_t *raw_x_arr = (int32_t *) malloc(n * sizeof(int32_t));
     int32_t *raw_y_arr = (int32_t *) malloc(n * sizeof(int32_t));
 
-    int skipped_markers = 0;
+    int n_skipped = 0;
     for (int j=0; j<bpm->num_loci; j++)
     {
         bcf_clear(rec);
+        rec->n_sample = n;
         rec->rid = bcf_hdr_name2id_flexible(hdr, bpm->locus_entries[j].chrom);
         char *endptr;
         rec->pos = strtol(bpm->locus_entries[j].map_info, &endptr, 10) - 1;
@@ -2098,24 +2254,16 @@ static void gtcs_to_vcf(faidx_t *fai,
             error("Map info %s for marker %s is not understood\n",bpm->locus_entries[j].map_info, bpm->locus_entries[j].ilmn_id);
         if ( rec->rid < 0 || rec->pos < 0 )
         {
-            fprintf(stderr, "Unable to determine location for marker %s with chromosome %s and position %s\n",
-                bpm->locus_entries[j].ilmn_id, bpm->locus_entries[j].chrom, bpm->locus_entries[j].map_info);
-            skipped_markers++;
+            fprintf(stderr, "Skipping marker %s due to unknown location\n", bpm->locus_entries[j].ilmn_id);
+            n_skipped++;
             continue;
         }
         bcf_update_id( hdr, rec, bpm->locus_entries[j].name );
 
         int32_t allele_a_idx, allele_b_idx;
         allele_a.l = allele_b.l = 0;
-        if ( is_indel(&bpm->locus_entries[j]) )
+        if ( bpm->locus_entries[j].source_seq && ( bpm->locus_entries[j].snp[1] == 'D' || bpm->locus_entries[j].snp[1] == 'I' ) )
         {
-            if ( !bpm->locus_entries[j].source_seq )
-            {
-                fprintf(stderr, "Unable to determine reference allele for indel %s as source sequence is missing\n",
-                    bpm->locus_entries[j].ilmn_id);
-                skipped_markers++;
-                continue;
-            }
             // see BPMRecord.py from https://github.com/Illumina/GTCtoVCF
             char source_strand = toupper(bpm->locus_entries[j].source_strand[0]);
             char ilmn_strand = toupper(bpm->locus_entries[j].ilmn_strand[0]);
@@ -2135,13 +2283,14 @@ static void gtcs_to_vcf(faidx_t *fai,
             indel_left_shift( &source_seq );
 
             int len;
-            char *genomic_seq = faidx_fetch_seq(fai, bcf_seqname(hdr, rec),
+            char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec),
                 rec->pos-five_prime_len(&source_seq), rec->pos-1+indel_seq.l+three_prime_len(&source_seq), &len);
-            strupper(genomic_seq);
-            int indel_sequence_match = strncmp(genomic_seq + five_prime_len(&source_seq), indel_seq.s, indel_seq.l) == 0;
+            if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
+            strupper(ref);
+            int indel_sequence_match = strncmp(ref + five_prime_len(&source_seq), indel_seq.s, indel_seq.l) == 0;
 
-            indel_t genomic_del = indel_init(genomic_seq, five_prime_len(&source_seq), indel_seq.s, indel_seq.l,
-                genomic_seq + five_prime_len(&source_seq) + indel_seq.l, three_prime_len(&source_seq));
+            indel_t genomic_del = indel_init(ref, five_prime_len(&source_seq), indel_seq.s, indel_seq.l,
+                ref + five_prime_len(&source_seq) + indel_seq.l, three_prime_len(&source_seq));
             indel_left_shift( &genomic_del );
             int del_context_match_lengths_five_prime = max_suffix_match(genomic_del.five_prime,
                 source_seq.five_prime, five_prime_len(&genomic_del), five_prime_len(&source_seq));
@@ -2152,8 +2301,8 @@ static void gtcs_to_vcf(faidx_t *fai,
             float del_context_score = (float)(del_context_match_lengths_five_prime + del_context_match_lengths_three_prime +
                 ( indel_sequence_match ? indel_seq.l : 0) ) / (float)max_del_context;
 
-            indel_t genomic_ins = indel_init(genomic_seq + 1, five_prime_len(&source_seq), indel_seq.s, indel_seq.l,
-                genomic_seq + five_prime_len(&source_seq) + 1, three_prime_len(&source_seq));
+            indel_t genomic_ins = indel_init(ref + 1, five_prime_len(&source_seq), indel_seq.s, indel_seq.l,
+                ref + five_prime_len(&source_seq) + 1, three_prime_len(&source_seq));
             indel_left_shift( &genomic_ins );
             int ins_context_match_lengths_five_prime = max_suffix_match(genomic_ins.five_prime,
                 source_seq.five_prime, five_prime_len(&genomic_ins), five_prime_len(&source_seq));
@@ -2170,35 +2319,33 @@ static void gtcs_to_vcf(faidx_t *fai,
                 ( ins_context_match_lengths_five_prime >= 1 && ins_context_match_lengths_three_prime >= 1);
 
             if ( is_del ) rec->pos--;
-            reference_base[0] = genomic_seq[five_prime_len(&source_seq) - is_del];
+            reference_base[0] = ref[five_prime_len(&source_seq) - is_del];
             free(source_seq.five_prime);
             free(genomic_del.five_prime);
             free(genomic_ins.five_prime);
-            free(genomic_seq);
+            free(ref);
 
             if ( is_del == is_ins )
             {
-                fprintf(stderr, "Unable to determine reference allele for indel %s with source sequence %s\n",
-                    bpm->locus_entries[j].ilmn_id, bpm->locus_entries[j].source_seq);
-                skipped_markers++;
-                continue;
-            }
-
-            kputc(reference_base[0], &allele_a);
-            kputc(reference_base[0], &allele_b);
-            if ( bpm->locus_entries[j].snp[1] == 'I' )
-            {
-                ksprintf(&allele_a, "%s", indel_seq.s);
-                allele_a_idx = !is_del;
-                allele_b_idx = is_del;
+                fprintf(stderr, "Unable to determine reference allele for indel %s\n", bpm->locus_entries[j].ilmn_id);
+                kputc(bpm->locus_entries[j].snp[1], &allele_a);
+                kputc(bpm->locus_entries[j].snp[3], &allele_b);
             }
             else
             {
-                ksprintf(&allele_b, "%s", indel_seq.s);
-                allele_a_idx = is_del;
-                allele_b_idx = !is_del;
+                kputc(reference_base[0], &allele_a);
+                kputc(reference_base[0], &allele_b);
+                if ( bpm->locus_entries[j].snp[1] == 'I' )
+                {
+                    ksprintf(&allele_a, "%s", indel_seq.s);
+                    allele_b_idx = is_del;
+                }
+                else
+                {
+                    ksprintf(&allele_b, "%s", indel_seq.s);
+                    allele_b_idx = !is_del;
+                }
             }
-
         }
         else
         {
@@ -2212,77 +2359,23 @@ static void gtcs_to_vcf(faidx_t *fai,
                 kputc(revnt(bpm->locus_entries[j].snp[1]), &allele_a);
                 kputc(revnt(bpm->locus_entries[j].snp[3]), &allele_b);
             }
-            int len;
-            char *genomic_seq = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
-            reference_base[0] = genomic_seq[0];
-            free(genomic_seq);
-            if ( reference_base[0] == allele_a.s[0] )
-            {
-                allele_a_idx = 0;
-                allele_b_idx = 1;
-            }
-            else if ( reference_base[0] == allele_b.s[0] )
-            {
-                allele_a_idx = 1;
-                allele_b_idx = 0;
-            }
             else
             {
-                allele_a_idx = 1;
-                allele_b_idx = 2;
+                error("Unable to process reference strand %s\n", bpm->locus_entries[j].ref_strand);
             }
+            allele_b_idx = get_allele_b_idx( fai, hdr, rec, reference_base, allele_a.s, allele_b.s );
         }
-
+        allele_a_idx = get_allele_a_idx( allele_b_idx );
         const char *alleles[3];
-        int n_alleles;
-        switch ( allele_b_idx )
-        {
-            case 0:
-                alleles[0] = allele_b.s;
-                alleles[1] = allele_a.s;
-                n_alleles = 2;
-                break;
-            case 1:
-                alleles[0] = allele_a.s;
-                alleles[1] = allele_b.s;
-                n_alleles = 2;
-                break;
-            case 2:
-                alleles[0] = reference_base;
-                alleles[1] = allele_a.s;
-                alleles[2] = allele_b.s;
-                n_alleles = 3;
-                break;
-            default:
-                error("Unable to process marker %s\n", bpm->locus_entries[j].ilmn_id);
-                break;
-        }
-        bcf_update_alleles(hdr, rec, alleles, n_alleles);
+        int nals = alleles_ab_to_vcf(alleles, reference_base, allele_a.s, allele_b.s, allele_b_idx);
+        if ( nals < 0 ) error("Unable to process marker %s\n", bpm->locus_entries[j].ilmn_id);
+        bcf_update_alleles(hdr, rec, alleles, nals);
         bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
         bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
 
         for (int i=0; i<n; i++)
         {
             get_element(gtc[i]->genotypes, (void *)&gts[i], j);
-            switch ( gts[i] )
-            {
-                case 1: // AA
-                    gt_arr[2*i] = bcf_gt_unphased(allele_a_idx);
-                    gt_arr[2*i+1] = bcf_gt_unphased(allele_a_idx);
-                    break;
-                case 2: // AB
-                    gt_arr[2*i] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx ) / 2 );
-                    gt_arr[2*i+1] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx + 1 ) / 2 );
-                    break;
-                case 3: // BB
-                    gt_arr[2*i] = bcf_gt_unphased(allele_b_idx);
-                    gt_arr[2*i+1] = bcf_gt_unphased(allele_b_idx);
-                    break;
-                default: // NC
-                    gt_arr[2*i] = bcf_gt_missing;
-                    gt_arr[2*i+1] = bcf_gt_missing;
-                    break;
-            }
             get_element(gtc[i]->genotype_scores, (void *)&igc_arr[i], j);
             gq_arr[i] = (int)(-10*log10(1 - igc_arr[i]) + .5);
             if ( gq_arr[i] < 0 ) gq_arr[i] = 0;
@@ -2326,6 +2419,7 @@ static void gtcs_to_vcf(faidx_t *fai,
             bcf_update_info_float(hdr, rec, "meanTHETA_BB", &egt->cluster_records[j].bb_cluster_stats.theta_mean, 1);
         }
 
+        gts_to_gt_arr( gt_arr, gts, n, allele_a_idx, allele_b_idx );
         bcf_update_genotypes(hdr, rec, gt_arr, n*2);
         bcf_update_format_int32(hdr, rec, "GQ", gq_arr, n);
         if ( flags & FORMAT_IGC   ) bcf_update_format_float(hdr, rec, "IGC", igc_arr, n);
@@ -2339,7 +2433,8 @@ static void gtcs_to_vcf(faidx_t *fai,
         if ( flags & FORMAT_Y     ) bcf_update_format_int32(hdr, rec, "Y", raw_y_arr, n);
         if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
     }
-    fprintf(stderr, "%d markers skipped in the conversion to VCF\n", skipped_markers);
+    fprintf(stderr, "Rows total: \t%d\n", bpm->num_loci);
+    fprintf(stderr, "Rows skipped: \t%d\n", n_skipped);
     bcf_hdr_name2id_flexible(hdr, NULL);
 
     free(gts);
@@ -2361,7 +2456,7 @@ static void gtcs_to_vcf(faidx_t *fai,
 
     bcf_destroy(rec);
     bcf_hdr_destroy(hdr);
-    hts_close(out_fh);
+    if ( hts_close(out_fh) < 0 ) error("Close failed: %s\n", out_fh->fn);
 }
 
 #define GS_GT         0
@@ -2390,12 +2485,12 @@ static int tsv_setter_gs_col(tsv_t *tsv,
                              void *usr)
 {
     gs_col_t *gs_col = (gs_col_t *)usr;
-    int *gts;
+    uint8_t *gts;
     char *strand_alleles, *endptr;
     switch ( gs_col->type )
     {
         case GS_GT:
-            gts = (int *)gs_col->ptr + gs_col->col2sample[ tsv->icol ];
+            gts = (uint8_t *)gs_col->ptr + gs_col->col2sample[ tsv->icol ];
             if ( tsv->ss[0]=='N' && tsv->ss[1]=='C' ) *gts = GT_NC;
             else if ( tsv->ss[0]=='A' && tsv->ss[1]=='A' ) *gts = GT_AA;
             else if ( tsv->ss[0]=='A' && tsv->ss[1]=='B' ) *gts = GT_AB;
@@ -2551,7 +2646,7 @@ static void gs_to_vcf(faidx_t *fai,
     if ( tsv_register(tsv, "POS", tsv_setter_pos, NULL) < 0 ) error("Expected POS column\n");
     tsv_register(tsv, "ID", tsv_setter_id, hdr);
 
-    int *gts = (int *)malloc(nsamples * sizeof(int));
+    uint8_t *gts = (uint8_t *) malloc(nsamples * sizeof(uint8_t));
     int32_t *gt_arr = (int32_t *)malloc(nsamples*2 * sizeof(int32_t));
     gs_col_t gs_gts = {col2sample, GS_GT, gts};
     if ( tsv_register_all(tsv, "GT", tsv_setter_gs_col, &gs_gts) < 0 ) error("Expected GType column\n");
@@ -2595,15 +2690,14 @@ static void gs_to_vcf(faidx_t *fai,
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
 
     bcf1_t *rec = bcf_init();
-    // bcf_float_set_missing(rec->qual);
-    char reference_base[] = "\0\0";
-    char allele_a[] = "\0\0";
-    char allele_b[] = "\0\0";
+    char reference_base[] = {'\0', '\0'};
+    char allele_a[] = {'\0', '\0'};
+    char allele_b[] = {'\0', '\0'};
     int32_t allele_a_idx, allele_b_idx;
     int n_total = 0, n_skipped = 0;
     while ( hts_getline(gs_fh, KS_SEP_LINE, &line) > 0 )
     {
-        if ( line.s[0]=='#' ) continue;     // skip comments
+        if ( line.s[0]=='#' ) continue; // skip comments
         bcf_clear(rec);
         rec->n_sample = nsamples;
 
@@ -2630,118 +2724,30 @@ static void gs_to_vcf(faidx_t *fai,
                         allele_b[0] = ref_strand_alleles[2*i];
                         break;
                     default:
-                        error("Genotype for probeset ID %s is malformed: %s\n", &str.s[off[0]], &str.s[off[i]]);
+                        error("Unable to process marker %s\n", rec->d.id);
                         break;
                 }
             }
 
-            if ( allele_a[0] == '.' && allele_b[0] == '.' )
-            {
-                allele_a_idx = -1;
-                allele_b_idx = -1;
-            }
+            if ( allele_a[0] == '.' && allele_b[0] == '.' ) allele_b_idx = -1;
             else if ( allele_a[0] == 'D' || allele_a[0] == 'I' || allele_b[0] == 'D' || allele_b[0] == 'I' )
             {
                 if ( allele_a[0] == 'D' && allele_b[0] == '.' ) allele_b[0] = 'I';
                 if ( allele_a[0] == 'I' && allele_b[0] == '.' ) allele_b[0] = 'D';
                 if ( allele_a[0] == '.' && allele_b[0] == 'D' ) allele_a[0] = 'I';
                 if ( allele_a[0] == '.' && allele_b[0] == 'I' ) allele_a[0] = 'D';
-                allele_a_idx = 0;
                 allele_b_idx = 1;
             }
-            else
-            {
-                int len;
-                char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
-                if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
-                reference_base[0] = ref[0];
-                free(ref);
-                if ( reference_base[0] == allele_a[0] )
-                {
-                    allele_a_idx = 0;
-                    allele_b_idx = 1;
-                }
-                else if ( reference_base[0] == allele_b[0] )
-                {
-                    allele_a_idx = 1;
-                    allele_b_idx = 0;
-                }
-                else if ( allele_a[0] == '.' )
-                {
-                    allele_a[0] = reference_base[0];
-                    allele_a_idx = 0;
-                    allele_b_idx = 1;
-                }
-                else if ( allele_b[0] == '.' )
-                {
-                    allele_b[0] = reference_base[0];
-                    allele_a_idx = 1;
-                    allele_b_idx = 0;
-                }
-                else
-                {
-                    allele_a_idx = 1;
-                    allele_b_idx = 2;
-                }
-            }
-
+            else allele_b_idx = get_allele_b_idx( fai, hdr, rec, reference_base, allele_a, allele_b );
+            allele_a_idx = get_allele_a_idx( allele_b_idx );
             const char *alleles[3];
-            int n_alleles;
-            switch ( allele_b_idx )
-            {
-                case -1:
-                    n_alleles = 0;
-                    break;
-                case 0:
-                    alleles[0] = allele_b;
-                    alleles[1] = allele_a;
-                    n_alleles = allele_a[0] == '.' ? 1 : 2;
-                    break;
-                case 1:
-                    alleles[0] = allele_a;
-                    alleles[1] = allele_b;
-                    n_alleles = allele_b[0] == '.' ? 1 : 2;
-                    break;
-                case 2:
-                    alleles[0] = reference_base;
-                    alleles[1] = allele_a;
-                    alleles[2] = allele_b;
-                    n_alleles = 3;
-                    break;
-                default:
-                    error("Unable to process marker %s\n", rec->d.id);
-                    break;
-            }
-            bcf_update_alleles(hdr, rec, alleles, n_alleles);
+            int nals = alleles_ab_to_vcf(alleles, reference_base, allele_a, allele_b, allele_b_idx);
+            if ( nals < 0 ) error("Unable to process marker %s\n", rec->d.id);
+            bcf_update_alleles(hdr, rec, alleles, nals);
             bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
             bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
 
-            // TODO make this a function
-            for (int i=0; i<nsamples; i++)
-            {
-                switch ( gts[i] )
-                {
-                    case GT_NC:
-                        gt_arr[2*i] = bcf_gt_missing;
-                        gt_arr[2*i+1] = bcf_gt_missing;
-                        break;
-                    case GT_AA:
-                        gt_arr[2*i] = bcf_gt_unphased(allele_a_idx);
-                        gt_arr[2*i+1] = bcf_gt_unphased(allele_a_idx);
-                        break;
-                    case GT_AB:
-                        gt_arr[2*i] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx ) / 2 );
-                        gt_arr[2*i+1] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx + 1 ) / 2 );
-                        break;
-                    case GT_BB:
-                        gt_arr[2*i] = bcf_gt_unphased(allele_b_idx);
-                        gt_arr[2*i+1] = bcf_gt_unphased(allele_b_idx);
-                        break;
-                    default:
-                        error("Genotype for probeset ID %s is malformed: %s\n", &str.s[off[0]], &str.s[off[i]]);
-                        break;
-                }
-            }
+            gts_to_gt_arr( gt_arr, gts, nsamples, allele_a_idx, allele_b_idx );
             bcf_update_genotypes(hdr, rec, gt_arr, nsamples*2);
             if ( gs_igc.ptr )
             {
@@ -2765,15 +2771,16 @@ static void gs_to_vcf(faidx_t *fai,
             if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
         }
         else
+        {
+            fprintf(stderr, "Skipping marker %s due to unknown location\n", rec->d.id);
             n_skipped++;
+        }
     }
-    if ( hts_close(gs_fh) ) error("Close failed: %s\n", gs_fh->fn);
+    fprintf(stderr, "Rows total: \t%d\n", n_total);
+    fprintf(stderr, "Rows skipped: \t%d\n", n_skipped);
+    bcf_hdr_name2id_flexible(hdr, NULL);
     free(line.s);
 
-    bcf_hdr_destroy(hdr);
-    hts_close(out_fh);
-    tsv_destroy(tsv);
-    bcf_destroy(rec);
     free(col2sample);
     free(gts);
     free(gt_arr);
@@ -2789,9 +2796,13 @@ static void gs_to_vcf(faidx_t *fai,
     free(gs_ilmn_theta.ptr);
     free(gs_raw_x.ptr);
     free(gs_raw_y.ptr);
+    tsv_destroy(tsv);
+    free(str.s);
 
-    fprintf(stderr, "Rows total: \t%d\n", n_total);
-    fprintf(stderr, "Rows skipped: \t%d\n", n_skipped);
+    bcf_destroy(rec);
+    bcf_hdr_destroy(hdr);
+    if ( hts_close(out_fh) < 0 ) error("Close failed: %s\n", out_fh->fn);
+    if ( hts_close(gs_fh) < 0 ) error("Close failed: %s\n", gs_fh->fn);
 }
 
 /****************************************
@@ -2812,23 +2823,24 @@ static const char *usage_text(void)
         "Usage: bcftools +gtc2vcf [options] <A.gtc> [...]\n"
         "\n"
         "Plugin options:\n"
-        "    -l, --list-tags                    list available tags with description for VCF output\n"
-        "    -t, --tags LIST                    list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]\n"
-        "    -i  --idat <file>                  IDAT file\n"
-        "    -b  --bpm <file>                   BPM manifest file\n"
-        "    -c  --csv <file>                   CSV manifest file\n"
-        "    -e  --egt <file>                   EGT cluster file\n"
-        "    -f, --fasta-ref <file>             reference sequence in fasta format\n"
-        "        --set-cache-size <int>         select fasta cache size in bytes\n"
-        "    -g, --gtc-list <file>              read GTC file names from file\n"
-        "        --adjust-clusters              adjust cluster centers in (Theta, R) space\n"
-        "    -x, --sex <file>                   output GenCall gender estimate into file\n"
-        "        --do-not-check-bpm             do not check whether BPM and GTC files match manifest file name\n"
-        "        --genome-studio                input a genome studio final report file (in matrix format)\n"
-        "        --no-version                   do not append version and command line to the header\n"
-        "    -o, --output <file>                write output to a file [standard output]\n"
-        "    -O, --output-type b|u|z|v|g        b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g: GenomeStudio [v]\n"
-        "        --threads <int>                number of extra output compression threads [0]\n"
+        "    -l, --list-tags              list available tags with description for VCF output\n"
+        "    -t, --tags LIST              list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]\n"
+        "    -i  --idat <file>            IDAT file\n"
+        "    -b  --bpm <file>             BPM manifest file\n"
+        "    -c  --csv <file>             CSV manifest file\n"
+        "    -e  --egt <file>             EGT cluster file\n"
+        "    -f, --fasta-ref <file>       reference sequence in fasta format\n"
+        "        --set-cache-size <int>   select fasta cache size in bytes\n"
+        "    -g, --gtc-list <file>        read GTC file names from file\n"
+        "        --adjust-clusters        adjust cluster centers in (Theta, R) space\n"
+        "    -x, --sex <file>             output GenCall gender estimate into file\n"
+        "        --do-not-check-bpm       do not check whether BPM and GTC files match manifest file name\n"
+        "        --genome-studio <file>   input a genome studio final report file (in matrix format)\n"
+        "        --beadset-map            output BeadSetID to NormID map (requires --bpm and --csv)\n"
+        "        --no-version             do not append version and command line to the header\n"
+        "    -o, --output <file>          write output to a file [standard output]\n"
+        "    -O, --output-type b|u|z|v|g  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g: GenomeStudio [v]\n"
+        "        --threads <int>          number of extra output compression threads [0]\n"
         "\n"
         "Examples:\n"
         "    bcftools +gtc2vcf -i 5434246082_R03C01_Grn.idat\n"
@@ -2836,6 +2848,7 @@ static const char *usage_text(void)
         "    bcftools +gtc2vcf -b HumanOmni2.5-4v1_H.bpm -c HumanOmni2.5-4v1_H.csv\n"
         "    bcftools +gtc2vcf -e HumanOmni2.5-4v1_H.egt\n"
         "    bcftools +gtc2vcf -c HumanOmni2.5-4v1_H.csv -f human_g1k_v37.fasta 5434246082_R03C01.gtc -o 5434246082_R03C01.vcf\n"
+        "    bcftools +gtc2vcf -f human_g1k_v37.fasta --genome-studio GenotypeReport.txt -o GenotypeReport.vcf\n"
         "\n";
 }
 
@@ -2905,6 +2918,7 @@ int run(int argc, char *argv[])
     int output_type = FT_VCF;
     int cache_size = 0;
     int bpm_check = 1;
+    int beadset_map = 0;
     int n_threads = 0;
     int record_cmd_line = 1;
     int binary_to_csv = 0;
@@ -2930,6 +2944,7 @@ int run(int argc, char *argv[])
         {"sex", required_argument, NULL, 'x'},
         {"do-not-check-bpm", no_argument, NULL, 3},
         {"genome-studio", required_argument, NULL, 4},
+        {"beadset-map", no_argument, NULL, 5},
         {"no-version", no_argument, NULL, 8},
         {"threads", required_argument, NULL, 9},
         {NULL, 0, NULL, 0}
@@ -2963,6 +2978,7 @@ int run(int argc, char *argv[])
             case 'x': sex_fname = optarg; break;
             case  3 : bpm_check = 0; break;
             case  4 : gs_fname = optarg; break;
+            case  5 : beadset_map = 1; break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
             case  8 : record_cmd_line = 0; break;
             case 'h':
@@ -2980,6 +2996,8 @@ int run(int argc, char *argv[])
         if ( argc-optind>0 && gtc_list ) error("GTC files cannot be listed through both command interface and file list\n%s", usage_text());
         if ( !gs_fname && !(output_type & FT_GS) && sex_fname ) out_sex = get_file_handle( sex_fname );
     }
+    else if ( beadset_map && ( bpm_fname==NULL || csv_fname==NULL ) )
+        error("The --beadset-map option requires both hte --bpm and the --csv option\n%s", usage_text());
     flags |= parse_tags(tag_list);
 
     int nfiles;
@@ -3045,7 +3063,23 @@ int run(int argc, char *argv[])
         fprintf(stderr, "Reading CSV file %s\n", csv_fname);
         bpm = bpm_csv_init(csv_fname, bpm);
         bpm_summary(bpm, stderr);
-        if ( binary_to_csv ) bpm_to_csv(bpm, out_txt);
+        if ( binary_to_csv && !beadset_map) bpm_to_csv(bpm, out_txt);
+    }
+
+    // the BeadSetID map is the only table in the BPM manifest file missing from the CSV manifest file
+    if ( beadset_map )
+    {
+        int32_t norm_id_to_beadset_id[100] = {0};
+        for (int i=0; i<bpm->num_loci; i++)
+        {
+            uint8_t norm_id = bpm->norm_ids[i];
+            if ( norm_id_to_beadset_id[ norm_id ] != 0 && norm_id_to_beadset_id[ norm_id ] != bpm->locus_entries[i].beadset_id )
+                error("Normalization ID %d corresponds to multiple BeadSet IDs %d and %d\n",
+                    norm_id, norm_id_to_beadset_id[ norm_id ], bpm->locus_entries[i].beadset_id);
+            else
+                norm_id_to_beadset_id[ norm_id ] = bpm->locus_entries[i].beadset_id;
+        }
+        for (int i=0; i<100; i++) if ( norm_id_to_beadset_id[i] > 0 ) fprintf(out_txt, "%d,%d\n", i, norm_id_to_beadset_id[i]);
     }
 
     if ( bpm && bpm->norm_lookups ) flags |= BPM_LOOKUPS;
@@ -3075,6 +3109,17 @@ int run(int argc, char *argv[])
             error("Manifest name %s in BPM file %s does not match manifest name %s in GTC file %s\n", bpm->manifest_name, bpm->fn, gtc[i]->snp_manifest, gtc[i]->fn);
         gtc_summary(gtc[i], stderr);
         if ( binary_to_csv ) gtc_to_csv(gtc[i], out_txt);
+
+        // update sample name
+        if ( !gtc[i]->sample_name ||  strcmp( gtc[i]->sample_name, "" ) == 0 )
+        {
+            char *ptr = strrchr( gtc[i]->fn, '/' );
+            if ( ptr ) ptr++; else ptr = gtc[i]->fn;
+            free( gtc[i]->sample_name );
+            gtc[i]->sample_name = strdup( ptr );
+            ptr = strstr( gtc[i]->sample_name, ".gtc" );
+            if ( ptr ) *ptr = '\0';
+        }
     }
 
     if ( !binary_to_csv )
@@ -3098,14 +3143,9 @@ int run(int argc, char *argv[])
             {
                 for (int i=0; i<nfiles; i++)
                 {
-                    char *ptr = strrchr(gtc[i]->fn, '/');
-                    char *str = ptr ? ptr+1 : gtc[i]->fn;
-                    ptr = strstr(str, ".gtc");
-                    if (ptr) *ptr = '\0';
-                    // TODO add here a check to make sure the sample names are distinct
-                    bcf_hdr_add_sample(hdr, str);
-                    if ( out_sex ) fprintf(out_sex, "%s\t%c\n", str, gtc[i]->gender);
-                    if (ptr) *ptr = '.';
+                    if ( bcf_hdr_add_sample(hdr, gtc[i]->sample_name) < 0 )
+                        error("GTC files must correspond to different samples\n");
+                    if ( out_sex ) fprintf(out_sex, "%s\t%c\n", gtc[i]->sample_name, gtc[i]->gender);
                 }
                 gtcs_to_vcf(fai, bpm, egt, gtc, nfiles, out_fh, hdr, flags);
             }
