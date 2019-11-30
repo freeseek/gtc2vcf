@@ -32,12 +32,22 @@
 #include "bcftools.h"
 #include "htslib/khash_str2int.h"
 
-#define AFFY2VCF_VERSION "2019-11-28"
+#define AFFY2VCF_VERSION "2019-11-29"
 
 #define GT_NC 0
 #define GT_AA 1
 #define GT_AB 2
 #define GT_BB 3
+
+#define min(a,b) \
+  ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+    _a < _b ? _a : _b; })
+
+#define max(a,b) \
+  ({ __typeof__ (a) _a = (a); \
+     __typeof__ (b) _b = (b); \
+    _a > _b ? _a : _b; })
 
 static inline char revnt(char nt)
 {
@@ -45,6 +55,8 @@ static inline char revnt(char nt)
     if ( nt=='C' ) return 'G';
     if ( nt=='G' ) return 'C';
     if ( nt=='T' ) return 'A';
+    if ( nt=='D' ) return 'D';
+    if ( nt=='I' ) return 'I';
     return -1;
 }
 
@@ -575,9 +587,10 @@ static void process(faidx_t *fai,
             allele_b[0] = revnt(record->allele_b);
         }
         int len;
-        char *genomic_seq = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
-        reference_base[0] = genomic_seq[0];
-        free(genomic_seq);
+        char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
+        if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
+        reference_base[0] = ref[0];
+        free(ref);
         int allele_a_idx, allele_b_idx;
         if ( reference_base[0] == allele_a[0] )
         {
@@ -661,8 +674,8 @@ static void process(faidx_t *fai,
                     gt_arr[2*(i-1)+1] = bcf_gt_unphased(allele_a_idx);
                     break;
                 case GT_AB:
-                    gt_arr[2*(i-1)] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx ) / 2 );
-                    gt_arr[2*(i-1)+1] = bcf_gt_unphased( ( allele_a_idx + allele_b_idx + 1 ) / 2 );
+                    gt_arr[2*(i-1)] = bcf_gt_unphased( min( allele_a_idx, allele_b_idx ) );
+                    gt_arr[2*(i-1)+1] = bcf_gt_unphased( max( allele_a_idx, allele_b_idx ) );
                     break;
                 case GT_BB:
                     gt_arr[2*(i-1)] = bcf_gt_unphased(allele_b_idx);
@@ -737,24 +750,24 @@ static const char *usage_text(void)
         "\n"
         "About: convert Affymetrix apt-probeset-genotype output files to VCF. (version "AFFY2VCF_VERSION" https://github.com/freeseek/gtc2vcf)\n"
         "\n"
-        "Usage: bcftools +affy2vcf [options] --fasta-ref <fasta> --annot <file> --snp-posteriors <file>\n"
-        "                                    --summary <file> --calls <file> --confidences <file> \n"
+        "Usage: bcftools +affy2vcf [options] --fasta-ref <file> --annot <file> --snp-posteriors <file>\n"
+        "                                    --summary <file> --calls <file> --confidences <file>\n"
         "\n"
         "Plugin options:\n"
-        "    -f, --fasta-ref <file>                     reference sequence in fasta format\n"
-        "        --set-cache-size <int>                 select fasta cache size in bytes\n"
-        "        --annot <file>                         probeset annotation file\n"
-        "        --snp-posteriors <snp-posteriors.txt>  apt-probeset-genotype snp-posteriors output\n"
-        "        --summary <summary.txt>                apt-probeset-genotype summary output\n"
-        "        --report <report.txt>                  apt-probeset-genotype report output\n"
-        "        --calls <calls.txt>                    apt-probeset-genotype calls output\n"
-        "        --confidences <confidences.txt>        apt-probeset-genotype confidences output\n"
-        "        --adjust-clusters                      adjust cluster centers in (Contrast, Size) space\n"
-        "    -x, --sex <file>                           output apt-probeset-genotype gender estimate into file (requires --report)\n"
-        "        --no-version                           do not append version and command line to the header\n"
-        "    -o, --output <file>                        write output to a file [standard output]\n"
-        "    -O, --output-type b|u|z|v                  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]\n"
-        "        --threads <int>                        number of extra output compression threads [0]\n"
+        "    -f, --fasta-ref <file>       reference sequence in fasta format\n"
+        "        --set-cache-size <int>   select fasta cache size in bytes\n"
+        "        --annot <file>           probeset annotation file\n"
+        "        --snp-posteriors <file>  apt-probeset-genotype snp-posteriors output\n"
+        "        --summary <file>         apt-probeset-genotype summary output\n"
+        "        --report <file>          apt-probeset-genotype report output\n"
+        "        --calls <file>           apt-probeset-genotype calls output\n"
+        "        --confidences <file>     apt-probeset-genotype confidences output\n"
+        "        --adjust-clusters        adjust cluster centers in (Contrast, Size) space\n"
+        "    -x, --sex <file>             output apt-probeset-genotype gender estimate into file (requires --report)\n"
+        "        --no-version             do not append version and command line to the header\n"
+        "    -o, --output <file>          write output to a file [standard output]\n"
+        "    -O, --output-type b|u|z|v    b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]\n"
+        "        --threads <int>          number of extra output compression threads [0]\n"
         "\n"
         "Example:\n"
         "    bcftools +affy2vcf \\\n"
