@@ -32,7 +32,7 @@
 #include "bcftools.h"
 #include "htslib/khash_str2int.h"
 
-#define AFFY2VCF_VERSION "2019-11-29"
+#define AFFY2VCF_VERSION "2019-12-01"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -528,7 +528,7 @@ static void process(faidx_t *fai,
     kstring_t str = {0, 0, NULL};
     int moff = 0, *off = NULL, ncols;
 
-    char reference_base[] = "\0\0";
+    char ref_base[] = "\0\0";
     char allele_a[] = "\0\0";
     char allele_b[] = "\0\0";
 
@@ -589,15 +589,15 @@ static void process(faidx_t *fai,
         int len;
         char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
         if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
-        reference_base[0] = ref[0];
+        ref_base[0] = ref[0];
         free(ref);
         int allele_a_idx, allele_b_idx;
-        if ( reference_base[0] == allele_a[0] )
+        if ( ref_base[0] == allele_a[0] )
         {
             allele_a_idx = 0;
             allele_b_idx = 1;
         }
-        else if ( reference_base[0] == allele_b[0] )
+        else if ( ref_base[0] == allele_b[0] )
         {
             allele_a_idx = 1;
             allele_b_idx = 0;
@@ -622,7 +622,7 @@ static void process(faidx_t *fai,
                 n_alleles = 2;
                 break;
             case 2:
-                alleles[0] = reference_base;
+                alleles[0] = ref_base;
                 alleles[1] = allele_a;
                 alleles[2] = allele_b;
                 n_alleles = 3;
