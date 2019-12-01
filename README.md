@@ -21,8 +21,8 @@ Plugin options:
     -e  --egt <file>             EGT cluster file
     -f, --fasta-ref <file>       reference sequence in fasta format
         --set-cache-size <int>   select fasta cache size in bytes
-    -g, --gtc-list <file>        read GTC file names from file
-        --adjust-clusters        adjust cluster centers in (Theta, R) space
+    -g, --gtc-list <file>        read list of GTC file names from file
+        --adjust-clusters        adjust cluster centers in (Theta, R) space (requires --bpm and --egt)
     -x, --sex <file>             output GenCall gender estimate into file
         --do-not-check-bpm       do not check whether BPM and GTC files match manifest file name
         --genome-studio <file>   input a genome studio final report file (in matrix format)
