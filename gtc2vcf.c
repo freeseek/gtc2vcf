@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-11-29"
+#define GTC2VCF_VERSION "2019-12-01"
 
 #define FT_GS (1<<4)
 
@@ -2107,7 +2107,7 @@ static bcf_hdr_t *get_hdr(const faidx_t *fai, int flags)
 static int get_allele_b_idx(faidx_t *fai,
                             const bcf_hdr_t *hdr,
                             bcf1_t *rec,
-                            char *reference_base,
+                            char *ref_base,
                             char *allele_a,
                             char *allele_b)
 {
@@ -2116,19 +2116,19 @@ static int get_allele_b_idx(faidx_t *fai,
     int len;
     char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
     if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
-    *reference_base = ref[0];
+    *ref_base = ref[0];
     free(ref);
 
-    if ( *reference_base == *allele_a ) return 1;
-    else if ( *reference_base == *allele_b ) return 0;
+    if ( *ref_base == *allele_a ) return 1;
+    else if ( *ref_base == *allele_b ) return 0;
     else if ( *allele_a == '.' )
     {
-        *allele_a = *reference_base;
+        *allele_a = *ref_base;
         return 1;
     }
     else if ( *allele_b == '.' )
     {
-        *allele_b = *reference_base;
+        *allele_b = *ref_base;
         return 0;
     }
     return 2;
@@ -2150,7 +2150,7 @@ static int get_allele_a_idx(int allele_b_idx)
 }
 
 static int alleles_ab_to_vcf(const char **alleles,
-                             const char *reference_base,
+                             const char *ref_base,
                              const char *allele_a,
                              const char *allele_b,
                              int allele_b_idx)
@@ -2171,7 +2171,7 @@ static int alleles_ab_to_vcf(const char **alleles,
             alleles[1] = allele_b;
             return 2;
         case 2:
-            alleles[0] = reference_base;
+            alleles[0] = ref_base;
             alleles[1] = allele_a;
             alleles[2] = allele_b;
             return 3;
@@ -2224,7 +2224,7 @@ static void gtcs_to_vcf(faidx_t *fai,
 {
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
     bcf1_t *rec = bcf_init();
-    char reference_base[] = {'\0', '\0'};
+    char ref_base[] = {'\0', '\0'};
     kstring_t allele_a = {0, 0, NULL};
     kstring_t allele_b = {0, 0, NULL};
     kstring_t indel_seq = {0, 0, NULL};
@@ -2319,7 +2319,7 @@ static void gtcs_to_vcf(faidx_t *fai,
                 ( ins_context_match_lengths_five_prime >= 1 && ins_context_match_lengths_three_prime >= 1);
 
             if ( is_del ) rec->pos--;
-            reference_base[0] = ref[five_prime_len(&source_seq) - is_del];
+            ref_base[0] = ref[five_prime_len(&source_seq) - is_del];
             free(source_seq.five_prime);
             free(genomic_del.five_prime);
             free(genomic_ins.five_prime);
@@ -2333,8 +2333,8 @@ static void gtcs_to_vcf(faidx_t *fai,
             }
             else
             {
-                kputc(reference_base[0], &allele_a);
-                kputc(reference_base[0], &allele_b);
+                kputc(ref_base[0], &allele_a);
+                kputc(ref_base[0], &allele_b);
                 if ( bpm->locus_entries[j].snp[1] == 'I' )
                 {
                     ksprintf(&allele_a, "%s", indel_seq.s);
@@ -2363,11 +2363,11 @@ static void gtcs_to_vcf(faidx_t *fai,
             {
                 error("Unable to process reference strand %s\n", bpm->locus_entries[j].ref_strand);
             }
-            allele_b_idx = get_allele_b_idx( fai, hdr, rec, reference_base, allele_a.s, allele_b.s );
+            allele_b_idx = get_allele_b_idx( fai, hdr, rec, ref_base, allele_a.s, allele_b.s );
         }
         allele_a_idx = get_allele_a_idx( allele_b_idx );
         const char *alleles[3];
-        int nals = alleles_ab_to_vcf(alleles, reference_base, allele_a.s, allele_b.s, allele_b_idx);
+        int nals = alleles_ab_to_vcf(alleles, ref_base, allele_a.s, allele_b.s, allele_b_idx);
         if ( nals < 0 ) error("Unable to process marker %s\n", bpm->locus_entries[j].ilmn_id);
         bcf_update_alleles(hdr, rec, alleles, nals);
         bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
@@ -2690,7 +2690,7 @@ static void gs_to_vcf(faidx_t *fai,
     if ( bcf_hdr_write(out_fh, hdr) < 0 ) error("Unable to write to output VCF file\n");
 
     bcf1_t *rec = bcf_init();
-    char reference_base[] = {'\0', '\0'};
+    char ref_base[] = {'\0', '\0'};
     char allele_a[] = {'\0', '\0'};
     char allele_b[] = {'\0', '\0'};
     int32_t allele_a_idx, allele_b_idx;
@@ -2738,10 +2738,10 @@ static void gs_to_vcf(faidx_t *fai,
                 if ( allele_a[0] == '.' && allele_b[0] == 'I' ) allele_a[0] = 'D';
                 allele_b_idx = 1;
             }
-            else allele_b_idx = get_allele_b_idx( fai, hdr, rec, reference_base, allele_a, allele_b );
+            else allele_b_idx = get_allele_b_idx( fai, hdr, rec, ref_base, allele_a, allele_b );
             allele_a_idx = get_allele_a_idx( allele_b_idx );
             const char *alleles[3];
-            int nals = alleles_ab_to_vcf(alleles, reference_base, allele_a, allele_b, allele_b_idx);
+            int nals = alleles_ab_to_vcf(alleles, ref_base, allele_a, allele_b, allele_b_idx);
             if ( nals < 0 ) error("Unable to process marker %s\n", rec->d.id);
             bcf_update_alleles(hdr, rec, alleles, nals);
             bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
@@ -2831,8 +2831,8 @@ static const char *usage_text(void)
         "    -e  --egt <file>             EGT cluster file\n"
         "    -f, --fasta-ref <file>       reference sequence in fasta format\n"
         "        --set-cache-size <int>   select fasta cache size in bytes\n"
-        "    -g, --gtc-list <file>        read GTC file names from file\n"
-        "        --adjust-clusters        adjust cluster centers in (Theta, R) space\n"
+        "    -g, --gtc-list <file>        read list of GTC file names from file\n"
+        "        --adjust-clusters        adjust cluster centers in (Theta, R) space (requires --bpm and --egt)\n"
         "    -x, --sex <file>             output GenCall gender estimate into file\n"
         "        --do-not-check-bpm       do not check whether BPM and GTC files match manifest file name\n"
         "        --genome-studio <file>   input a genome studio final report file (in matrix format)\n"
@@ -2986,8 +2986,13 @@ int run(int argc, char *argv[])
             default: error("%s", usage_text());
         }
     }
-    if ( (idat_fname!=NULL) + ( (bpm_fname!=NULL) || (csv_fname!=NULL) ) + (egt_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
-    if ( !binary_to_csv )
+    if ( (idat_fname!=NULL) + ( (bpm_fname!=NULL) || (csv_fname!=NULL) ) + (egt_fname!=NULL) + (ref_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
+    if ( binary_to_csv )
+    {
+        if ( beadset_map && ( bpm_fname==NULL || csv_fname==NULL ) )
+            error("The --beadset-map option requires both hte --bpm and the --csv option\n%s", usage_text());
+    }
+    else
     {
         if ( idat_fname ) error("IDAT file only allowed when converting to CSV\n%s", usage_text());
         if ( !bpm_fname && !csv_fname && !gs_fname ) error("Manifest file required when converting to VCF\n%s", usage_text());
@@ -2996,8 +3001,6 @@ int run(int argc, char *argv[])
         if ( argc-optind>0 && gtc_list ) error("GTC files cannot be listed through both command interface and file list\n%s", usage_text());
         if ( !gs_fname && !(output_type & FT_GS) && sex_fname ) out_sex = get_file_handle( sex_fname );
     }
-    else if ( beadset_map && ( bpm_fname==NULL || csv_fname==NULL ) )
-        error("The --beadset-map option requires both hte --bpm and the --csv option\n%s", usage_text());
     flags |= parse_tags(tag_list);
 
     int nfiles;
@@ -3069,6 +3072,7 @@ int run(int argc, char *argv[])
     // the BeadSetID map is the only table in the BPM manifest file missing from the CSV manifest file
     if ( beadset_map )
     {
+        fprintf(out_txt, "%s\n", bpm->manifest_name);
         int32_t norm_id_to_beadset_id[100] = {0};
         for (int i=0; i<bpm->num_loci; i++)
         {
@@ -3152,7 +3156,7 @@ int run(int argc, char *argv[])
         }
      }
 
-    if ( fai ) fai_destroy(fai);
+    fai_destroy(fai);
     egt_destroy(egt);
     bpm_destroy(bpm);
     if ( gtc_list )
