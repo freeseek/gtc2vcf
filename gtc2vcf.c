@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-01"
+#define GTC2VCF_VERSION "2019-12-02"
 
 #define FT_GS (1<<4)
 
@@ -959,7 +959,8 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm)
     tsv_register(tsv, "Frac C", tsv_read_float, &locus_entry.frac_c);
     tsv_register(tsv, "Frac G", tsv_read_float, &locus_entry.frac_g);
     tsv_register(tsv, "Frac T", tsv_read_float, &locus_entry.frac_t);
-    tsv_register(tsv, "RefStrand", tsv_read_string, &locus_entry.ref_strand);
+    int ref_strand = tsv_register(tsv, "RefStrand", tsv_read_string, &locus_entry.ref_strand);
+    if ( ref_strand < 0 ) fprintf(stderr, "Warning: RefStrand annotation missing from manifest file %s\n", bpm->fn);
 
     if ( !bpm_available ) bpm->locus_entries = (LocusEntry *)malloc(bpm->num_loci * sizeof(LocusEntry));
     for (int i=0; i<bpm->num_loci; i++)
@@ -2250,11 +2251,13 @@ static void gtcs_to_vcf(faidx_t *fai,
         rec->rid = bcf_hdr_name2id_flexible(hdr, bpm->locus_entries[j].chrom);
         char *endptr;
         rec->pos = strtol(bpm->locus_entries[j].map_info, &endptr, 10) - 1;
-        if ( bpm->locus_entries[j].map_info==endptr )
+        if ( bpm->locus_entries[j].map_info == endptr )
             error("Map info %s for marker %s is not understood\n",bpm->locus_entries[j].map_info, bpm->locus_entries[j].ilmn_id);
+        if ( !bpm->locus_entries[j].ref_strand || strcmp(bpm->locus_entries[j].ref_strand, "") == 0 )
+            error("Reference strand information for marker %s is missing\n", bpm->locus_entries[j].ilmn_id);
         if ( rec->rid < 0 || rec->pos < 0 )
         {
-            fprintf(stderr, "Skipping marker %s due to unknown location\n", bpm->locus_entries[j].ilmn_id);
+            fprintf(stderr, "Skipping unlocalized marker %s\n", bpm->locus_entries[j].ilmn_id);
             n_skipped++;
             continue;
         }
@@ -2772,7 +2775,7 @@ static void gs_to_vcf(faidx_t *fai,
         }
         else
         {
-            fprintf(stderr, "Skipping marker %s due to unknown location\n", rec->d.id);
+            fprintf(stderr, "Skipping unlocalized marker %s\n", rec->d.id);
             n_skipped++;
         }
     }
@@ -2825,7 +2828,7 @@ static const char *usage_text(void)
         "Plugin options:\n"
         "    -l, --list-tags              list available tags with description for VCF output\n"
         "    -t, --tags LIST              list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]\n"
-        "    -i  --idat <file>            IDAT file\n"
+        "    -i  --idat <file>            IDAT intensity data file\n"
         "    -b  --bpm <file>             BPM manifest file\n"
         "    -c  --csv <file>             CSV manifest file\n"
         "    -e  --egt <file>             EGT cluster file\n"
@@ -2847,6 +2850,7 @@ static const char *usage_text(void)
         "    bcftools +gtc2vcf 5434246082_R03C01.gtc\n"
         "    bcftools +gtc2vcf -b HumanOmni2.5-4v1_H.bpm -c HumanOmni2.5-4v1_H.csv\n"
         "    bcftools +gtc2vcf -e HumanOmni2.5-4v1_H.egt\n"
+        "    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv -e GSA-24v3-0_A1_ClusterFile.egt -f human_g1k_v37.fasta -o GSA-24v3-0_A1.vcf\n"
         "    bcftools +gtc2vcf -c HumanOmni2.5-4v1_H.csv -f human_g1k_v37.fasta 5434246082_R03C01.gtc -o 5434246082_R03C01.vcf\n"
         "    bcftools +gtc2vcf -f human_g1k_v37.fasta --genome-studio GenotypeReport.txt -o GenotypeReport.vcf\n"
         "\n";
