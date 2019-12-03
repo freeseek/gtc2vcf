@@ -15,7 +15,7 @@ Usage: bcftools +gtc2vcf [options] <A.gtc> [...]
 Plugin options:
     -l, --list-tags              list available tags with description for VCF output
     -t, --tags LIST              list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
-    -i  --idat <file>            IDAT file
+    -i  --idat <file>            IDAT intensity data file
     -b  --bpm <file>             BPM manifest file
     -c  --csv <file>             CSV manifest file
     -e  --egt <file>             EGT cluster file
@@ -37,6 +37,7 @@ Examples:
     bcftools +gtc2vcf 5434246082_R03C01.gtc
     bcftools +gtc2vcf -b HumanOmni2.5-4v1_H.bpm -c HumanOmni2.5-4v1_H.csv
     bcftools +gtc2vcf -e HumanOmni2.5-4v1_H.egt
+    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv -e GSA-24v3-0_A1_ClusterFile.egt -f human_g1k_v37.fasta -o GSA-24v3-0_A1.vcf
     bcftools +gtc2vcf -c HumanOmni2.5-4v1_H.csv -f human_g1k_v37.fasta 5434246082_R03C01.gtc -o 5434246082_R03C01.vcf
     bcftools +gtc2vcf -f human_g1k_v37.fasta --genome-studio GenotypeReport.txt -o GenotypeReport.vcf
 ```
@@ -309,6 +310,31 @@ bcftools +affy2vcf \
 ```
 
 The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants
+
+Plot variants
+=============
+
+Install basic tools (Debian/Ubuntu specific if you have admin privileges):
+```
+sudo apt install r-cran-ggplot2 r-cran-data.table r-cran-gridextra
+```
+
+Download R scripts
+```
+/bin/rm -f $HOME/bin/gtc2vcf_plot.R
+wget -P $HOME/bin https://raw.githubusercontent.com/freeseek/gtc2vcf/master/gtc2vcf_plot.R
+chmod a+x $HOME/bin/gtc2vcf_plot.R
+```
+
+Plot variant (for Illumina data)
+```
+gtc2vcf_plot.R \
+  --illumina \
+  --vcf input.vcf \
+  --chrom 19 \
+  --pos 45411941 \
+  --png rs429358.png
+```
 
 Acknowledgements
 ================
