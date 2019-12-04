@@ -26,7 +26,7 @@ Plugin options:
     -x, --sex <file>             output GenCall gender estimate into file
         --do-not-check-bpm       do not check whether BPM and GTC files match manifest file name
         --genome-studio <file>   input a genome studio final report file (in matrix format)
-        --beadset-map            output BeadSetID to NormID map (requires --bpm and --csv)
+        --beadset-order          output BeadSetID normalization order (requires --bpm and --csv)
         --no-version             do not append version and command line to the header
     -o, --output <file>          write output to a file [standard output]
     -O, --output-type b|u|z|v|g  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g: GenomeStudio [v]
