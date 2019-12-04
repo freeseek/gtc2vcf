@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-02"
+#define GTC2VCF_VERSION "2019-12-03"
 
 #define FT_GS (1<<4)
 
@@ -1933,18 +1933,21 @@ static indel_t indel_init(const char *five_prime,
  * CONVERSION UTILITIES                 *
  ****************************************/
 
-#define BPM_LOOKUPS     (1<<0)
-#define EGT_LOADED      (1<<1)
-#define ADJUST_CLUSTERS (1<<2)
-#define FORMAT_IGC      (1<<3)
-#define FORMAT_BAF      (1<<4)
-#define FORMAT_LRR      (1<<5)
-#define FORMAT_NORMX    (1<<6)
-#define FORMAT_NORMY    (1<<7)
-#define FORMAT_R        (1<<8)
-#define FORMAT_THETA    (1<<9)
-#define FORMAT_X        (1<<10)
-#define FORMAT_Y        (1<<11)
+#define BPM_LOADED      (1<<0)
+#define CSV_LOADED      (1<<1)
+#define BPM_LOOKUPS     (1<<2)
+#define EGT_LOADED      (1<<3)
+#define ADJUST_CLUSTERS (1<<4)
+#define GENOME_STUDIO   (1<<5)
+#define FORMAT_IGC      (1<<6)
+#define FORMAT_BAF      (1<<7)
+#define FORMAT_LRR      (1<<8)
+#define FORMAT_NORMX    (1<<9)
+#define FORMAT_NORMY    (1<<10)
+#define FORMAT_R        (1<<11)
+#define FORMAT_THETA    (1<<12)
+#define FORMAT_X        (1<<13)
+#define FORMAT_Y        (1<<14)
 
 static void gtcs_to_gs(gtc_t **gtc,
                        int n,
@@ -2070,8 +2073,25 @@ static bcf_hdr_t *get_hdr(const faidx_t *fai, int flags)
     }
     bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_A,Number=1,Type=Integer,Description=\"A allele\">");
     bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_B,Number=1,Type=Integer,Description=\"B allele\">");
+    if ( flags & BPM_LOADED )
+    {
+        bcf_hdr_append(hdr, "##INFO=<ID=FRAC_A,Number=1,Type=Float,Description=\"Fraction of the A nucleotide in the top genomic sequence\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=FRAC_C,Number=1,Type=Float,Description=\"Fraction of the C nucleotide in the top genomic sequence\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=FRAC_G,Number=1,Type=Float,Description=\"Fraction of the G nucleotide in the top genomic sequence\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=FRAC_T,Number=1,Type=Float,Description=\"Fraction of the T nucleotide in the top genomic sequence\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=NORM_ID,Number=1,Type=Integer,Description=\"Normalization lookups from manifest\">");
+    }
+    if ( flags & CSV_LOADED )
+    {
+        bcf_hdr_append(hdr, "##INFO=<ID=BEADSET_ID,Number=1,Type=Integer,Description=\"Bead set ID for normalization\">");
+    }
+    if ( ( flags & BPM_LOADED ) | ( flags & CSV_LOADED ) )
+    {
+        bcf_hdr_append(hdr, "##INFO=<ID=ASSAY_TYPE,Number=1,Type=Integer,Description=\"Identifies type of assay (0 - Infinium II , 1 - Infinium I (A/T), 2 - Infinium I (G/C)\">");
+    }
     if ( flags & EGT_LOADED )
     {
+        bcf_hdr_append(hdr, "##INFO=<ID=GC_SCORE,Number=1,Type=Float,Description=\"Score for a SNP from the GenTrain clustering algorithm\">");
         bcf_hdr_append(hdr, "##INFO=<ID=N_AA,Number=1,Type=Integer,Description=\"Number of AA calls in training set\">");
         bcf_hdr_append(hdr, "##INFO=<ID=N_AB,Number=1,Type=Integer,Description=\"Number of AB calls in training set\">");
         bcf_hdr_append(hdr, "##INFO=<ID=N_BB,Number=1,Type=Integer,Description=\"Number of BB calls in training set\">");
@@ -2093,7 +2113,7 @@ static bcf_hdr_t *get_hdr(const faidx_t *fai, int flags)
     if ( flags & FORMAT_IGC ) bcf_hdr_append(hdr, "##FORMAT=<ID=IGC,Number=1,Type=Float,Description=\"Illumina GenCall Confidence Score\">");
     if ( flags & FORMAT_BAF ) bcf_hdr_append(hdr, "##FORMAT=<ID=BAF,Number=1,Type=Float,Description=\"B Allele Frequency\">");
     if ( flags & FORMAT_LRR ) bcf_hdr_append(hdr, "##FORMAT=<ID=LRR,Number=1,Type=Float,Description=\"Log R Ratio\">");
-    if ( flags & BPM_LOOKUPS )
+    if ( ( flags & BPM_LOOKUPS ) | ( flags & GENOME_STUDIO ) )
     {
         if ( flags & FORMAT_NORMX ) bcf_hdr_append(hdr, "##FORMAT=<ID=NORMX,Number=1,Type=Float,Description=\"Normalized X intensity\">");
         if ( flags & FORMAT_NORMY ) bcf_hdr_append(hdr, "##FORMAT=<ID=NORMY,Number=1,Type=Float,Description=\"Normalized Y intensity\">");
@@ -2105,31 +2125,34 @@ static bcf_hdr_t *get_hdr(const faidx_t *fai, int flags)
     return hdr;
 }
 
-static int get_allele_b_idx(faidx_t *fai,
-                            const bcf_hdr_t *hdr,
-                            bcf1_t *rec,
-                            char *ref_base,
+static char get_ref_base(faidx_t *fai,
+                         const bcf_hdr_t *hdr,
+                         bcf1_t *rec)
+{
+    int len;
+    char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
+    if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
+    char ref_base = ref[0];
+    free(ref);
+    return ref_base;
+}
+
+static int get_allele_b_idx(char ref_base,
                             char *allele_a,
                             char *allele_b)
 {
     if ( *allele_a == 'D' || *allele_a == 'I' || *allele_b == 'D' || *allele_b == 'I' ) return 1;
 
-    int len;
-    char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
-    if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
-    *ref_base = ref[0];
-    free(ref);
-
-    if ( *ref_base == *allele_a ) return 1;
-    else if ( *ref_base == *allele_b ) return 0;
+    if ( *allele_a == ref_base ) return 1;
+    else if ( *allele_b == ref_base ) return 0;
     else if ( *allele_a == '.' )
     {
-        *allele_a = *ref_base;
+        *allele_a = ref_base;
         return 1;
     }
     else if ( *allele_b == '.' )
     {
-        *allele_b = *ref_base;
+        *allele_b = ref_base;
         return 0;
     }
     return 2;
@@ -2159,7 +2182,7 @@ static int alleles_ab_to_vcf(const char **alleles,
     switch ( allele_b_idx )
     {
         case -1:
-            alleles[0] = ".";
+            alleles[0] = ref_base;
             return 1;
         case 0:
             alleles[0] = allele_b;
@@ -2265,7 +2288,12 @@ static void gtcs_to_vcf(faidx_t *fai,
 
         int32_t allele_a_idx, allele_b_idx;
         allele_a.l = allele_b.l = 0;
-        if ( bpm->locus_entries[j].source_seq && ( bpm->locus_entries[j].snp[1] == 'D' || bpm->locus_entries[j].snp[1] == 'I' ) )
+        if ( bpm->locus_entries[j].intensity_only )
+        {
+            ref_base[0] = get_ref_base( fai, hdr, rec );
+            allele_b_idx = -1;
+        }
+        else if ( bpm->locus_entries[j].source_seq && ( bpm->locus_entries[j].snp[1] == 'D' || bpm->locus_entries[j].snp[1] == 'I' ) )
         {
             // see BPMRecord.py from https://github.com/Illumina/GTCtoVCF
             char source_strand = toupper(bpm->locus_entries[j].source_strand[0]);
@@ -2366,7 +2394,8 @@ static void gtcs_to_vcf(faidx_t *fai,
             {
                 error("Unable to process reference strand %s\n", bpm->locus_entries[j].ref_strand);
             }
-            allele_b_idx = get_allele_b_idx( fai, hdr, rec, ref_base, allele_a.s, allele_b.s );
+            ref_base[0] = get_ref_base( fai, hdr, rec );
+            allele_b_idx = get_allele_b_idx( ref_base[0], allele_a.s, allele_b.s );
         }
         allele_a_idx = get_allele_a_idx( allele_b_idx );
         const char *alleles[3];
@@ -2395,6 +2424,23 @@ static void gtcs_to_vcf(faidx_t *fai,
             raw_y_arr[i] = (int32_t)intensities.raw_y;
         }
 
+        if ( flags & BPM_LOADED )
+        {
+            bcf_update_info_float(hdr, rec, "FRAC_A", &bpm->locus_entries[j].frac_a, 1);
+            bcf_update_info_float(hdr, rec, "FRAC_C", &bpm->locus_entries[j].frac_c, 1);
+            bcf_update_info_float(hdr, rec, "FRAC_G", &bpm->locus_entries[j].frac_g, 1);
+            bcf_update_info_float(hdr, rec, "FRAC_T", &bpm->locus_entries[j].frac_t, 1);
+            bcf_update_info_int32(hdr, rec, "NORM_ID", &bpm->locus_entries[j].norm_id, 1);
+        }
+        if ( flags & CSV_LOADED )
+        {
+            bcf_update_info_int32(hdr, rec, "BEADSET_ID", &bpm->locus_entries[j].beadset_id, 1);
+        }
+        if ( ( flags & BPM_LOADED ) | ( flags & CSV_LOADED ) )
+        {
+            int32_t assay_type = (int32_t)bpm->locus_entries[j].assay_type;
+            bcf_update_info_int32(hdr, rec, "ASSAY_TYPE", &assay_type, 1);
+        }
         if ( flags & EGT_LOADED )
         {
             if ( flags & ADJUST_CLUSTERS )
@@ -2405,6 +2451,7 @@ static void gtcs_to_vcf(faidx_t *fai,
                     get_baf_lrr(ilmn_theta_arr[i], ilmn_r_arr[i], &egt->cluster_records[j], &baf_arr[i], &lrr_arr[i]);
                 }
             }
+            bcf_update_info_float(hdr, rec, "GC_SCORE", &egt->cluster_records[j].cluster_score.total_score, 1);
             bcf_update_info_int32(hdr, rec, "N_AA", &egt->cluster_records[j].aa_cluster_stats.N, 1);
             bcf_update_info_int32(hdr, rec, "N_AB", &egt->cluster_records[j].ab_cluster_stats.N, 1);
             bcf_update_info_int32(hdr, rec, "N_BB", &egt->cluster_records[j].bb_cluster_stats.N, 1);
@@ -2538,9 +2585,9 @@ static int tsv_setter_chrom_flexible(tsv_t *tsv,
     return rec->rid==-1 ? -1 : 0;
 }
 
-int tsv_register_all(tsv_t *tsv,
-                     const char *id,
-                     tsv_setter_t setter, void *usr)
+static int tsv_register_all(tsv_t *tsv,
+                            const char *id,
+                            tsv_setter_t setter, void *usr)
 {
     int i, n = 0;
     for (i=0; i<tsv->ncols; i++)
@@ -2553,10 +2600,10 @@ int tsv_register_all(tsv_t *tsv,
     return n ? 0 : -1;
 }
 
-int tsv_parse_delimiter(tsv_t *tsv,
-                        bcf1_t *rec,
-                        char *str,
-                        int delimiter)
+static int tsv_parse_delimiter(tsv_t *tsv,
+                               bcf1_t *rec,
+                               char *str,
+                               int delimiter)
 {
     int status = 0;
     tsv->icol = 0;
@@ -2629,11 +2676,11 @@ static void gs_to_vcf(faidx_t *fai,
             else if ( strcmp(ptr, "Chr")==0 || strcmp(ptr, "Chromosome")==0 ) ksprintf(&str, "CHROM");
             else if ( strcmp(ptr, "Manifest")==0 ) ksprintf(&str, "-");
             else if ( strcmp(ptr, "Position")==0 ) ksprintf(&str, "POS");
-            else if ( strcmp(ptr, "GenTrain Score")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "Frac A")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "Frac C")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "Frac G")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "Frac T")==0 ) ksprintf(&str, "-");
+            else if ( strcmp(ptr, "GenTrain Score")==0 ) ksprintf(&str, "GC_SCORE");
+            else if ( strcmp(ptr, "Frac A")==0 ) ksprintf(&str, "FRAC_A");
+            else if ( strcmp(ptr, "Frac C")==0 ) ksprintf(&str, "FRAC_C");
+            else if ( strcmp(ptr, "Frac G")==0 ) ksprintf(&str, "FRAC_G");
+            else if ( strcmp(ptr, "Frac T")==0 ) ksprintf(&str, "FRAC_T");
             else if ( strcmp(ptr, "IlmnStrand")==0 ) ksprintf(&str, "-");
             else if ( strcmp(ptr, "SNP")==0 ) ksprintf(&str, "-");
             else error("Could not recognize INFO field: %s\n", ptr);
@@ -2648,6 +2695,19 @@ static void gs_to_vcf(faidx_t *fai,
     if ( tsv_register(tsv, "CHROM", tsv_setter_chrom_flexible, hdr) < 0 ) error("Expected CHROM column\n");
     if ( tsv_register(tsv, "POS", tsv_setter_pos, NULL) < 0 ) error("Expected POS column\n");
     tsv_register(tsv, "ID", tsv_setter_id, hdr);
+
+    float total_score;
+    int gc_score = tsv_register(tsv, "GC_SCORE", tsv_read_float, &total_score);
+    if ( gc_score == 0 ) bcf_hdr_append(hdr, "##INFO=<ID=GC_SCORE,Number=1,Type=Float,Description=\"Score for a SNP from the GenTrain clustering algorithm\">");
+    float frac[4];
+    int frac_a = tsv_register(tsv, "FRAC_A", tsv_read_float, &frac[0]);
+    if ( frac_a == 0 ) bcf_hdr_append(hdr, "##INFO=<ID=FRAC_A,Number=1,Type=Float,Description=\"Fraction of the A nucleotide in the top genomic sequence\">");
+    int frac_c = tsv_register(tsv, "FRAC_C", tsv_read_float, &frac[1]);
+    if ( frac_c == 0 ) bcf_hdr_append(hdr, "##INFO=<ID=FRAC_C,Number=1,Type=Float,Description=\"Fraction of the C nucleotide in the top genomic sequence\">");
+    int frac_g = tsv_register(tsv, "FRAC_G", tsv_read_float, &frac[2]);
+    if ( frac_g == 0 ) bcf_hdr_append(hdr, "##INFO=<ID=FRAC_G,Number=1,Type=Float,Description=\"Fraction of the G nucleotide in the top genomic sequence\">");
+    int frac_t = tsv_register(tsv, "FRAC_T", tsv_read_float, &frac[3]);
+    if ( frac_t == 0 ) bcf_hdr_append(hdr, "##INFO=<ID=FRAC_T,Number=1,Type=Float,Description=\"Fraction of the T nucleotide in the top genomic sequence\">");
 
     uint8_t *gts = (uint8_t *) malloc(nsamples * sizeof(uint8_t));
     int32_t *gt_arr = (int32_t *)malloc(nsamples*2 * sizeof(int32_t));
@@ -2741,7 +2801,11 @@ static void gs_to_vcf(faidx_t *fai,
                 if ( allele_a[0] == '.' && allele_b[0] == 'I' ) allele_a[0] = 'D';
                 allele_b_idx = 1;
             }
-            else allele_b_idx = get_allele_b_idx( fai, hdr, rec, ref_base, allele_a, allele_b );
+            else
+            {
+                ref_base[0] = get_ref_base( fai, hdr, rec );
+                allele_b_idx = get_allele_b_idx( ref_base[0], allele_a, allele_b );
+            }
             allele_a_idx = get_allele_a_idx( allele_b_idx );
             const char *alleles[3];
             int nals = alleles_ab_to_vcf(alleles, ref_base, allele_a, allele_b, allele_b_idx);
@@ -2749,6 +2813,11 @@ static void gs_to_vcf(faidx_t *fai,
             bcf_update_alleles(hdr, rec, alleles, nals);
             bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
             bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
+            if ( gc_score == 0 ) bcf_update_info_float(hdr, rec, "GC_SCORE", &total_score, 1);
+            if ( frac_a == 0 ) bcf_update_info_float(hdr, rec, "FRAC_A", &frac[0], 1);
+            if ( frac_c == 0 ) bcf_update_info_float(hdr, rec, "FRAC_C", &frac[1], 1);
+            if ( frac_g == 0 ) bcf_update_info_float(hdr, rec, "FRAC_G", &frac[2], 1);
+            if ( frac_t == 0 ) bcf_update_info_float(hdr, rec, "FRAC_T", &frac[3], 1);
 
             gts_to_gt_arr( gt_arr, gts, nsamples, allele_a_idx, allele_b_idx );
             bcf_update_genotypes(hdr, rec, gt_arr, nsamples*2);
@@ -2839,7 +2908,7 @@ static const char *usage_text(void)
         "    -x, --sex <file>             output GenCall gender estimate into file\n"
         "        --do-not-check-bpm       do not check whether BPM and GTC files match manifest file name\n"
         "        --genome-studio <file>   input a genome studio final report file (in matrix format)\n"
-        "        --beadset-map            output BeadSetID to NormID map (requires --bpm and --csv)\n"
+        "        --beadset-order          output BeadSetID normalization order (requires --bpm and --csv)\n"
         "        --no-version             do not append version and command line to the header\n"
         "    -o, --output <file>          write output to a file [standard output]\n"
         "    -O, --output-type b|u|z|v|g  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g: GenomeStudio [v]\n"
@@ -2922,7 +2991,7 @@ int run(int argc, char *argv[])
     int output_type = FT_VCF;
     int cache_size = 0;
     int bpm_check = 1;
-    int beadset_map = 0;
+    int beadset_order = 0;
     int n_threads = 0;
     int record_cmd_line = 1;
     int binary_to_csv = 0;
@@ -2948,7 +3017,7 @@ int run(int argc, char *argv[])
         {"sex", required_argument, NULL, 'x'},
         {"do-not-check-bpm", no_argument, NULL, 3},
         {"genome-studio", required_argument, NULL, 4},
-        {"beadset-map", no_argument, NULL, 5},
+        {"beadset-order", no_argument, NULL, 5},
         {"no-version", no_argument, NULL, 8},
         {"threads", required_argument, NULL, 9},
         {NULL, 0, NULL, 0}
@@ -2982,7 +3051,7 @@ int run(int argc, char *argv[])
             case 'x': sex_fname = optarg; break;
             case  3 : bpm_check = 0; break;
             case  4 : gs_fname = optarg; break;
-            case  5 : beadset_map = 1; break;
+            case  5 : beadset_order = 1; break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
             case  8 : record_cmd_line = 0; break;
             case 'h':
@@ -2990,11 +3059,11 @@ int run(int argc, char *argv[])
             default: error("%s", usage_text());
         }
     }
-    if ( (idat_fname!=NULL) + ( (bpm_fname!=NULL) || (csv_fname!=NULL) ) + (egt_fname!=NULL) + (ref_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
+    if ( (idat_fname!=NULL) + ( (bpm_fname!=NULL) || (csv_fname!=NULL) ) + (egt_fname!=NULL) + (ref_fname!=NULL) + (gs_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
     if ( binary_to_csv )
     {
-        if ( beadset_map && ( bpm_fname==NULL || csv_fname==NULL ) )
-            error("The --beadset-map option requires both hte --bpm and the --csv option\n%s", usage_text());
+        if ( beadset_order && ( bpm_fname==NULL || csv_fname==NULL ) )
+            error("The --beadset-order option requires both hte --bpm and the --csv option\n%s", usage_text());
     }
     else
     {
@@ -3062,6 +3131,7 @@ int run(int argc, char *argv[])
         bpm = bpm_init(bpm_fname);
         bpm_summary(bpm, stderr);
         if ( binary_to_csv && !csv_fname ) bpm_to_csv(bpm, out_txt);
+        else flags |= BPM_LOADED;
     }
 
     if ( csv_fname )
@@ -3070,13 +3140,14 @@ int run(int argc, char *argv[])
         fprintf(stderr, "Reading CSV file %s\n", csv_fname);
         bpm = bpm_csv_init(csv_fname, bpm);
         bpm_summary(bpm, stderr);
-        if ( binary_to_csv && !beadset_map) bpm_to_csv(bpm, out_txt);
+        if ( binary_to_csv && !beadset_order ) bpm_to_csv(bpm, out_txt);
+        else flags |= CSV_LOADED;
     }
 
-    // the BeadSetID map is the only table in the BPM manifest file missing from the CSV manifest file
-    if ( beadset_map )
+    // the BeadSet normalization order is the only information in the BPM manifest file missing from the CSV manifest file
+    kstring_t str = {0, 0, NULL};
+    if ( bpm && bpm->norm_lookups )
     {
-        fprintf(out_txt, "%s\n", bpm->manifest_name);
         int32_t norm_id_to_beadset_id[100] = {0};
         for (int i=0; i<bpm->num_loci; i++)
         {
@@ -3087,10 +3158,18 @@ int run(int argc, char *argv[])
             else
                 norm_id_to_beadset_id[ norm_id ] = bpm->locus_entries[i].beadset_id;
         }
-        for (int i=0; i<100; i++) if ( norm_id_to_beadset_id[i] > 0 ) fprintf(out_txt, "%d,%d\n", i, norm_id_to_beadset_id[i]);
+        for (int i=0, j=0; i<100; i++)
+        {
+            if ( norm_id_to_beadset_id[i] == 0 ) continue;
+            if ( i != j ) error("Normalization ID %d not corresponding to any BeadSet ID", j);
+            ksprintf(&str, "%d,", norm_id_to_beadset_id[i]);
+            j++;
+        }
+        str.l--;
+        str.s[str.l] = '\0';
+        if ( beadset_order ) fprintf(out_txt, "%s,%s\n", bpm->manifest_name, str.s);
+        flags |= BPM_LOOKUPS;
     }
-
-    if ( bpm && bpm->norm_lookups ) flags |= BPM_LOOKUPS;
     if ( ( flags & ADJUST_CLUSTERS ) && !( flags & BPM_LOOKUPS ) )
         error("Cannot adjust clusters as couldn't generate the normalization lookup table\n");
 
@@ -3104,6 +3183,8 @@ int run(int argc, char *argv[])
         if ( binary_to_csv ) egt_to_csv(egt, out_txt);
         else flags |= EGT_LOADED;
     }
+
+    if ( gs_fname ) flags |= GENOME_STUDIO;
 
     gtc_t **gtc = (gtc_t **)malloc(nfiles * sizeof(gtc_t *));
     for (int i=0; i<nfiles; i++)
@@ -3140,11 +3221,12 @@ int run(int argc, char *argv[])
             if ( bpm_fname ) bcf_hdr_printf(hdr, "##BPM=%s", strrchr(bpm_fname, '/') ? strrchr(bpm_fname, '/') + 1 : bpm_fname);
             if ( csv_fname ) bcf_hdr_printf(hdr, "##CSV=%s", strrchr(csv_fname, '/') ? strrchr(csv_fname, '/') + 1 : csv_fname);
             if ( egt_fname ) bcf_hdr_printf(hdr, "##EGT=%s", strrchr(egt_fname, '/') ? strrchr(egt_fname, '/') + 1 : egt_fname);
-            if ( gs_fname ) bcf_hdr_printf(hdr, "##GenomeStudio=%s", strrchr(gs_fname, '/') ? strrchr(gs_fname, '/') + 1 : gs_fname);
+            if ( bpm && bpm->norm_lookups ) bcf_hdr_printf(hdr, "##BeadSet_Order=%s", str.s);
             if ( record_cmd_line ) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+gtc2vcf");
             if ( gs_fname )
             {
                 htsFile *gs_fh = hts_open(gs_fname, "r");
+                bcf_hdr_printf(hdr, "##GenomeStudio=%s", strrchr(gs_fname, '/') ? strrchr(gs_fname, '/') + 1 : gs_fname);
                 gs_to_vcf(fai, gs_fh, out_fh, hdr, flags);
             }
             else
@@ -3158,8 +3240,9 @@ int run(int argc, char *argv[])
                 gtcs_to_vcf(fai, bpm, egt, gtc, nfiles, out_fh, hdr, flags);
             }
         }
-     }
+    }
 
+    free(str.s);
     fai_destroy(fai);
     egt_destroy(egt);
     bpm_destroy(bpm);
