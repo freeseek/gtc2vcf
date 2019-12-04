@@ -910,7 +910,13 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm)
     size_t prev = 0;
     while ( strncmp(str.s + prev, "[Assay]", 7) )
     {
-        if ( strncmp(str.s + prev, "Descriptor File Name,", 21) == 0 ) { free(bpm->manifest_name); bpm->manifest_name = strdup(str.s + prev + 21); }
+        if ( strncmp(str.s + prev, "Descriptor File Name,", 21) == 0 )
+        {
+            free(bpm->manifest_name);
+            bpm->manifest_name = strdup(str.s + prev + 21);
+            char *ptr = strchr(bpm->manifest_name, ',');
+            if ( ptr ) *ptr = '\0';
+        }
         else if ( strncmp(str.s + prev, "Loci Count ,", 12) == 0 ) bpm->num_loci = (int)strtol(str.s + prev + 12, &tmp, 0);
         kputc('\n', &str);
         prev = str.l;
