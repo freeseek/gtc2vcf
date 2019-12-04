@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-03"
+#define GTC2VCF_VERSION "2019-12-04"
 
 #define FT_GS (1<<4)
 
@@ -2294,7 +2294,7 @@ static void gtcs_to_vcf(faidx_t *fai,
 
         int32_t allele_a_idx, allele_b_idx;
         allele_a.l = allele_b.l = 0;
-        if ( bpm->locus_entries[j].intensity_only )
+        if ( bpm->locus_entries[j].snp[1] == 'N' && bpm->locus_entries[j].snp[3] == 'A' )
         {
             ref_base[0] = get_ref_base( fai, hdr, rec );
             allele_b_idx = -1;
@@ -3069,10 +3069,11 @@ int run(int argc, char *argv[])
     if ( binary_to_csv )
     {
         if ( beadset_order && ( bpm_fname==NULL || csv_fname==NULL ) )
-            error("The --beadset-order option requires both hte --bpm and the --csv option\n%s", usage_text());
+            error("The --beadset-order option requires both the --bpm and the --csv option\n%s", usage_text());
     }
     else
     {
+        if ( beadset_order ) error("The --beadset-order option can only be used with options --bpm and --csv\n%s", usage_text());
         if ( idat_fname ) error("IDAT file only allowed when converting to CSV\n%s", usage_text());
         if ( !bpm_fname && !csv_fname && !gs_fname ) error("Manifest file required when converting to VCF\n%s", usage_text());
         if ( !egt_fname && ( flags & ADJUST_CLUSTERS ) ) error("Cluster file required when adjusting cluster centers\n%s", usage_text());
@@ -3173,7 +3174,7 @@ int run(int argc, char *argv[])
         }
         str.l--;
         str.s[str.l] = '\0';
-        if ( beadset_order ) fprintf(out_txt, "%s,%s\n", bpm->manifest_name, str.s);
+        if ( beadset_order && out_txt ) fprintf(out_txt, "%s,%s\n", bpm->manifest_name, str.s);
         flags |= BPM_LOOKUPS;
     }
     if ( ( flags & ADJUST_CLUSTERS ) && !( flags & BPM_LOOKUPS ) )
