@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "tsv2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-04"
+#define GTC2VCF_VERSION "2019-12-06"
 
 #define FT_GS (1<<4)
 
@@ -3153,7 +3153,7 @@ int run(int argc, char *argv[])
 
     // the BeadSet normalization order is the only information in the BPM manifest file missing from the CSV manifest file
     kstring_t str = {0, 0, NULL};
-    if ( bpm && bpm->norm_lookups )
+    if ( ( flags & BPM_LOADED ) && ( flags & CSV_LOADED ) )
     {
         int32_t norm_id_to_beadset_id[100] = {0};
         for (int i=0; i<bpm->num_loci; i++)
