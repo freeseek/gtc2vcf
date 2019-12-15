@@ -32,12 +32,12 @@
 #include "bcftools.h"
 #include "htslib/khash_str2int.h"
 
-#define AFFY2VCF_VERSION "2019-12-01"
+#define AFFY2VCF_VERSION "2019-12-15"
 
-#define GT_NC 0
-#define GT_AA 1
-#define GT_AB 2
-#define GT_BB 3
+#define GT_NC -1
+#define GT_AA 0
+#define GT_AB 1
+#define GT_BB 2
 
 #define min(a,b) \
   ({ __typeof__ (a) _a = (a); \
@@ -754,20 +754,20 @@ static const char *usage_text(void)
         "                                    --summary <file> --calls <file> --confidences <file>\n"
         "\n"
         "Plugin options:\n"
-        "    -f, --fasta-ref <file>       reference sequence in fasta format\n"
-        "        --set-cache-size <int>   select fasta cache size in bytes\n"
-        "        --annot <file>           probeset annotation file\n"
-        "        --snp-posteriors <file>  apt-probeset-genotype snp-posteriors output\n"
-        "        --summary <file>         apt-probeset-genotype summary output\n"
-        "        --report <file>          apt-probeset-genotype report output\n"
-        "        --calls <file>           apt-probeset-genotype calls output\n"
-        "        --confidences <file>     apt-probeset-genotype confidences output\n"
-        "        --adjust-clusters        adjust cluster centers in (Contrast, Size) space\n"
-        "    -x, --sex <file>             output apt-probeset-genotype gender estimate into file (requires --report)\n"
-        "        --no-version             do not append version and command line to the header\n"
-        "    -o, --output <file>          write output to a file [standard output]\n"
-        "    -O, --output-type b|u|z|v    b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]\n"
-        "        --threads <int>          number of extra output compression threads [0]\n"
+        "    -f, --fasta-ref <file>        reference sequence in fasta format\n"
+        "        --set-cache-size <int>    select fasta cache size in bytes\n"
+        "        --annot <file>            probeset annotation file\n"
+        "        --snp-posteriors <file>   apt-probeset-genotype snp-posteriors output\n"
+        "        --summary <file>          apt-probeset-genotype summary output\n"
+        "        --report <file>           apt-probeset-genotype report output\n"
+        "        --calls <file>            apt-probeset-genotype calls output\n"
+        "        --confidences <file>      apt-probeset-genotype confidences output\n"
+        "        --adjust-clusters         adjust cluster centers in (Contrast, Size) space\n"
+        "    -x, --sex <file>              output apt-probeset-genotype gender estimate into file (requires --report)\n"
+        "        --no-version              do not append version and command line to the header\n"
+        "    -o, --output <file>           write output to a file [standard output]\n"
+        "    -O, --output-type <b|u|z|v>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]\n"
+        "        --threads <int>           number of extra output compression threads [0]\n"
         "\n"
         "Example:\n"
         "    bcftools +affy2vcf \\\n"
