@@ -13,24 +13,30 @@ Illumina tool:
 Usage: bcftools +gtc2vcf [options] <A.gtc> [...]
 
 Plugin options:
-    -l, --list-tags              list available tags with description for VCF output
-    -t, --tags LIST              list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
-    -i  --idat <file>            IDAT intensity data file
-    -b  --bpm <file>             BPM manifest file
-    -c  --csv <file>             CSV manifest file
-    -e  --egt <file>             EGT cluster file
-    -f, --fasta-ref <file>       reference sequence in fasta format
-        --set-cache-size <int>   select fasta cache size in bytes
-    -g, --gtc-list <file>        read list of GTC file names from file
-        --adjust-clusters        adjust cluster centers in (Theta, R) space (requires --bpm and --egt)
-    -x, --sex <file>             output GenCall gender estimate into file
-        --do-not-check-bpm       do not check whether BPM and GTC files match manifest file name
-        --genome-studio <file>   input a genome studio final report file (in matrix format)
-        --beadset-order          output BeadSetID normalization order (requires --bpm and --csv)
-        --no-version             do not append version and command line to the header
-    -o, --output <file>          write output to a file [standard output]
-    -O, --output-type b|u|z|v|g  b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF, g: GenomeStudio [v]
-        --threads <int>          number of extra output compression threads [0]
+    -l, --list-tags                 list available tags with description for VCF output
+    -t, --tags LIST                 list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
+    -i  --idat <file>               IDAT intensity data file
+    -b  --bpm <file>                BPM manifest file
+    -c  --csv <file>                CSV manifest file
+    -e  --egt <file>                EGT cluster file
+    -f, --fasta-ref <file>          reference sequence in fasta format
+        --set-cache-size <int>      select fasta cache size in bytes
+    -g, --gtc-list <file>           read list of GTC file names from file
+        --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)
+    -x, --sex <file>                output GenCall gender estimate into file
+        --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name
+        --genome-studio <file>      input a genome studio final report file (in matrix format)
+        --no-version                do not append version and command line to the header
+    -o, --output <file>             write output to a file [standard output]
+    -O, --output-type <b|u|z|v|t>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF
+                                    v: uncompressed VCF, t: GenomeStudio tab-delimited text output [v]
+        --threads <int>             number of extra output compression threads [0]
+
+Manifest options:
+        --beadset-order             output BeadSetID normalization order (requires --bpm and --csv)
+        --fasta-source-seq          output source sequence in FASTA format (requires --csv)
+    -s, --sam-source-seq            input source sequence alignment in SAM/BAM format (requires --csv)
+        --genome-build              genome build to use to update the manifest file [GRCh38]
 
 Examples:
     bcftools +gtc2vcf -i 5434246082_R03C01_Grn.idat
@@ -40,6 +46,12 @@ Examples:
     bcftools +gtc2vcf -c GSA-24v3-0_A1.csv -e GSA-24v3-0_A1_ClusterFile.egt -f human_g1k_v37.fasta -o GSA-24v3-0_A1.vcf
     bcftools +gtc2vcf -c HumanOmni2.5-4v1_H.csv -f human_g1k_v37.fasta 5434246082_R03C01.gtc -o 5434246082_R03C01.vcf
     bcftools +gtc2vcf -f human_g1k_v37.fasta --genome-studio GenotypeReport.txt -o GenotypeReport.vcf
+
+Examples of manifest file options:
+    bcftools +gtc2vcf -b GSA-24v3-0_A1.bpm -c GSA-24v3-0_A1.csv --beadset-order
+    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --fasta-source-seq -o GSA-24v3-0_A1.fasta
+    bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GSA-24v3-0_A1.fasta -o GSA-24v3-0_A1.sam
+    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --sam-source-seq GSA-24v3-0_A1.sam -o GSA-24v3-0_A1.GRCh38.csv
 ```
 
 Affymetrix tool:
@@ -48,20 +60,24 @@ Usage: bcftools +affy2vcf [options] --fasta-ref <file> --annot <file> --snp-post
                                     --summary <file> --calls <file> --confidences <file>
 
 Plugin options:
-    -f, --fasta-ref <file>       reference sequence in fasta format
-        --set-cache-size <int>   select fasta cache size in bytes
-        --annot <file>           probeset annotation file
-        --snp-posteriors <file>  apt-probeset-genotype snp-posteriors output
-        --summary <file>         apt-probeset-genotype summary output
-        --report <file>          apt-probeset-genotype report output
-        --calls <file>           apt-probeset-genotype calls output
-        --confidences <file>     apt-probeset-genotype confidences output
-        --adjust-clusters        adjust cluster centers in (Contrast, Size) space
-    -x, --sex <file>             output apt-probeset-genotype gender estimate into file (requires --report)
-        --no-version             do not append version and command line to the header
-    -o, --output <file>          write output to a file [standard output]
-    -O, --output-type b|u|z|v    b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]
-        --threads <int>          number of extra output compression threads [0]
+    -f, --fasta-ref <file>        reference sequence in fasta format
+        --set-cache-size <int>    select fasta cache size in bytes
+        --annot <file>            probeset annotation file
+        --snp-posteriors <file>   apt-probeset-genotype snp-posteriors output
+        --summary <file>          apt-probeset-genotype summary output
+        --report <file>           apt-probeset-genotype report output
+        --calls <file>            apt-probeset-genotype calls output
+        --confidences <file>      apt-probeset-genotype confidences output
+        --adjust-clusters         adjust cluster centers in (Contrast, Size) space
+    -x, --sex <file>              output apt-probeset-genotype gender estimate into file (requires --report)
+        --no-version              do not append version and command line to the header
+    -o, --output <file>           write output to a file [standard output]
+    -O, --output-type <b|u|z|v>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]
+        --threads <int>           number of extra output compression threads [0]
+
+Manifest options:
+        --fasta-flank             output flank sequence in FASTA format (requires --annot)
+    -s, --sam-flank               input source sequence alignment in SAM/BAM format (requires --annot)
 
 Example:
     bcftools +affy2vcf \
@@ -72,6 +88,11 @@ Example:
         --calls AxiomGT1.calls.txt \
         --confidences AxiomGT1.confidences.txt \
         --output AxiomGT1.vcf
+
+Examples of manifest file options:
+    bcftools +affy2vcf --annot GenomeWideSNP_6.na35.annot.csv --fasta-flank -o GenomeWideSNP_6.fasta
+    bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GenomeWideSNP_6.fasta -o GenomeWideSNP_6.sam
+    bcftools +affy2vcf --annot GSA-24v3-0_A1.csv --sam-flank GenomeWideSNP_6.sam ...
 ```
 
 Installation
@@ -79,7 +100,7 @@ Installation
 
 Install basic tools (Debian/Ubuntu specific if you have admin privileges)
 ```
-sudo apt install wget autoconf zlib1g-dev gzip unzip samtools msitools cabextract mono-devel libgdiplus
+sudo apt install wget autoconf zlib1g-dev bwa gzip unzip samtools msitools cabextract mono-devel libgdiplus
 ```
 
 Optionally, you can install these libraries to activate further HTSlib features:
@@ -122,6 +143,7 @@ Install the GRCh37 human genome reference
 wget -O- ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.gz | \
   gzip -d > $HOME/res/human_g1k_v37.fasta
 samtools faidx $HOME/res/human_g1k_v37.fasta
+bwa index $HOME/res/human_g1k_v37.fasta
 ```
 
 Install the GRCh38 human genome reference (following the suggestion from <a href="http://lh3.github.io/2017/11/13/which-human-reference-genome-to-use">Heng Li</a>)
@@ -129,6 +151,7 @@ Install the GRCh38 human genome reference (following the suggestion from <a href
 wget -O- ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz | \
   gzip -d > $HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
 samtools faidx $HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
+bwa index $HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
 ```
 
 Software Installation
@@ -233,7 +256,7 @@ After downloading the binaries, replace `mono` with `LD_LIBRARY_PATH="lib" mono`
 Convert Illumina GTC files to VCF
 =================================
 
-Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package.
+Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package
 ```
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 bpm_manifest_file="..."
@@ -253,7 +276,35 @@ bcftools +gtc2vcf \
   bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
   bcftools index -f $out_prefix.bcf
 ```
-Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Without the BPM manifest file normalized intensities cannot be computed. Without the CSV manifest file indel alleles cannot be inferred and will be dropped. If the EGT cluster file is provided, information about genotype cluster centers are included in the VCF.
+Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Without the BPM manifest file normalized intensities cannot be computed. Without the CSV manifest file indel alleles cannot be inferred and will be dropped. If the EGT cluster file is provided, information about genotype cluster centers are included in the VCF
+
+Using a reference not provided by Illumina
+==========================================
+
+Illumina provides <a href="https://support.illumina.com/bulletins/2017/04/infinium-human-genotyping-manifests-and-support-files--with-anno.html">GRCh38/hg38</a> manifests for many of its genotyping arrays. However, if your genotyping array is not supported for the newer reference by Illumina, you can use the `--fasta-source-seq` and `--sam-source-seq` options to realign the source sequences from the manifest files you have and recompute the marker positions. This approach uses <a href="https://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html">source sequence</a> and <a href="https://support.illumina.com/bulletins/2017/06/how-to-interpret-dna-strand-and-allele-information-for-infinium-.html">strand</a> information to identify the marker <a href="https://support.illumina.com/bulletins/2016/06/-infinium-genotyping-array-manifest-files-what-does-chr-or-mapinfo---mean.html">coordinates</a>. It will need a sequence aligner such as `bwa` to realign the sequences and it seems to reproduce the coordinates provided from Illumina more than 99.9% of the times. Occasionally the source sequence provided by Illumina is incorrect and it is impossible to recover the correct marker coordinate from the source sequence alone
+
+You first have to generate an alignment file for the source sequences in a CSV manifest file
+```
+ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
+csv_manifest_file="..."
+bam_alignment_file="..."
+bcftools +gtc2vcf \
+  -c $csv_manifest_file \
+  --fasta-source-seq | \
+  bwa mem -M $ref - | \
+  samtools view -bS \
+  -o $bam_alignment_file
+```
+Notice that you need to use the `-M` option to mark shorter split hits as secondary. Then you can use gtc2vcf to compute the coordinates according to the reference used to align the manifest source sequences
+```
+csv_manifest_file="..."
+bam_alignment_file="..."
+csv_realigned_file="..."
+bcftools +gtc2vcf \
+  -c $csv_manifest_file \
+  --sam-source-seq $bam_alignment_file \
+  -o $csv_realigned_file
+```
 
 Convert Affymetrix CEL files to genotype calls
 ==============================================
