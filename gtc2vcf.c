@@ -35,13 +35,9 @@
 #include <htslib/sam.h>
 #include "bcftools.h"
 #include "tsv2vcf.h"
+#include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-15"
-
-#define NT_A (1<<0)
-#define NT_C (1<<1)
-#define NT_G (1<<2)
-#define NT_T (1<<3)
+#define GTC2VCF_VERSION "2019-12-23"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -64,26 +60,9 @@
 #define FORMAT_X        (1<<13)
 #define FORMAT_Y        (1<<14)
 
-#define min(a,b) \
-  ({ __typeof__ (a) _a = (a); \
-     __typeof__ (b) _b = (b); \
-    _a < _b ? _a : _b; })
-
-#define max(a,b) \
-  ({ __typeof__ (a) _a = (a); \
-     __typeof__ (b) _b = (b); \
-    _a > _b ? _a : _b; })
-
-static inline char revnt(char nt)
-{
-    if ( nt=='A' ) return 'T';
-    if ( nt=='C' ) return 'G';
-    if ( nt=='G' ) return 'C';
-    if ( nt=='T' ) return 'A';
-    if ( nt=='D' ) return 'D';
-    if ( nt=='I' ) return 'I';
-    return -1;
-}
+/****************************************
+ * hFILE READING FUNCTIONS              *
+ ****************************************/
 
 // tests the end-of-file indicator for an hFILE
 static inline int heof(hFILE *fp)
@@ -483,7 +462,6 @@ static void idat_to_csv(const idat_t *idat, FILE *stream)
         fprintf(stream, "%s\t%s\t%s\t%s\t%s\n", idat->run_infos[i].run_time, idat->run_infos[i].block_type,
         idat->run_infos[i].block_pars, idat->run_infos[i].block_code, idat->run_infos[i].code_version);
     }
-    if (stream != stdout && stream != stderr) fclose(stream);
 }
 
 /****************************************
@@ -795,7 +773,6 @@ static void bpm_to_csv(const bpm_t *bpm,
     free(address_b.s);
     fprintf(stream, "[Controls]\n");
     fprintf(stream, "%s", bpm->control_config);
-    if (stream != stdout && stream != stderr) fclose(stream);
 }
 
 /****************************************
@@ -1270,7 +1247,6 @@ static void egt_to_csv(const egt_t *egt, FILE *stream)
             cluster_record->cluster_score.edited,
             cluster_record->address);
     }
-    if (stream != stdout && stream != stderr) fclose(stream);
 }
 
 /****************************************
@@ -1666,193 +1642,6 @@ static void gtc_to_csv(const gtc_t *gtc, FILE *stream)
             gtc->normalization_transforms[i].shear,
             gtc->normalization_transforms[i].theta);
     }
-    if (stream != stdout && stream != stderr) fclose(stream);
-}
-
-/****************************************
- * SOURCE SEQUENCE IMPLEMENTATION       *
- ****************************************/
-
-// see BPMRecord.py from https://github.com/Illumina/GTCtoVCF
-
-static inline void strupper(char *str) {
-    char *s = str;
-    while (*s) {
-        *s = toupper((unsigned char) *s);
-        s++;
-     }
-}
-
-static inline char complement(char c)
-{
-    switch(toupper(c))
-    {
-        case 'A': return 'T';
-        case 'C': return 'G';
-        case 'G': return 'C';
-        case 'T': return 'A';
-        case 'N': return 'N';
-        case 'R': return 'Y';
-        case 'Y': return 'R';
-        case 'S': return 'S';
-        case 'W': return 'W';
-        case 'K': return 'M';
-        case 'M': return 'K';
-        case 'B': return 'V';
-        case 'D': return 'H';
-        case 'H': return 'D';
-        case 'V': return 'B';
-        default:
-            error("Sequence nucleotide character %c is not in IUPAC notation\n", c);
-    }
-}
-
-static void reverse_complement(char *str)
-{
-    size_t len = strlen(str);
-    for (size_t i=0; i<len/2; i++)
-    {
-        char tmp = str[i];
-        str[i] = complement( str[len-i-1] );
-        str[len-i-1] = complement( tmp );
-    }
-    if (len % 2 == 1) str[len/2] = complement( str[len/2] );
-}
-
-static inline int degeneracy(char c)
-{
-    switch(toupper(c))
-    {
-        case 'A': return NT_A;
-        case 'C': return NT_C;
-        case 'G': return NT_G;
-        case 'T': return NT_T;
-        case 'N': return NT_A | NT_C | NT_G | NT_T;
-        case 'R': return NT_A || NT_G;
-        case 'Y': return NT_C || NT_T;
-        case 'S': return NT_C || NT_G;
-        case 'W': return NT_A || NT_T;
-        case 'K': return NT_G || NT_T;
-        case 'M': return NT_A || NT_C;
-        case 'B': return NT_C || NT_G || NT_T;
-        case 'D': return NT_A || NT_G || NT_T;
-        case 'H': return NT_A || NT_C || NT_T;
-        case 'V': return NT_A || NT_C || NT_G;
-        default:
-            error("Sequence nucleotide character %c is not in IUPAC notation\n", c);
-    }
-}
-
-static int max_suffix_match(const char *str1, const char *str2, size_t str1_len, size_t str2_len)
-{
-    int ret = 0;
-    for (size_t i=str1_len, j=str2_len; i > 0 && j > 0; i--, j--)
-    {
-        if ( degeneracy(str1[i-1]) & degeneracy(str2[j-1]) )
-            ret++;
-        else
-        {
-            return ret;
-        }
-    }
-    return ret;
-}
-
-static int max_prefix_match(const char *str1, const char *str2, size_t str1_len, size_t str2_len)
-{
-    int ret = 0;
-    for (size_t i=0, j=0; i < str1_len && j < str2_len; i++, j++)
-    {
-        if ( degeneracy(str1[i]) & degeneracy(str2[j]) )
-            ret++;
-        else
-            return ret;
-    }
-    return ret;
-}
-
-typedef struct
-{
-    kstring_t str;
-    const char *left;
-    const char *right;
-}
-source_seq_t;
-
-static int inline source_seq_left_len(source_seq_t *self) { return (int)(self->left - self->str.s); }
-static int inline source_seq_middle_len(source_seq_t *self) { return (int)(self->right - self->left); }
-static int inline source_seq_right_len(source_seq_t *self) { return (int)(self->str.l - ( self->right - self->str.s ) ); }
-static void inline source_seq_destroy(source_seq_t *self) { free(self->str.s); }
-
-static int source_seq_is_indel(const char *source_seq)
-{
-    const char *middle = strchr(source_seq, '/');
-    if ( !middle || ( middle - source_seq < 1 ) ) error("Source sequence is malformed: %s\n", source_seq);
-    return *(middle-1) == '-';
-}
-
-static source_seq_t source_seq_init(const char *source_seq)
-{
-    source_seq_t self = {{0, 0, NULL}, 0, 0};
-    const char *middle = strchr(source_seq, '/');
-    const char *right = strchr(middle, ']');
-    if ( !middle || ( middle - source_seq < 1 ) || !right )
-        error("Source sequence is malformed: %s\n", source_seq);
-    int left_n = (int)( middle - source_seq - 2 );
-    int middle_n = (int)( right - middle - 1 );
-
-    if ( *(middle-1) != '-' )
-    {
-        char iupac = gt2iupac( *(middle-1), *(middle+1) );
-        if ( iupac != 'M' && iupac != 'R' && iupac != 'W' && iupac != 'S' && iupac != 'Y' && iupac != 'K' )
-            error("Source sequence is malformed:\n%s\n", source_seq);
-        ksprintf(&self.str, "%.*s%c%s", left_n, source_seq, iupac, right + 1);
-    }
-    else
-    {
-        ksprintf(&self.str, "%.*s%.*s%s", left_n, source_seq, middle_n, middle + 1, right + 1);
-    }
-
-    strupper(self.str.s);
-    self.left = self.str.s + left_n;
-    self.right = self.left + middle_n;
-
-    return self;
-}
-
-static source_seq_t source_seq_init2(const char *left,
-                                     int left_n,
-                                     const char *middle,
-                                     int middle_n,
-                                     const char *right,
-                                     int right_n)
-{
-    source_seq_t self = {{0, 0, NULL}, 0, 0};
-    ksprintf(&self.str, "%.*s%.*s%.*s", left_n, left, middle_n, middle, right_n, right);
-    strupper(self.str.s);
-    self.left = self.str.s + left_n;
-    self.right = self.left + middle_n;
-    return self;
-}
-
-static void source_seq_reverse_complement(source_seq_t *self)
-{
-    int right_n = source_seq_right_len(self);
-    int middle_n = source_seq_middle_len(self);
-    reverse_complement(self->str.s);
-    self->left = self->str.s + right_n;
-    self->right = self->left + middle_n;
-}
-
-// this is the weird way Illumina left shifts indels
-static void source_seq_left_shift(source_seq_t *self)
-{
-    int len = source_seq_middle_len(self);
-    while( ( self->left - self->str.s >= len ) && ( strncmp( self->left - len, self->left, len ) == 0 ) )
-    {
-        self->left -= len;
-        self->right -= len;
-    }
 }
 
 /****************************************
@@ -1870,104 +1659,27 @@ static bpm_t *sam_csv_init(const char *fn,
     if ( sam_hdr == NULL ) error("Reading header from \"%s\" failed", fn);
     bam1_t *b = bam_init1();
     if ( b == NULL ) error("Cannot create SAM record\n");
-    int i = 0, ret;
-    const char *chrom[2];
-    int map_info[2], ilmn_ref_strand[2];
-    int64_t aln_score[2];
-    while ( ( ret = sam_read1(hts, sam_hdr, b) ) >= 0)
+
+    kstring_t str = {0, 0, NULL};
+    const char *chromosome = NULL;
+    int strand = -1, position = 0, idx = -1;
+    for (int i=0; i<bpm->num_loci; i++)
     {
-        if ( b->core.flag & BAM_FSECONDARY || b->core.flag & BAM_FSUPPLEMENTARY ) continue;
-        const char *ilmn_id = bam_get_qname(b);
-        int ilmn_id_l = strlen(ilmn_id);
-        int j = i / 2; i++;
-        if ( strncmp( ilmn_id, bpm->locus_entries[j].ilmn_id, ilmn_id_l - 2 ) != 0 )
-            error("Illumina ID %.*s found in SAM file but %s expected\n", ilmn_id_l - 2, ilmn_id, bpm->locus_entries[j].ilmn_id );
-
-        int idx = ilmn_id[ilmn_id_l - 1] == '1' ? 0 : ( ilmn_id[ilmn_id_l - 1] == '2' ? 1 : -1 );
-        if ( idx == -1 ) error("Illumina ID %s found in SAM file does not end with :1 or :2\n", ilmn_id);
-        int ilmn_source_strand = strcmp(bpm->locus_entries[j].ilmn_strand, bpm->locus_entries[j].source_strand) != 0;
-
-        chrom[idx] = sam_hdr_tid2name( sam_hdr, b->core.tid );
-        if ( !chrom[idx] ) chrom[idx] = "0";
-        map_info[idx] = 0;
-        ilmn_ref_strand[idx] = 0;
-        if ( !(b->core.flag & BAM_FUNMAP) )
-        {
-            int source_ref_strand = bam_is_rev(b);
-            ilmn_ref_strand[idx] = ilmn_source_strand != source_ref_strand;
-            int n_cigar = b->core.n_cigar;
-            const uint32_t *cigar = bam_get_cigar(b);
-            int is_indel = source_seq_is_indel(bpm->locus_entries[j].source_seq);
-            source_seq_t source_seq = source_seq_init(bpm->locus_entries[j].source_seq);
-            // source sequence needs to be flipped according to the reference strand
-            // and left shifted according to the way Illumina left shifts
-            if ( source_ref_strand ) source_seq_reverse_complement( &source_seq );
-            if ( is_indel ) source_seq_left_shift( &source_seq );
-            map_info[idx] = b->core.pos;
-            int qlen = source_seq_left_len( &source_seq );
-            source_seq_destroy(&source_seq);
-            // SNPs and insertions localize at the first base in the [./.] part
-            // deletions localize at the first base before the [./.] part
-            if ( !is_indel || idx == 1 ) qlen++;
-            for (int k = 0; k < n_cigar && qlen > 1; k++)
-            {
-                int type = bam_cigar_type(bam_cigar_op(cigar[k]));
-                int len = bam_cigar_oplen(cigar[k]);
-                if ( ( type & 1 ) && ( type & 2 ) ) // consume reference sequence ( case M )
-                {
-                    map_info[idx] += min(len, qlen);
-                    qlen -= len;
-                }
-                else if ( type & 1 ) // consume query sequence ( case I )
-                {
-                    qlen -= len;
-                    if ( qlen <= 0 ) // we skipped the base pair that needed to be localized
-                    {
-                        chrom[idx] = "0";
-                        map_info[idx] = 0;
-                        ilmn_ref_strand[idx] = 0;
-                    }
-                }
-                else if ( type & 2 )
-                {
-                    map_info[idx] += len; // consume reference sequence ( case D )
-                }
-            }
-            if ( qlen == 1 ) map_info[idx]++; // takes care of a few special cases
-        }
-        uint8_t *as = bam_aux_get( b, "AS" );
-        aln_score[idx] = bam_aux2i(as);
-
-        if ( idx == 0 ) continue;
-        if ( aln_score[0] >= aln_score[1] ) idx = 0;
-        if ( aln_score[0] == aln_score[1] && map_info[0] != map_info[1] )
-        {
-            chrom[idx] = "0";
-            map_info[idx] = 0;
-            ilmn_ref_strand[idx] = 0;
-        }
-        if ( map_info[idx] == 0 ) fprintf(stderr, "Unable to determine map position for marker %s\n", bpm->locus_entries[j].ilmn_id);
-
-        free(bpm->locus_entries[j].genome_build);
-        bpm->locus_entries[j].genome_build = strdup(genome_build);
-
-        free(bpm->locus_entries[j].chrom);
-        kstring_t chrom_str = {0, 0, NULL};
-        ksprintf(&chrom_str, "%s", chrom[idx]);
-        bpm->locus_entries[j].chrom = chrom_str.s;
-
-        free(bpm->locus_entries[j].map_info);
-        kstring_t map_info_str = {0, 0, NULL};
-        ksprintf(&map_info_str, "%d", map_info[idx]);
-        bpm->locus_entries[j].map_info = map_info_str.s;
-
-        free(bpm->locus_entries[j].ref_strand);
-        kstring_t ref_strand_str = {0, 0, NULL};
-        if ( ilmn_ref_strand[idx] ) ksprintf(&ref_strand_str, "-");
-        else ksprintf(&ref_strand_str, "+");
-        bpm->locus_entries[j].ref_strand = ref_strand_str.s;
+        if ( get_position(hts, sam_hdr, b, bpm->locus_entries[i].ilmn_id, bpm->locus_entries[i].source_seq, 1, &idx, &chromosome, &position, &strand) < 0 )
+            error("Reading from %s failed", fn);
+        free(bpm->locus_entries[i].genome_build);
+        bpm->locus_entries[i].genome_build = strdup(genome_build);
+        free(bpm->locus_entries[i].chrom);
+        bpm->locus_entries[i].chrom = strdup(chromosome);
+        free(bpm->locus_entries[i].map_info);
+        str.l = 0;
+        ksprintf(&str, "%d", position);
+        bpm->locus_entries[i].map_info = strdup(str.s);
+        free(bpm->locus_entries[i].ref_strand);
+        bpm->locus_entries[i].ref_strand = ( ( strcmp(bpm->locus_entries[i].ilmn_strand, bpm->locus_entries[i].source_strand) != 0 ) != strand ) ? strdup("-") : strdup("+");
     }
-    if (ret < -1) error("Reading from %s failed", fn);
+    free(str.s);
+
     bam_destroy1(b);
     sam_hdr_destroy(sam_hdr);
     if ( hts_close(hts) < 0 ) error("closing \"%s\" failed", fn);
@@ -2152,6 +1864,10 @@ static void gtcs_to_gs(gtc_t **gtc,
     // print loci
     for (int j=0; j<bpm->num_loci; j++)
     {
+        int strand = !bpm->locus_entries[j].ref_strand ? -1 :
+             ( strcmp(bpm->locus_entries[j].ref_strand, "+") == 0 ? 0 :
+             ( strcmp(bpm->locus_entries[j].ref_strand, "-") == 0 ? 1 : -1 ) );
+        if ( strand < 0 ) error("Unable to process reference strand %s\n", bpm->locus_entries[j].ref_strand);
         fprintf(stream, "%d\t%s\t%d\t%s\t%s\t%f\t%f\t%f\t%f\t%f", bpm->indexes ? bpm->indexes[j] : j,
                                                                   bpm->locus_entries[j].name,
                                                                   bpm->locus_entries[j].address_a,
@@ -2172,21 +1888,8 @@ static void gtcs_to_gs(gtc_t **gtc,
             get_element(gtc[i]->base_calls, (void *)&base_call, j);
             intensities_t intensities;
             get_intensities(gtc[i], bpm, egt, j, &intensities);
-            char allele_a, allele_b;
-            if ( strcmp(bpm->locus_entries[j].ref_strand, "+") == 0 )
-            {
-                allele_a = bpm->locus_entries[j].snp[1];
-                allele_b = bpm->locus_entries[j].snp[3];
-            }
-            else if ( strcmp(bpm->locus_entries[j].ref_strand, "-") == 0 )
-            {
-                allele_a = revnt(bpm->locus_entries[j].snp[1]);
-                allele_b = revnt(bpm->locus_entries[j].snp[3]);
-            }
-            else
-            {
-                error("Unable to process reference strand %s\n", bpm->locus_entries[j].ref_strand);
-            }
+            char allele_a = strand ? revnt(bpm->locus_entries[j].snp[1]) : bpm->locus_entries[j].snp[1];
+            char allele_b = strand ? revnt(bpm->locus_entries[j].snp[3]) : bpm->locus_entries[j].snp[3];
             BaseCall ref_call;
             switch ( genotype )
             {
@@ -2223,34 +1926,9 @@ static void gtcs_to_gs(gtc_t **gtc,
         }
         fprintf(stream, "\n");
     }
-    if (stream != stdout && stream != stderr) fclose(stream);
 }
 
-static int bcf_hdr_name2id_flexible(const bcf_hdr_t *hdr, char *chr)
-{
-    static kstring_t str = {0, 0, NULL};
-    if (!str.s) kputs("chr", &str);
-    if (!chr) { free(str.s); return 0; }
-    int rid = bcf_hdr_name2id(hdr, chr);
-    if ( rid >= 0 ) return rid;
-    str.l = 3;
-    kputs(chr, &str);
-    rid = bcf_hdr_name2id(hdr, str.s);
-    if ( rid >= 0 ) return rid;
-    if ( strcmp(chr, "XY") == 0 || strcmp(chr, "XX") == 0 )
-    {
-        rid = bcf_hdr_name2id(hdr, "X");
-        if ( rid >= 0 ) return rid;
-        rid = bcf_hdr_name2id(hdr, "chrX");
-    }
-    else if ( strcmp(chr, "MT") == 0 )
-    {
-        rid = bcf_hdr_name2id(hdr, "chrM");
-    }
-    return rid;
-}
-
-static bcf_hdr_t *get_hdr(const faidx_t *fai, int flags)
+static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags)
 {
     bcf_hdr_t *hdr = bcf_hdr_init("w");
     int n = faidx_nseq(fai);
@@ -2314,85 +1992,6 @@ static bcf_hdr_t *get_hdr(const faidx_t *fai, int flags)
     return hdr;
 }
 
-static char get_ref_base(faidx_t *fai,
-                         const bcf_hdr_t *hdr,
-                         bcf1_t *rec)
-{
-    int len;
-    char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos, rec->pos, &len);
-    if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
-    char ref_base = ref[0];
-    free(ref);
-    return ref_base;
-}
-
-static int get_allele_b_idx(char ref_base,
-                            char *allele_a,
-                            char *allele_b)
-{
-    if ( *allele_a == 'D' || *allele_a == 'I' || *allele_b == 'D' || *allele_b == 'I' ) return 1;
-
-    if ( *allele_a == ref_base ) return 1;
-    else if ( *allele_b == ref_base ) return 0;
-    else if ( *allele_a == '.' )
-    {
-        *allele_a = ref_base;
-        return 1;
-    }
-    else if ( *allele_b == '.' )
-    {
-        *allele_b = ref_base;
-        return 0;
-    }
-    return 2;
-}
-
-static int get_allele_a_idx(int allele_b_idx)
-{
-    switch ( allele_b_idx )
-    {
-        case 0:
-            return 1;
-        case 1:
-            return 0;
-        case 2:
-            return 1;
-        default:
-            return -1;
-    }
-}
-
-static int alleles_ab_to_vcf(const char **alleles,
-                             const char *ref_base,
-                             const char *allele_a,
-                             const char *allele_b,
-                             int allele_b_idx)
-{
-    switch ( allele_b_idx )
-    {
-        case -1:
-            alleles[0] = ref_base;
-            return 1;
-        case 0:
-            alleles[0] = allele_b;
-            if ( allele_a[0] == '.' ) return 1;
-            alleles[1] = allele_a;
-            return 2;
-        case 1:
-            alleles[0] = allele_a;
-            if ( allele_b[0] == '.' ) return 1;
-            alleles[1] = allele_b;
-            return 2;
-        case 2:
-            alleles[0] = ref_base;
-            alleles[1] = allele_a;
-            alleles[2] = allele_b;
-            return 3;
-        default:
-            return -1;
-    }
-}
-
 static int gts_to_gt_arr(int32_t *gt_arr,
                          const uint8_t *gts,
                          int n,
@@ -2440,7 +2039,7 @@ static void gtcs_to_vcf(faidx_t *fai,
     char ref_base[] = {'\0', '\0'};
     kstring_t allele_a = {0, 0, NULL};
     kstring_t allele_b = {0, 0, NULL};
-    kstring_t indel_seq = {0, 0, NULL};
+    kstring_t flank = {0, 0, NULL};
 
     uint8_t *gts = (uint8_t *) malloc(n * sizeof(uint8_t));
     int32_t *gt_arr = (int32_t *) malloc(n*2 * sizeof(int32_t));
@@ -2458,130 +2057,57 @@ static void gtcs_to_vcf(faidx_t *fai,
     int n_skipped = 0;
     for (int j=0; j<bpm->num_loci; j++)
     {
+        LocusEntry *locus_entry = &bpm->locus_entries[j];
         bcf_clear(rec);
         rec->n_sample = n;
-        rec->rid = bcf_hdr_name2id_flexible(hdr, bpm->locus_entries[j].chrom);
+        rec->rid = bcf_hdr_name2id_flexible(hdr, locus_entry->chrom);
         char *endptr;
-        rec->pos = strtol(bpm->locus_entries[j].map_info, &endptr, 10) - 1;
-        if ( bpm->locus_entries[j].map_info == endptr )
-            error("Map info %s for marker %s is not understood\n",bpm->locus_entries[j].map_info, bpm->locus_entries[j].ilmn_id);
-        if ( !bpm->locus_entries[j].ref_strand || strcmp(bpm->locus_entries[j].ref_strand, "") == 0 )
-            error("Reference strand information for marker %s is missing\n", bpm->locus_entries[j].ilmn_id);
-        if ( rec->rid < 0 || rec->pos < 0 )
+        rec->pos = strtol(locus_entry->map_info, &endptr, 10) - 1;
+        if ( locus_entry->map_info == endptr )
+            error("Map info %s for marker %s is not understood\n",locus_entry->map_info, locus_entry->ilmn_id);
+        int strand = !locus_entry->ref_strand ? -1 :
+             ( strcmp(locus_entry->ref_strand, "+") == 0 ? 0 :
+             ( strcmp(locus_entry->ref_strand, "-") == 0 ? 1 : -1 ) );
+        if ( rec->rid < 0 || rec->pos < 0 || strand < 0 )
         {
-            fprintf(stderr, "Skipping unlocalized marker %s\n", bpm->locus_entries[j].ilmn_id);
+            fprintf(stderr, "Skipping unlocalized marker %s\n", locus_entry->ilmn_id);
             n_skipped++;
             continue;
         }
-        bcf_update_id( hdr, rec, bpm->locus_entries[j].name );
+        bcf_update_id( hdr, rec, locus_entry->name );
 
-        int32_t allele_a_idx, allele_b_idx;
+        int32_t allele_b_idx;
         allele_a.l = allele_b.l = 0;
-        if ( bpm->locus_entries[j].snp[1] == 'N' && bpm->locus_entries[j].snp[3] == 'A' )
+        if ( locus_entry->snp[1] == 'N' && locus_entry->snp[3] == 'A' )
         {
             ref_base[0] = get_ref_base( fai, hdr, rec );
             allele_b_idx = -1;
         }
-        else if ( bpm->locus_entries[j].source_seq && source_seq_is_indel( bpm->locus_entries[j].source_seq ) )
+        else if ( locus_entry->source_seq && strchr( locus_entry->source_seq, '-' ) )
         {
-            // see BPMRecord.py from https://github.com/Illumina/GTCtoVCF
-            int ilmn_source_strand = strcmp(bpm->locus_entries[j].ilmn_strand, bpm->locus_entries[j].source_strand) != 0;
-            int ilmn_ref_strand = strcmp(bpm->locus_entries[j].ref_strand, "-") == 0;
-            int source_ref_strand = ilmn_source_strand != ilmn_ref_strand;
-            source_seq_t source_seq = source_seq_init(bpm->locus_entries[j].source_seq);
-            if ( source_ref_strand ) source_seq_reverse_complement( &source_seq );
-            source_seq_left_shift( &source_seq );
-            indel_seq.l = 0;
-            ksprintf(&indel_seq, "%.*s", source_seq_middle_len(&source_seq), source_seq.left);
+            flank.l = 0;
+            ksprintf(&flank, "%s", locus_entry->source_seq);
+            strupper(flank.s);
+            if ( ( strcmp(locus_entry->ilmn_strand, locus_entry->source_strand) != 0 ) != strand ) flank_reverse_complement( flank.s );
+            flank_left_shift( flank.s );
 
-            int len;
-            char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec),
-                rec->pos-source_seq_left_len(&source_seq), rec->pos-1+indel_seq.l+source_seq_right_len(&source_seq), &len);
-            if ( !ref ) error("faidx_fetch_seq failed at %s:%"PRId64"\n", bcf_seqname(hdr, rec), rec->pos + 1);
-            strupper(ref);
-            int indel_sequence_match = strncmp(ref + source_seq_left_len(&source_seq), indel_seq.s, indel_seq.l) == 0;
-
-            source_seq_t genomic_del = source_seq_init2(ref, source_seq_left_len(&source_seq), indel_seq.s, indel_seq.l,
-                ref + source_seq_left_len(&source_seq) + indel_seq.l, source_seq_right_len(&source_seq));
-            source_seq_left_shift( &genomic_del );
-            int del_context_match_lengths_left = max_suffix_match(genomic_del.str.s,
-                source_seq.str.s, source_seq_left_len(&genomic_del), source_seq_left_len(&source_seq));
-            int del_context_match_lengths_right = max_prefix_match(genomic_del.right,
-                source_seq.right, source_seq_right_len(&genomic_del), source_seq_right_len(&source_seq));
-            int max_del_context = min( source_seq_left_len(&genomic_del), source_seq_left_len(&source_seq) ) +
-                min( source_seq_right_len(&genomic_del), source_seq_right_len(&source_seq) ) + indel_seq.l;
-            float del_context_score = (float)(del_context_match_lengths_left + del_context_match_lengths_right +
-                ( indel_sequence_match ? indel_seq.l : 0) ) / (float)max_del_context;
-
-            source_seq_t genomic_ins = source_seq_init2(ref + 1, source_seq_left_len(&source_seq), indel_seq.s, indel_seq.l,
-                ref + source_seq_left_len(&source_seq) + 1, source_seq_right_len(&source_seq));
-            source_seq_left_shift( &genomic_ins );
-            int ins_context_match_lengths_left = max_suffix_match(genomic_ins.str.s,
-                source_seq.str.s, source_seq_left_len(&genomic_ins), source_seq_left_len(&source_seq));
-            int ins_context_match_lengths_right = max_prefix_match(genomic_ins.right,
-                source_seq.right, source_seq_right_len(&genomic_ins), source_seq_right_len(&source_seq));
-            int max_ins_context = min( source_seq_left_len(&genomic_ins), source_seq_left_len(&source_seq) ) +
-                min( source_seq_right_len(&genomic_ins), source_seq_right_len(&source_seq) );
-            float ins_context_score = (float)(ins_context_match_lengths_left + ins_context_match_lengths_right) /
-                (float)max_ins_context;
-
-            int is_del = indel_sequence_match && del_context_score > ins_context_score &&
-                ( del_context_match_lengths_left >= 1 && del_context_match_lengths_right >= 1);
-            int is_ins = ins_context_score > del_context_score &&
-                ( ins_context_match_lengths_left >= 1 && ins_context_match_lengths_right >= 1);
-
-            if ( is_del ) rec->pos--;
-            ref_base[0] = ref[source_seq_left_len(&source_seq) - is_del];
-            source_seq_destroy(&source_seq);
-            source_seq_destroy(&genomic_del);
-            source_seq_destroy(&genomic_ins);
-            free(ref);
-
-            if ( is_del == is_ins )
-            {
-                fprintf(stderr, "Unable to determine reference allele for indel %s\n", bpm->locus_entries[j].ilmn_id);
-                kputc(bpm->locus_entries[j].snp[1], &allele_a);
-                kputc(bpm->locus_entries[j].snp[3], &allele_b);
-            }
-            else
-            {
-                kputc(ref_base[0], &allele_a);
-                kputc(ref_base[0], &allele_b);
-                if ( bpm->locus_entries[j].snp[1] == 'I' )
-                {
-                    ksprintf(&allele_a, "%s", indel_seq.s);
-                    allele_b_idx = is_del;
-                }
-                else
-                {
-                    ksprintf(&allele_b, "%s", indel_seq.s);
-                    allele_b_idx = !is_del;
-                }
-            }
+            int allele_b_is_del = locus_entry->snp[3] == 'D';
+            int ref_is_del = get_indel_alleles( flank.s, fai, bcf_seqname(hdr, rec), rec->pos, allele_b_is_del, ref_base, &allele_a, &allele_b );
+            if ( ref_is_del < 0 ) fprintf(stderr, "Unable to determine alleles for indel %s\n", locus_entry->ilmn_id);
+            if ( ref_is_del == 0 ) rec->pos--;
+            allele_b_idx = ref_is_del < 0 ? 1 : ref_is_del ^ allele_b_is_del;
         }
         else
         {
-            if ( strcmp(bpm->locus_entries[j].ref_strand, "+") == 0 )
-            {
-                kputc(bpm->locus_entries[j].snp[1], &allele_a);
-                kputc(bpm->locus_entries[j].snp[3], &allele_b);
-            }
-            else if ( strcmp(bpm->locus_entries[j].ref_strand, "-") == 0 )
-            {
-                kputc(revnt(bpm->locus_entries[j].snp[1]), &allele_a);
-                kputc(revnt(bpm->locus_entries[j].snp[3]), &allele_b);
-            }
-            else
-            {
-                error("Unable to process reference strand %s\n", bpm->locus_entries[j].ref_strand);
-            }
+            kputc(strand ? revnt(locus_entry->snp[1]) : locus_entry->snp[1], &allele_a);
+            kputc(strand ? revnt(locus_entry->snp[3]) : locus_entry->snp[3], &allele_b);
             ref_base[0] = get_ref_base( fai, hdr, rec );
             allele_b_idx = get_allele_b_idx( ref_base[0], allele_a.s, allele_b.s );
         }
-        allele_a_idx = get_allele_a_idx( allele_b_idx );
+        int32_t allele_a_idx = get_allele_a_idx( allele_b_idx );
         const char *alleles[3];
         int nals = alleles_ab_to_vcf(alleles, ref_base, allele_a.s, allele_b.s, allele_b_idx);
-        if ( nals < 0 ) error("Unable to process marker %s\n", bpm->locus_entries[j].ilmn_id);
+        if ( nals < 0 ) error("Unable to process marker %s\n", locus_entry->ilmn_id);
         bcf_update_alleles(hdr, rec, alleles, nals);
         bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
         bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
@@ -2607,19 +2133,19 @@ static void gtcs_to_vcf(faidx_t *fai,
 
         if ( flags & BPM_LOADED )
         {
-            bcf_update_info_float(hdr, rec, "FRAC_A", &bpm->locus_entries[j].frac_a, 1);
-            bcf_update_info_float(hdr, rec, "FRAC_C", &bpm->locus_entries[j].frac_c, 1);
-            bcf_update_info_float(hdr, rec, "FRAC_G", &bpm->locus_entries[j].frac_g, 1);
-            bcf_update_info_float(hdr, rec, "FRAC_T", &bpm->locus_entries[j].frac_t, 1);
-            bcf_update_info_int32(hdr, rec, "NORM_ID", &bpm->locus_entries[j].norm_id, 1);
+            bcf_update_info_float(hdr, rec, "FRAC_A", &locus_entry->frac_a, 1);
+            bcf_update_info_float(hdr, rec, "FRAC_C", &locus_entry->frac_c, 1);
+            bcf_update_info_float(hdr, rec, "FRAC_G", &locus_entry->frac_g, 1);
+            bcf_update_info_float(hdr, rec, "FRAC_T", &locus_entry->frac_t, 1);
+            bcf_update_info_int32(hdr, rec, "NORM_ID", &locus_entry->norm_id, 1);
         }
         if ( flags & CSV_LOADED )
         {
-            bcf_update_info_int32(hdr, rec, "BEADSET_ID", &bpm->locus_entries[j].beadset_id, 1);
+            bcf_update_info_int32(hdr, rec, "BEADSET_ID", &locus_entry->beadset_id, 1);
         }
         if ( ( flags & BPM_LOADED ) | ( flags & CSV_LOADED ) )
         {
-            int32_t assay_type = (int32_t)bpm->locus_entries[j].assay_type;
+            int32_t assay_type = (int32_t)locus_entry->assay_type;
             bcf_update_info_int32(hdr, rec, "ASSAY_TYPE", &assay_type, 1);
         }
         if ( flags & EGT_LOADED )
@@ -2666,7 +2192,6 @@ static void gtcs_to_vcf(faidx_t *fai,
     }
     fprintf(stderr, "Rows total: \t%d\n", bpm->num_loci);
     fprintf(stderr, "Rows skipped: \t%d\n", n_skipped);
-    bcf_hdr_name2id_flexible(hdr, NULL);
 
     free(gts);
     free(gt_arr);
@@ -2683,7 +2208,7 @@ static void gtcs_to_vcf(faidx_t *fai,
 
     free(allele_a.s);
     free(allele_b.s);
-    free(indel_seq.s);
+    free(flank.s);
 
     bcf_destroy(rec);
     bcf_hdr_destroy(hdr);
@@ -3031,7 +2556,6 @@ static void gs_to_vcf(faidx_t *fai,
     }
     fprintf(stderr, "Rows total: \t%d\n", n_total);
     fprintf(stderr, "Rows skipped: \t%d\n", n_skipped);
-    bcf_hdr_name2id_flexible(hdr, NULL);
     free(line.s);
 
     free(col2sample);
@@ -3097,9 +2621,9 @@ static const char *usage_text(void)
         "\n"
         "Manifest options:\n"
         "        --beadset-order             output BeadSetID normalization order (requires --bpm and --csv)\n"
-        "        --fasta-source-seq          output source sequence in FASTA format (requires --csv)\n"
-        "    -s, --sam-source-seq            input source sequence alignment in SAM/BAM format (requires --csv)\n"
-        "        --genome-build              genome build to use to update the manifest file [GRCh38]\n"
+        "        --fasta-flank               output flank sequence in FASTA format (requires --csv)\n"
+        "    -s, --sam-flank <file>          input flank sequence alignment in SAM/BAM format (requires --csv)\n"
+        "        --genome-build <assembly>   genome build to use to update the manifest file [GRCh38]\n"
         "\n"
         "Examples:\n"
         "    bcftools +gtc2vcf -i 5434246082_R03C01_Grn.idat\n"
@@ -3116,19 +2640,6 @@ static const char *usage_text(void)
         "    bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GSA-24v3-0_A1.fasta -o GSA-24v3-0_A1.sam\n"
         "    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --sam-source-seq GSA-24v3-0_A1.sam -o GSA-24v3-0_A1.GRCh38.csv\n"
         "\n";
-}
-
-static FILE *get_file_handle(const char *str)
-{
-    FILE *ret;
-    if ( strcmp(str, "-") == 0 )
-        ret = stdout;
-    else
-    {
-        ret = fopen(str, "w");
-        if ( !ret ) error("Failed to open %s: %s\n", str, strerror(errno));
-    }
-    return ret;
 }
 
 static int parse_tags(const char *str)
@@ -3190,7 +2701,7 @@ int run(int argc, char *argv[])
     int record_cmd_line = 1;
     int binary_to_csv = 0;
     int beadset_order = 0;
-    int fasta_source_seq = 0;
+    int fasta_flank = 0;
     faidx_t *fai = NULL;
     htsFile *out_fh = NULL;
     FILE *out_txt = NULL;
@@ -3204,8 +2715,6 @@ int run(int argc, char *argv[])
         {"bpm", required_argument, NULL, 'b'},
         {"csv", required_argument, NULL, 'c'},
         {"egt", required_argument, NULL, 'e'},
-        {"output", required_argument, NULL, 'o'},
-        {"output-type", required_argument, NULL, 'O'},
         {"fasta-ref", required_argument, NULL, 'f'},
         {"set-cache-size", required_argument, NULL, 1},
         {"gtc-list", required_argument, NULL, 'g'},
@@ -3214,15 +2723,17 @@ int run(int argc, char *argv[])
         {"do-not-check-bpm", no_argument, NULL, 3},
         {"genome-studio", required_argument, NULL, 4},
         {"no-version", no_argument, NULL, 8},
+        {"output", required_argument, NULL, 'o'},
+        {"output-type", required_argument, NULL, 'O'},
         {"threads", required_argument, NULL, 9},
         {"beadset-order", no_argument, NULL, 5},
-        {"fasta-source-seq", no_argument, NULL, 6},
-        {"sam-source-seq", required_argument, NULL, 's'},
+        {"fasta-flank", no_argument, NULL, 6},
+        {"sam-flank", required_argument, NULL, 's'},
         {"genome-build", required_argument, NULL, 7},
         {NULL, 0, NULL, 0}
     };
     int c;
-    while ((c = getopt_long(argc, argv, "h?lt:o:O:i:b:c:e:f:g:x:s:", loptions, NULL)) >= 0)
+    while ((c = getopt_long(argc, argv, "h?lt:i:b:c:e:f:g:x:o:O:s:", loptions, NULL)) >= 0)
     {
         switch (c)
         {
@@ -3232,6 +2743,14 @@ int run(int argc, char *argv[])
             case 'b': bpm_fname = optarg; break;
             case 'c': csv_fname = optarg; break;
             case 'e': egt_fname = optarg; break;
+            case 'f': ref_fname = optarg; break;
+            case  1 : cache_size = strtol(optarg, NULL, 0); break;
+            case 'g': gtc_list = optarg; break;
+            case  2 : flags |= ADJUST_CLUSTERS; break;
+            case 'x': sex_fname = optarg; break;
+            case  3 : bpm_check = 0; break;
+            case  4 : gs_fname = optarg; break;
+            case  8 : record_cmd_line = 0; break;
             case 'o': output_fname = optarg; break;
             case 'O':
                       switch (optarg[0]) {
@@ -3243,17 +2762,9 @@ int run(int argc, char *argv[])
                           default: error("The output type \"%s\" not recognised\n", optarg);
                       }
                       break;
-            case 'f': ref_fname = optarg; break;
-            case  1 : cache_size = strtol(optarg, NULL, 0); break;
-            case 'g': gtc_list = optarg; break;
-            case  2 : flags |= ADJUST_CLUSTERS; break;
-            case 'x': sex_fname = optarg; break;
-            case  3 : bpm_check = 0; break;
-            case  4 : gs_fname = optarg; break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
-            case  8 : record_cmd_line = 0; break;
             case  5 : beadset_order = 1; break;
-            case  6 : fasta_source_seq = 1; break;
+            case  6 : fasta_flank = 1; break;
             case 's': sam_fname = optarg; break;
             case  7 : genome_build = optarg; break;
             case 'h':
@@ -3262,21 +2773,21 @@ int run(int argc, char *argv[])
         }
     }
     if ( (idat_fname!=NULL) + ( (bpm_fname!=NULL) || (csv_fname!=NULL) ) + (egt_fname!=NULL) + (ref_fname!=NULL) + (gs_fname!=NULL) + argc-optind == 1 ) binary_to_csv = 1;
+    if ( sam_fname && ( csv_fname==NULL ) )
+        error("The --sam-flank option requires the --csv option\n%s", usage_text());
     if ( binary_to_csv )
     {
         if ( beadset_order && ( bpm_fname==NULL || csv_fname==NULL ) )
             error("The --beadset-order option requires both the --bpm and the --csv options\n%s", usage_text());
-        if ( fasta_source_seq && ( csv_fname==NULL ) )
-            error("The --fasta-source-seq option requires the --csv option\n%s", usage_text());
-        if ( sam_fname && ( csv_fname==NULL ) )
-            error("The --sam-source-seq option requires the --csv option\n%s", usage_text());
-        if ( beadset_order + fasta_source_seq + ( sam_fname!=NULL ) > 1 )
-            error("Only one of --beadset-order or --fasta-source-seq or --sam-source-seq options can be used at once\n%s", usage_text());
+        if ( fasta_flank && ( csv_fname==NULL ) )
+            error("The --fasta-flank option requires the --csv option\n%s", usage_text());
+        if ( beadset_order + fasta_flank + ( sam_fname!=NULL ) > 1 )
+            error("Only one of --beadset-order or --fasta-flank or --sam-flank options can be used at once\n%s", usage_text());
     }
     else
     {
         if ( beadset_order ) error("The --beadset-order option can only be used with options --bpm and --csv\n%s", usage_text());
-        if ( fasta_source_seq ) error("The --fasta-source-seq option can only be used with options --bpm and --csv\n%s", usage_text());
+        if ( fasta_flank ) error("The --fasta-flank option can only be used with options --bpm and --csv\n%s", usage_text());
         if ( idat_fname ) error("IDAT file only allowed when converting to CSV\n%s", usage_text());
         if ( !bpm_fname && !csv_fname && !gs_fname ) error("Manifest file required when converting to VCF\n%s", usage_text());
         if ( !egt_fname && ( flags & ADJUST_CLUSTERS ) ) error("Cluster file required when adjusting cluster centers\n%s", usage_text());
@@ -3351,25 +2862,13 @@ int run(int argc, char *argv[])
         bpm = bpm_csv_init(csv_fname, bpm);
         bpm_summary(bpm, stderr);
         flags |= CSV_LOADED;
-        if ( binary_to_csv && !sam_fname && !beadset_order && !fasta_source_seq ) bpm_to_csv(bpm, out_txt, flags);
+        if ( binary_to_csv && !sam_fname && !beadset_order && !fasta_flank ) bpm_to_csv(bpm, out_txt, flags);
     }
 
     // output source sequences in FASTA format to be realigned by bwa mem
-    if ( fasta_source_seq )
+    if ( fasta_flank )
     {
-        for (int i=0; i<bpm->num_loci; i++)
-        {
-            int is_indel = source_seq_is_indel(bpm->locus_entries[i].source_seq);
-            const char *middle = strchr(bpm->locus_entries[i].source_seq, '/');
-            source_seq_t source_seq = source_seq_init(bpm->locus_entries[i].source_seq);
-            fprintf(out_txt, "@%s:1\n", bpm->locus_entries[i].ilmn_id);
-            if ( is_indel ) fprintf(out_txt, "%.*s%s\n", source_seq_left_len(&source_seq), source_seq.str.s, source_seq.right);
-            else fprintf(out_txt, "%.*s%c%s\n", source_seq_left_len(&source_seq), source_seq.str.s, *(middle-1), source_seq.right);
-            fprintf(out_txt, "@%s:2\n", bpm->locus_entries[i].ilmn_id);
-            if ( is_indel ) fprintf(out_txt, "%s\n", source_seq.str.s);
-            else fprintf(out_txt, "%.*s%c%s\n", source_seq_left_len(&source_seq), source_seq.str.s, *(middle+1), source_seq.right);
-            source_seq_destroy(&source_seq);
-        }
+        for (int i=0; i<bpm->num_loci; i++) flank2fasta( bpm->locus_entries[i].ilmn_id, bpm->locus_entries[i].source_seq, out_txt );
     }
 
     // input source sequence alignments in SAM format to generate new coordinates for the CSV manifest file
@@ -3454,7 +2953,7 @@ int run(int argc, char *argv[])
         else
         {
             // if it couldn't generate the normalization lookup table from the BPM / CSV manifests
-            bcf_hdr_t *hdr = get_hdr(fai, flags);
+            bcf_hdr_t *hdr = hdr_init(fai, flags);
             if ( bpm_fname ) bcf_hdr_printf(hdr, "##BPM=%s", strrchr(bpm_fname, '/') ? strrchr(bpm_fname, '/') + 1 : bpm_fname);
             if ( csv_fname ) bcf_hdr_printf(hdr, "##CSV=%s", strrchr(csv_fname, '/') ? strrchr(csv_fname, '/') + 1 : csv_fname);
             if ( egt_fname ) bcf_hdr_printf(hdr, "##EGT=%s", strrchr(egt_fname, '/') ? strrchr(egt_fname, '/') + 1 : egt_fname);
@@ -3490,6 +2989,7 @@ int run(int argc, char *argv[])
     }
     for (int i=0; i<nfiles; i++) gtc_destroy(gtc[i]);
     free(gtc);
+    if (out_txt && out_txt != stdout && out_txt != stderr) fclose(out_txt);
     if (out_sex && out_sex != stdout && out_sex != stderr) fclose(out_sex);
     return 0;
 }
