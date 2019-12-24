@@ -34,9 +34,9 @@ Plugin options:
 
 Manifest options:
         --beadset-order             output BeadSetID normalization order (requires --bpm and --csv)
-        --fasta-source-seq          output source sequence in FASTA format (requires --csv)
-    -s, --sam-source-seq            input source sequence alignment in SAM/BAM format (requires --csv)
-        --genome-build              genome build to use to update the manifest file [GRCh38]
+        --fasta-flank               output flank sequence in FASTA format (requires --csv)
+    -s, --sam-flank <file>          input flank sequence alignment in SAM/BAM format (requires --csv)
+        --genome-build <assembly>   genome build to use to update the manifest file [GRCh38]
 
 Examples:
     bcftools +gtc2vcf -i 5434246082_R03C01_Grn.idat
@@ -46,29 +46,23 @@ Examples:
     bcftools +gtc2vcf -c GSA-24v3-0_A1.csv -e GSA-24v3-0_A1_ClusterFile.egt -f human_g1k_v37.fasta -o GSA-24v3-0_A1.vcf
     bcftools +gtc2vcf -c HumanOmni2.5-4v1_H.csv -f human_g1k_v37.fasta 5434246082_R03C01.gtc -o 5434246082_R03C01.vcf
     bcftools +gtc2vcf -f human_g1k_v37.fasta --genome-studio GenotypeReport.txt -o GenotypeReport.vcf
-
-Examples of manifest file options:
-    bcftools +gtc2vcf -b GSA-24v3-0_A1.bpm -c GSA-24v3-0_A1.csv --beadset-order
-    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --fasta-source-seq -o GSA-24v3-0_A1.fasta
-    bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GSA-24v3-0_A1.fasta -o GSA-24v3-0_A1.sam
-    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --sam-source-seq GSA-24v3-0_A1.sam -o GSA-24v3-0_A1.GRCh38.csv
 ```
 
 Affymetrix tool:
 ```
-Usage: bcftools +affy2vcf [options] --fasta-ref <file> --annot <file> --snp-posteriors <file>
-                                    --summary <file> --calls <file> --confidences <file>
+Usage: bcftools +affy2vcf [options] --annot <file> --fasta-ref <file> --calls <file>
+                                    --confidences <file> --summary <file> --snp-posteriors <file>
 
 Plugin options:
+    -a, --annot <file>            probe set annotation file
     -f, --fasta-ref <file>        reference sequence in fasta format
         --set-cache-size <int>    select fasta cache size in bytes
-        --annot <file>            probeset annotation file
-        --snp-posteriors <file>   apt-probeset-genotype snp-posteriors output
-        --summary <file>          apt-probeset-genotype summary output
-        --report <file>           apt-probeset-genotype report output
         --calls <file>            apt-probeset-genotype calls output
         --confidences <file>      apt-probeset-genotype confidences output
-        --adjust-clusters         adjust cluster centers in (Contrast, Size) space
+        --summary <file>          apt-probeset-genotype summary output
+        --snp-posteriors <file>   apt-probeset-genotype snp-posteriors output
+        --report <file>           apt-probeset-genotype report output
+        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --summary and --snp-posteriors)
     -x, --sex <file>              output apt-probeset-genotype gender estimate into file (requires --report)
         --no-version              do not append version and command line to the header
     -o, --output <file>           write output to a file [standard output]
@@ -77,22 +71,22 @@ Plugin options:
 
 Manifest options:
         --fasta-flank             output flank sequence in FASTA format (requires --annot)
-    -s, --sam-flank               input source sequence alignment in SAM/BAM format (requires --annot)
+    -s, --sam-flank <file>        input source sequence alignment in SAM/BAM format (requires --annot)
 
 Example:
     bcftools +affy2vcf \
-        --fasta-ref human_g1k_v37.fasta \
         --annot GenomeWideSNP_6.na35.annot.csv \
-        --snp-posteriors AxiomGT1.snp-posteriors.txt \
-        --summary AxiomGT1.summary.txt \
+        --fasta-ref human_g1k_v37.fasta \
         --calls AxiomGT1.calls.txt \
         --confidences AxiomGT1.confidences.txt \
+        --summary AxiomGT1.summary.txt \
+        --snp-posteriors AxiomGT1.snp-posteriors.txt \
         --output AxiomGT1.vcf
 
 Examples of manifest file options:
-    bcftools +affy2vcf --annot GenomeWideSNP_6.na35.annot.csv --fasta-flank -o GenomeWideSNP_6.fasta
+    bcftools +affy2vcf -a GenomeWideSNP_6.na35.annot.csv --fasta-flank -o GenomeWideSNP_6.fasta
     bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GenomeWideSNP_6.fasta -o GenomeWideSNP_6.sam
-    bcftools +affy2vcf --annot GSA-24v3-0_A1.csv --sam-flank GenomeWideSNP_6.sam ...
+    bcftools +affy2vcf -a GenomeWideSNP_6.na35.annot.csv -s GenomeWideSNP_6.sam -o GenomeWideSNP_6.na35.annot.GRCh38.csv
 ```
 
 Installation
@@ -121,8 +115,8 @@ git clone --branch=develop git://github.com/samtools/bcftools.git
 
 Download plugins code
 ```
-/bin/rm -f bcftools/plugins/{gtc,affy}2vcf.c
-wget -P bcftools/plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{gtc,affy}2vcf.c
+/bin/rm -f bcftools/plugins/{gtc2vcf.{c,h},affy2vcf.c}
+wget -P bcftools/plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{gtc2vcf.{c,h},affy2vcf.c}
 ```
 
 Compile latest version of HTSlib (optionally disable bz2, gcs, and lzma) and BCFtools (make sure you are using gcc version 5 or newer)
@@ -258,11 +252,11 @@ Convert Illumina GTC files to VCF
 
 Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's <a href="https://github.com/Illumina/BeadArrayFiles">BeadArrayFiles</a> library and <a href="https://github.com/Illumina/GTCtoVCF">GTCtoVCF</a> script. Specifications for IDAT files were obtained through Henrik Bengtsson's <a href="https://github.com/HenrikBengtsson/illuminaio">illuminaio</a> package
 ```
-ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 bpm_manifest_file="..."
 csv_manifest_file="..."
 egt_cluster_file="..."
 gtc_list_file="..."
+ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 out_prefix="..."
 bcftools +gtc2vcf \
   --no-version -Ou \
@@ -281,16 +275,16 @@ Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The fina
 Using a reference not provided by Illumina
 ==========================================
 
-Illumina provides <a href="https://support.illumina.com/bulletins/2017/04/infinium-human-genotyping-manifests-and-support-files--with-anno.html">GRCh38/hg38</a> manifests for many of its genotyping arrays. However, if your genotyping array is not supported for the newer reference by Illumina, you can use the `--fasta-source-seq` and `--sam-source-seq` options to realign the source sequences from the manifest files you have and recompute the marker positions. This approach uses <a href="https://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html">source sequence</a> and <a href="https://support.illumina.com/bulletins/2017/06/how-to-interpret-dna-strand-and-allele-information-for-infinium-.html">strand</a> information to identify the marker <a href="https://support.illumina.com/bulletins/2016/06/-infinium-genotyping-array-manifest-files-what-does-chr-or-mapinfo---mean.html">coordinates</a>. It will need a sequence aligner such as `bwa` to realign the sequences and it seems to reproduce the coordinates provided from Illumina more than 99.9% of the times. Occasionally the source sequence provided by Illumina is incorrect and it is impossible to recover the correct marker coordinate from the source sequence alone
+Illumina provides <a href="https://support.illumina.com/bulletins/2017/04/infinium-human-genotyping-manifests-and-support-files--with-anno.html">GRCh38/hg38</a> manifests for many of its genotyping arrays. However, if your genotyping array is not supported for the newer reference by Illumina, you can use the `--fasta-flank` and `--sam-flank` options to realign the source sequences from the manifest files you have and recompute the marker positions. This approach uses <a href="https://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html">source sequence</a> and <a href="https://support.illumina.com/bulletins/2017/06/how-to-interpret-dna-strand-and-allele-information-for-infinium-.html">strand</a> information to identify the marker <a href="https://support.illumina.com/bulletins/2016/06/-infinium-genotyping-array-manifest-files-what-does-chr-or-mapinfo---mean.html">coordinates</a>. It will need a sequence aligner such as `bwa` to realign the sequences and it seems to reproduce the coordinates provided from Illumina more than 99.9% of the times. Occasionally the source sequence provided by Illumina is incorrect and it is impossible to recover the correct marker coordinate from the source sequence alone
 
-You first have to generate an alignment file for the source sequences in a CSV manifest file
+You first have to generate an alignment file for the source sequences from a CSV manifest file
 ```
-ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 csv_manifest_file="..."
+ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 bam_alignment_file="..."
 bcftools +gtc2vcf \
   -c $csv_manifest_file \
-  --fasta-source-seq | \
+  --fasta-flank | \
   bwa mem -M $ref - | \
   samtools view -bS \
   -o $bam_alignment_file
@@ -302,7 +296,7 @@ bam_alignment_file="..."
 csv_realigned_file="..."
 bcftools +gtc2vcf \
   -c $csv_manifest_file \
-  --sam-source-seq $bam_alignment_file \
+  -s $bam_alignment_file \
   -o $csv_realigned_file
 ```
 
@@ -341,20 +335,20 @@ Convert Affymetrix genotype calls and intensities to VCF
 
 The affy2vcf bcftools plugin can be used to convert Affymetrix genotype calls and intensity files to VCF
 ```
-ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
 annot_file="..." # for example annot_file="GenomeWideSNP_6.na35.annot.csv"
+ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
 path_to_output_folder="..."
 out_prefix="..."
 bcftools +affy2vcf \
   --no-version -Ou \
-  --fasta-ref $ref \
   --annot $annot_file \
-  --sex $out_prefix.sex \
-  --snp-posteriors $path_to_output_folder/AxiomGT1.snp-posteriors.txt \
-  --summary $path_to_output_folder/AxiomGT1.summary.txt \
-  --report $path_to_output_folder/AxiomGT1.report.txt \
+  --fasta-ref $ref \
   --calls $path_to_output_folder/AxiomGT1.calls.txt \
-  --confidences $path_to_output_folder/AxiomGT1.confidences.txt | \
+  --confidences $path_to_output_folder/AxiomGT1.confidences.txt \
+  --summary $path_to_output_folder/AxiomGT1.summary.txt \
+  --snp-posteriors $path_to_output_folder/AxiomGT1.snp-posteriors.txt \
+  --report $path_to_output_folder/AxiomGT1.report.txt \
+  --sex $out_prefix.sex | \
   bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
   bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
   bcftools index -f $out_prefix.bcf
