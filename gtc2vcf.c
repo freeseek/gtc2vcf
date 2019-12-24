@@ -37,7 +37,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-23"
+#define GTC2VCF_VERSION "2019-12-24"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -871,16 +871,16 @@ static uint8_t get_assay_type(const char *allele_a_probe_seq,
 {
     if ( !allele_a_probe_seq || !source_seq ) return 0xFF;
     if ( !allele_b_probe_seq ) return 0;
-    char *ptr_5 = strchr(source_seq, '[');
-    char *ptr_3 = strchr(source_seq, ']');
-    if ( !ptr_5 || !ptr_3 ) error("Source sequence is malformed: %s\n", source_seq);
-    char trail_5 = *(ptr_5 - 1);
-    char trail_3 = *(ptr_3 + 1);
-    if ( ( toupper(trail_5) == 'A' || toupper(trail_5) == 'T' ) && ( toupper(trail_3) == 'A' || toupper(trail_3) == 'T' ) ) return 1;
-    if ( ( toupper(trail_5) == 'C' || toupper(trail_5) == 'G' ) && ( toupper(trail_3) == 'C' || toupper(trail_3) == 'G' ) ) return 2;
-    char trail_a = allele_a_probe_seq[strlen(allele_a_probe_seq) - 2];
-    if ( ( toupper(trail_a) == 'C' || toupper(trail_a) == 'G') ) return 1;
-    if ( ( toupper(trail_a) == 'A' || toupper(trail_a) == 'T') ) return 2;
+    const char *left = strchr(source_seq, '[');
+    const char *right = strchr(source_seq, ']');
+    if ( !left || !right ) error("Source sequence is malformed: %s\n", source_seq);
+    char trail_left = toupper(*(left - 1));
+    char trail_right = toupper(*(right + 1));
+    if ( (trail_left == 'A' || trail_left == 'T' ) && ( trail_right == 'A' || trail_right == 'T' ) ) return 1;
+    if ( (trail_left == 'C' || trail_left == 'G' ) && ( trail_right == 'C' || trail_right == 'G' ) ) return 2;
+    char trail_a_probe_seq = toupper(allele_a_probe_seq[strlen(allele_a_probe_seq) - 2]);
+    if ( trail_a_probe_seq == 'C' || trail_a_probe_seq == 'G' ) return 1;
+    if ( trail_a_probe_seq == 'A' || trail_a_probe_seq == 'T' ) return 2;
     error("Unable to retrieve assay type: %s %s\n", allele_a_probe_seq, source_seq);
 }
 
@@ -1019,7 +1019,7 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm)
 
     str.l = 0;
     if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Error reading from file: %s\n", bpm->fn);
-    if ( strcmp(str.s, "[Controls]") != 0 ) error("Missing [Controls] section from manifest file: %s\n", bpm->fn);
+    if ( strncmp(str.s, "[Controls]", 10) != 0 ) error("Missing [Controls] section from manifest file: %s\n", bpm->fn);
     str.l = 0;
     while ( kgetline(&str, (kgets_func *)hgets, bpm->fp) >= 0 ) kputc('\n', &str);
     free(bpm->control_config);
@@ -1673,7 +1673,7 @@ static bpm_t *sam_csv_init(const char *fn,
         bpm->locus_entries[i].chrom = strdup(chromosome);
         free(bpm->locus_entries[i].map_info);
         str.l = 0;
-        ksprintf(&str, "%d", position);
+        kputw(position, &str);
         bpm->locus_entries[i].map_info = strdup(str.s);
         free(bpm->locus_entries[i].ref_strand);
         bpm->locus_entries[i].ref_strand = ( ( strcmp(bpm->locus_entries[i].ilmn_strand, bpm->locus_entries[i].source_strand) != 0 ) != strand ) ? strdup("-") : strdup("+");
@@ -2086,7 +2086,7 @@ static void gtcs_to_vcf(faidx_t *fai,
         else if ( locus_entry->source_seq && strchr( locus_entry->source_seq, '-' ) )
         {
             flank.l = 0;
-            ksprintf(&flank, "%s", locus_entry->source_seq);
+            kputs(locus_entry->source_seq, &flank);
             strupper(flank.s);
             if ( ( strcmp(locus_entry->ilmn_strand, locus_entry->source_strand) != 0 ) != strand ) flank_reverse_complement( flank.s );
             flank_left_shift( flank.s );
@@ -2347,48 +2347,48 @@ static void gs_to_vcf(faidx_t *fai,
     for (int i=0; i<ncols; i++)
     {
         char *ptr;
-        if ( i>0 ) ksprintf(&str, ",");
+        if ( i>0 ) kputc(',', &str);
         if ( ( ptr = strrchr(&line.s[off[i]], '.') ) )
         {
             *ptr++ = '\0';
             if( ( bcf_hdr_id2int(hdr, BCF_DT_SAMPLE, &line.s[off[i]]) < 0 ) )
                 bcf_hdr_add_sample(hdr, &line.s[off[i]]);
-            if ( strcmp(ptr, "GType")==0 ) ksprintf(&str, "GT");
-            else if ( strcmp(ptr, "Score")==0 ) ksprintf(&str, "IGC");
-            else if ( strcmp(ptr, "Theta")==0 ) ksprintf(&str, "THETA");
-            else if ( strcmp(ptr, "R")==0 ) ksprintf(&str, "R");
-            else if ( strcmp(ptr, "X Raw")==0 ) ksprintf(&str, "X");
-            else if ( strcmp(ptr, "Y Raw")==0 ) ksprintf(&str, "Y");
-            else if ( strcmp(ptr, "X")==0 ) ksprintf(&str, "NORMX");
-            else if ( strcmp(ptr, "Y")==0 ) ksprintf(&str, "NORMY");
-            else if ( strcmp(ptr, "B Allele Freq")==0 ) ksprintf(&str, "BAF");
-            else if ( strcmp(ptr, "Log R Ratio")==0 ) ksprintf(&str, "LRR");
-            else if ( strcmp(ptr, "Top Alleles")==0 ) ksprintf(&str, "TOP_STRAND");
-            else if ( strcmp(ptr, "Plus/Minus Alleles")==0 ) ksprintf(&str, "REF_STRAND");
-            else if ( strcmp(ptr, "Import Calls")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "Concordance")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "Orig Call")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "CNV Value")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "CNV Confidence")==0 ) ksprintf(&str, "-");
+            if ( strcmp(ptr, "GType")==0 ) kputs("GT", &str);
+            else if ( strcmp(ptr, "Score")==0 ) kputs("IGC", &str);
+            else if ( strcmp(ptr, "Theta")==0 ) kputs("THETA", &str);
+            else if ( strcmp(ptr, "R")==0 ) kputc('R', &str);
+            else if ( strcmp(ptr, "X Raw")==0 ) kputc('X', &str);
+            else if ( strcmp(ptr, "Y Raw")==0 ) kputc('Y', &str);
+            else if ( strcmp(ptr, "X")==0 ) kputs("NORMX", &str);
+            else if ( strcmp(ptr, "Y")==0 ) kputs("NORMY", &str);
+            else if ( strcmp(ptr, "B Allele Freq")==0 ) kputs("BAF", &str);
+            else if ( strcmp(ptr, "Log R Ratio")==0 ) kputs("LRR", &str);
+            else if ( strcmp(ptr, "Top Alleles")==0 ) kputs("TOP_STRAND", &str);
+            else if ( strcmp(ptr, "Plus/Minus Alleles")==0 ) kputs("REF_STRAND", &str);
+            else if ( strcmp(ptr, "Import Calls")==0 ) kputc('-', &str);
+            else if ( strcmp(ptr, "Concordance")==0 ) kputc('-', &str);
+            else if ( strcmp(ptr, "Orig Call")==0 ) kputc('-', &str);
+            else if ( strcmp(ptr, "CNV Value")==0 ) kputc('-', &str);
+            else if ( strcmp(ptr, "CNV Confidence")==0 ) kputc('-', &str);
             else error("Could not recognize FORMAT field: %s\n", ptr);
             col2sample[ i ] = bcf_hdr_id2int(hdr, BCF_DT_SAMPLE, &line.s[off[i]]);
         }
         else
         {
             ptr = &line.s[off[i]];
-            if ( strcmp(ptr, "Index")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "Name")==0 ) ksprintf(&str, "ID");
-            else if ( strcmp(ptr, "Address")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "Chr")==0 || strcmp(ptr, "Chromosome")==0 ) ksprintf(&str, "CHROM");
-            else if ( strcmp(ptr, "Manifest")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "Position")==0 ) ksprintf(&str, "POS");
-            else if ( strcmp(ptr, "GenTrain Score")==0 ) ksprintf(&str, "GC_SCORE");
-            else if ( strcmp(ptr, "Frac A")==0 ) ksprintf(&str, "FRAC_A");
-            else if ( strcmp(ptr, "Frac C")==0 ) ksprintf(&str, "FRAC_C");
-            else if ( strcmp(ptr, "Frac G")==0 ) ksprintf(&str, "FRAC_G");
-            else if ( strcmp(ptr, "Frac T")==0 ) ksprintf(&str, "FRAC_T");
-            else if ( strcmp(ptr, "IlmnStrand")==0 ) ksprintf(&str, "-");
-            else if ( strcmp(ptr, "SNP")==0 ) ksprintf(&str, "-");
+            if ( strcmp(ptr, "Index")==0 ) kputc('-', &str);
+            else if ( strcmp(ptr, "Name")==0 ) kputs("ID", &str);
+            else if ( strcmp(ptr, "Address")==0 ) kputc('-', &str);
+            else if ( strcmp(ptr, "Chr")==0 || strcmp(ptr, "Chromosome")==0 ) kputs("CHROM", &str);
+            else if ( strcmp(ptr, "Manifest")==0 ) kputc('-', &str);
+            else if ( strcmp(ptr, "Position")==0 ) kputs("POS", &str);
+            else if ( strcmp(ptr, "GenTrain Score")==0 ) kputs("GC_SCORE", &str);
+            else if ( strcmp(ptr, "Frac A")==0 ) kputs("FRAC_A", &str);
+            else if ( strcmp(ptr, "Frac C")==0 ) kputs("FRAC_C", &str);
+            else if ( strcmp(ptr, "Frac G")==0 ) kputs("FRAC_G", &str);
+            else if ( strcmp(ptr, "Frac T")==0 ) kputs("FRAC_T", &str);
+            else if ( strcmp(ptr, "IlmnStrand")==0 ) kputc('-', &str);
+            else if ( strcmp(ptr, "SNP")==0 ) kputc('-', &str);
             else error("Could not recognize INFO field: %s\n", ptr);
             col2sample[ i ] = -1;
         }
@@ -2898,11 +2898,10 @@ int run(int argc, char *argv[])
         {
             if ( norm_id_to_beadset_id[i] == 0 ) continue;
             if ( i != j ) error("Normalization ID %d not corresponding to any BeadSet ID", j);
-            ksprintf(&str, "%d,", norm_id_to_beadset_id[i]);
+            if (i > 0) kputc(',', &str);
+            kputw(norm_id_to_beadset_id[i], &str);
             j++;
         }
-        str.l--;
-        str.s[str.l] = '\0';
         if ( beadset_order && out_txt ) fprintf(out_txt, "%s,%s\n", bpm->manifest_name, str.s);
         flags |= BPM_LOOKUPS;
     }

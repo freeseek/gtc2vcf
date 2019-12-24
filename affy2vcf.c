@@ -34,7 +34,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2019-12-23"
+#define AFFY2VCF_VERSION "2019-12-24"
 
 #define GT_NC -1
 #define GT_AA 0
@@ -47,6 +47,10 @@
 #define SNP_POSTERIORS_LOADED  (1<<3)
 #define ADJUST_CLUSTERS        (1<<4)
 
+/****************************************
+ * htsFILE READING FUNCTIONS            *
+ ****************************************/
+
 static htsFile *unheader(const char *fn, kstring_t *str)
 {
     htsFile *fp = hts_open(fn, "r");
@@ -58,13 +62,6 @@ static htsFile *unheader(const char *fn, kstring_t *str)
     while (str->s[0]=='#') hts_getline(fp, KS_SEP_LINE, str);
 
     return fp;
-}
-
-static char *unquote(char *str)
-{
-    char *ptr = strrchr(str, '"');
-    if ( ptr ) *ptr = '\0';
-    return str + 1;
 }
 
 /****************************************
@@ -90,6 +87,13 @@ typedef struct
     int n_records, m_records;
 }
 annot_t;
+
+static inline char *unquote(char *str)
+{
+    char *ptr = strrchr(str, '"');
+    if ( ptr ) *ptr = '\0';
+    return str + 1;
+}
 
 static annot_t *annot_init(const char *fn,
                            const char *sam_fn,
@@ -710,7 +714,7 @@ static void process(faidx_t *fai,
         else bcf_update_id(hdr, rec, record->probe_set_id);
 
         flank.l = 0;
-        ksprintf(&flank, "%s", record->flank);
+        kputs(record->flank, &flank);
         strupper(flank.s);
         if ( record->strand ) flank_reverse_complement( flank.s );
 
@@ -730,8 +734,8 @@ static void process(faidx_t *fai,
             const char *right = strchr(flank.s, ']');
             if ( !left || !middle || !right ) error("Flank sequence is malformed: %s\n", flank.s);
 
-            ksprintf(&allele_a, "%.*s", (int)(middle - left) - 1, left + 1);
-            ksprintf(&allele_b, "%.*s", (int)(right - middle) - 1, middle + 1);
+            kputsn(left + 1, middle - left - 1, &allele_a);
+            kputsn(middle + 1, right - middle - 1, &allele_b);
             ref_base[0] = get_ref_base( fai, hdr, rec );
             allele_b_idx = get_allele_b_idx( ref_base[0], allele_a.s, allele_b.s );
         }

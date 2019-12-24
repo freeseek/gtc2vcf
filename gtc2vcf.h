@@ -108,7 +108,7 @@ static inline char revnt(char iupac)
     return iupac_complement[(int)iupac];
 }
 
-#define MAX_LEN_ALLELE_A 8
+#define MAX_LENGTH_LEFT_ALLELE 8
 static inline void flank_reverse_complement(char *flank)
 {
     // swap alleles, but only if first allele is one base pair long
@@ -117,34 +117,33 @@ static inline void flank_reverse_complement(char *flank)
     char *right = strchr(flank, ']');
     if ( !left || !middle || !right ) error("Flank sequence is malformed: %s\n", flank);
 
-    char tmp[MAX_LEN_ALLELE_A];
-    if ( middle - left - 1 > MAX_LEN_ALLELE_A ) error("Cannot swap alleles in flank sequence %s\n", flank);
+    char tmp[MAX_LENGTH_LEFT_ALLELE];
+    if ( middle - left - 1 > MAX_LENGTH_LEFT_ALLELE ) error("Cannot swap alleles in flank sequence %s\n", flank);
+
+    char *ptr1 = tmp;
+    char *ptr2 = left + 1;
+    while ( ptr2 < middle )
     {
-        char *ptr1 = tmp;
-        char *ptr2 = left + 1;
-        while ( ptr2 < middle )
-        {
-            *ptr1 = *ptr2;
-            ptr1++;
-            ptr2++;
-        }
-        ptr1 = left + 1;
-        ptr2++;
-        while ( ptr2 < right )
-        {
-            *ptr1 = *ptr2;
-            ptr1++;
-            ptr2++;
-        }
-        *ptr1 = '/';
+        *ptr1 = *ptr2;
         ptr1++;
-        ptr2 = tmp;
-        while ( ptr1 < right )
-        {
-            *ptr1 = *ptr2;
-            ptr1++;
-            ptr2++;
-        }
+        ptr2++;
+    }
+    ptr1 = left + 1;
+    ptr2++;
+    while ( ptr2 < right )
+    {
+        *ptr1 = *ptr2;
+        ptr1++;
+        ptr2++;
+    }
+    *ptr1 = '/';
+    ptr1++;
+    ptr2 = tmp;
+    while ( ptr1 < right )
+    {
+        *ptr1 = *ptr2;
+        ptr1++;
+        ptr2++;
     }
 
     size_t len = strlen(flank);
@@ -176,7 +175,6 @@ static inline void flank_left_shift(char *flank)
     }
 }
 
-// notice that this function can change the flank sequence, so the original should not be passed
 static inline int get_position(htsFile *hts,
                                sam_hdr_t *sam_hdr,
                                bam1_t *b,
@@ -333,6 +331,8 @@ static inline int len_common_prefix(const char *s1,
 }
 
 // see BPMRecord.py from https://github.com/Illumina/GTCtoVCF
+// For an insertion relative to the reference, the position of the base immediately 5' to the insertion (on the plus strand) is given.
+// For a deletion relative to the reference, the position of the most 5' deleted based (on the plus strand) is given.
 static inline int get_indel_alleles(const char *flank,
                                     faidx_t *fai,
                                     const char *seqname,
@@ -370,7 +370,7 @@ static inline int get_indel_alleles(const char *flank,
         ref_base[0] = ref[left - flank - 1 + ref_is_del];
         kputc(ref_base[0], allele_a);
         kputc(ref_base[0], allele_b);
-        ksprintf(allele_b_is_del ? allele_a : allele_b, "%.*s", (int)(right - middle) - 1, ref_is_del ? middle + 1 : ref + (left - flank));
+        kputsn(ref_is_del ? middle + 1 : ref + (left - flank), right - middle - 1, allele_b_is_del ? allele_a : allele_b);
     }
     free(ref);
     return ref_is_del;
