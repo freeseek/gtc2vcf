@@ -175,42 +175,42 @@ static inline void flank_left_shift(char *flank)
     }
 }
 
+// returns 1 if the first sequence is the best alignment, and 2 if the second sequence is
+// if neither sequence is better or neither provides an alignment, it returns 0
+// if it fails to read from the hts file, it returns -1
 static inline int get_position(htsFile *hts,
                                sam_hdr_t *sam_hdr,
                                bam1_t *b,
                                const char *name,
                                const char *flank,
                                int left_shift,
-                               int *idx,
-                               const char **chrom,
+                               const char **chromosome,
                                int *position,
                                int *strand)
 {
-    *idx = -1;
-    const char *chrom_pair[2];
+    const char *chromosome_pair[2];
     int position_pair[2], strand_pair[2];
     int64_t aln_score_pair[2];
-    int ret;
-    while ( *idx < 1 && ( ret = sam_read1(hts, sam_hdr, b) ) >= 0 )
+    int idx = 0, ret;
+    while ( idx < 1 && ( ret = sam_read1(hts, sam_hdr, b) ) >= 0 )
     {
         const char *qname = bam_get_qname(b);
         if ( b->core.flag & BAM_FSECONDARY || b->core.flag & BAM_FSUPPLEMENTARY ) continue;
         int qname_l = strlen(qname);
         if ( strncmp( qname, name, qname_l - 2 ) != 0 )
             error("Query ID %.*s found in SAM file but %s expected\n", qname_l - 2, qname, name );
-        *idx = qname[qname_l - 1] == '1' ? 0 : ( qname[qname_l - 1] == '2' ? 1 : -1 );
-        if ( *idx == -1 ) error("Query ID %s found in SAM file does not end with :1 or :2\n", qname);
+        idx = qname[qname_l - 1] == '1' ? 0 : ( qname[qname_l - 1] == '2' ? 1 : -1 );
+        if ( idx < 0 ) error("Query ID %s found in SAM file does not end with :1 or :2\n", qname);
 
-        chrom_pair[*idx] = sam_hdr_tid2name( sam_hdr, b->core.tid );
-        if ( !chrom_pair[*idx] ) chrom_pair[*idx] = "---";
-        position_pair[*idx] = 0;
-        strand_pair[*idx] = -1;
+        chromosome_pair[idx] = sam_hdr_tid2name( sam_hdr, b->core.tid );
+        position_pair[idx] = 0;
+        strand_pair[idx] = -1;
         if ( !(b->core.flag & BAM_FUNMAP) )
         {
-            strand_pair[*idx] = bam_is_rev(b);
+            strand_pair[idx] = bam_is_rev(b);
             int n_cigar = b->core.n_cigar;
             const uint32_t *cigar = bam_get_cigar(b);
-            position_pair[*idx] = b->core.pos;
+            position_pair[idx] = b->core.pos;
 
             const char *left = strchr(flank, '[');
             const char *middle = strchr(flank, '/');
@@ -231,7 +231,7 @@ static inline int get_position(htsFile *hts,
                     while( ptr >= flank && ( strncmp( ptr, middle + 1, len ) == 0 ) ) { qlen -= len; ptr -= len; }
                 }
             }
-            if ( strchr( flank, '-' ) && *idx == 0 ) qlen--;
+            if ( strchr( flank, '-' ) && idx == 0 ) qlen--;
 
             for (int k = 0; k < n_cigar && qlen > 1; k++)
             {
@@ -239,7 +239,7 @@ static inline int get_position(htsFile *hts,
                 int len = bam_cigar_oplen(cigar[k]);
                 if ( ( type & 1 ) && ( type & 2 ) ) // consume reference sequence ( case M )
                 {
-                    position_pair[*idx] += min(len, qlen);
+                    position_pair[idx] += min(len, qlen);
                     qlen -= len;
                 }
                 else if ( type & 1 ) // consume query sequence ( case I )
@@ -247,39 +247,36 @@ static inline int get_position(htsFile *hts,
                     qlen -= len;
                     if ( qlen <= 0 ) // we skipped the base pair that needed to be localized
                     {
-                        position_pair[*idx] = 0;
+                        position_pair[idx] = 0;
                     }
                 }
                 else if ( type & 2 )
                 {
-                    position_pair[*idx] += len; // consume reference sequence ( case D )
+                    position_pair[idx] += len; // consume reference sequence ( case D )
                 }
             }
-            if ( qlen == 1 ) position_pair[*idx]++;
+            if ( qlen == 1 ) position_pair[idx]++;
         }
         uint8_t *as = bam_aux_get( b, "AS" );
-        aln_score_pair[*idx] = bam_aux2i(as);
+        aln_score_pair[idx] = bam_aux2i(as);
     }
     if ( ret < -1 ) return -1;
 
-    if ( aln_score_pair[0] == aln_score_pair[1] && position_pair[0] != position_pair[1] && position_pair[0] != 0 && position_pair[1] != 0 )
+    if ( ( aln_score_pair[0] == aln_score_pair[1] && position_pair[0] != position_pair[1] ) || ( position_pair[0] == 0 && position_pair[1] == 0 ) )
     {
+        idx = -1;
+        *chromosome = NULL;
         *position = 0;
+        *strand = -1;
     }
     else
     {
-        *idx = aln_score_pair[1] > aln_score_pair[0];
-        *chrom = chrom_pair[*idx];
-        *position = position_pair[*idx];
-        *strand = strand_pair[*idx];
+        idx = aln_score_pair[1] > aln_score_pair[0];
+        *chromosome = chromosome_pair[idx];
+        *position = position_pair[idx];
+        *strand = strand_pair[idx];
     }
-
-    if ( *position == 0 )
-    {
-        *idx = -1;
-        fprintf(stderr, "Unable to determine position for marker %s\n", name);
-    }
-    return 0;
+    return idx + 1;
 }
 
 static inline char get_ref_base(faidx_t *fai,

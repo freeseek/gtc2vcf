@@ -34,7 +34,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2019-12-24"
+#define AFFY2VCF_VERSION "2019-12-26"
 
 #define GT_NC -1
 #define GT_AA 0
@@ -90,6 +90,7 @@ annot_t;
 
 static inline char *unquote(char *str)
 {
+    if ( strcmp(str, "\"---\"") == 0 ) return NULL;
     char *ptr = strrchr(str, '"');
     if ( ptr ) *ptr = '\0';
     return str + 1;
@@ -163,7 +164,7 @@ static annot_t *annot_init(const char *fn,
             ncols = ksplit_core(str.s, ',', &moff, &off);
             probe_set_id = unquote(&str.s[off[probe_set_id_idx]]);
             flank = unquote(&str.s[off[flank_idx]]);
-            if ( strcmp(flank, "---") ) flank2fasta( probe_set_id, flank, out_txt );
+            if ( flank ) flank2fasta( probe_set_id, flank, out_txt );
         }
     }
     else
@@ -180,25 +181,41 @@ static annot_t *annot_init(const char *fn,
         }
 
         char *tmp;
+        int n_total = 0, n_unmapped = 0;
         while ( hts_getline(fp, KS_SEP_LINE, &str) > 0 )
         {
             ncols = ksplit_core(str.s, ',', &moff, &off);
             probe_set_id = unquote(&str.s[off[probe_set_id_idx]]);
             flank = unquote(&str.s[off[flank_idx]]);
-            const char *chromosome = "---";
+            const char *chromosome = NULL;
             int strand = -1, position = 0, idx = -1;
-            if ( hts && strcmp(flank, "---") )
+            if ( hts )
             {
-                if ( get_position(hts, sam_hdr, b, probe_set_id, flank, 0, &idx, &chromosome, &position, &strand) < 0 )
-                    error("Reading from %s failed", sam_fn);
+                if ( !flank )
+                {
+                    fprintf(stderr, "Missing flank sequence for marker %s\n", probe_set_id);
+                    n_unmapped++;
+                }
+                else
+                {
+                    idx = get_position(hts, sam_hdr, b, probe_set_id, flank, 0, &chromosome, &position, &strand);
+                    if ( idx < 0 ) error("Reading from %s failed", sam_fn);
+                    else if ( idx == 0 )
+                    {
+                        fprintf(stderr, "Unable to determine position for marker %s\n", probe_set_id);
+                        n_unmapped++;
+                    }
+                }
+                n_total++;
             }
             else
             {
                 chromosome = unquote(&str.s[off[chromosome_idx]]);
                 const char *ptr = unquote(&str.s[off[position_idx]]);
-                position = strtol(ptr, &tmp, 10);
+                position = ptr ? strtol(ptr, &tmp, 10) : 0;
                 ptr = unquote(&str.s[off[strand_idx]]);
-                if ( strcmp(ptr, "+") == 0 ) strand = 0;
+                if ( !ptr ) strand = -1;
+                else if ( strcmp(ptr, "+") == 0 ) strand = 0;
                 else if ( strcmp(ptr, "-") == 0 ) strand = 1;
                 else strand = -1;
             }
@@ -218,14 +235,14 @@ static annot_t *annot_init(const char *fn,
                     }
                     else if (i == position_end_idx)
                     {
-                        if ( strcmp(flank, "---") && position && idx >= 0 )
+                        if ( flank && position && idx > 0 )
                         {
                             const char *left = strchr(flank, '[');
                             const char *middle = strchr(flank, '/');
                             const char *right = strchr(flank, ']');
                             if ( !left || !middle || !right ) error("Flank sequence is malformed: %s\n", flank);
 
-                            fprintf(out_txt, ",\"%d\"", position + (int)(idx > 0 ? right - middle : middle - left + (*(left + 1)=='-')) - 2);
+                            fprintf(out_txt, ",\"%d\"", position + (int)(idx > 1 ? right - middle : middle - left + (*(left + 1)=='-')) - 2);
                         }
                         else fprintf(out_txt, ",\"---\"");
                     }
@@ -240,19 +257,20 @@ static annot_t *annot_init(const char *fn,
                 annot->records[annot->n_records].probe_set_id = strdup(probe_set_id);
                 khash_str2int_inc(annot->probe_set_id, annot->records[annot->n_records].probe_set_id);
                 const char *dbsnp_rs_id = unquote(&str.s[off[dbsnp_rs_id_idx]]);
-                if ( strcmp(dbsnp_rs_id, "---") ) annot->records[annot->n_records].dbsnp_rs_id = strdup(dbsnp_rs_id);
+                if ( dbsnp_rs_id ) annot->records[annot->n_records].dbsnp_rs_id = strdup(dbsnp_rs_id);
                 if ( affy_snp_id_idx >= 0 )
                 {
                     const char *affy_snp_id = unquote(&str.s[off[affy_snp_id_idx]]);
-                    if ( strcmp(affy_snp_id, "---") ) annot->records[annot->n_records].affy_snp_id = strdup(affy_snp_id);
+                    if ( affy_snp_id ) annot->records[annot->n_records].affy_snp_id = strdup(affy_snp_id);
                 }
-                if ( strcmp(chromosome, "---") ) annot->records[annot->n_records].chromosome = strdup(chromosome);
+                if ( chromosome ) annot->records[annot->n_records].chromosome = strdup(chromosome);
                 annot->records[annot->n_records].position = position;
-                if ( strcmp(flank, "---") ) annot->records[annot->n_records].flank = strdup(flank);
+                if ( flank ) annot->records[annot->n_records].flank = strdup(flank);
                 annot->records[annot->n_records].strand = strand;
                 annot->n_records++;
             }
         }
+        if ( hts ) fprintf(stderr,"Lines   total/unmapped:\t%d/%d\n", n_total, n_unmapped);
 
         bam_destroy1(b);
         sam_hdr_destroy(sam_hdr);
@@ -603,7 +621,7 @@ static void process(faidx_t *fai,
     float *baf_arr = (float *)malloc(nsmpl * sizeof(float));
     float *lrr_arr = (float *)malloc(nsmpl * sizeof(float));
 
-    int n_skipped = 0;
+    int n_unmapped = 0, n_skipped = 0;
     for (int i=0; i<annot->n_records; i++)
     {
         const char *probe_set_id = NULL;
@@ -723,7 +741,11 @@ static void process(faidx_t *fai,
         if ( strchr(flank.s, '-') )
         {
             int ref_is_del = get_indel_alleles( flank.s, fai, bcf_seqname(hdr, rec), rec->pos, 0, ref_base, &allele_a, &allele_b );
-            if ( ref_is_del < 0 ) fprintf(stderr, "Unable to determine alleles for indel %s\n", record->probe_set_id);
+            if ( ref_is_del < 0 )
+            {
+                fprintf(stderr, "Unable to determine alleles for indel %s\n", record->probe_set_id);
+                n_unmapped++;
+            }
             if ( ref_is_del == 0 ) rec->pos--;
             allele_b_idx = ref_is_del < 0 ? 1 : ref_is_del;
         }
@@ -825,8 +847,7 @@ static void process(faidx_t *fai,
 
         if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
     }
-    fprintf(stderr, "Rows total: \t%d\n", annot->n_records);
-    fprintf(stderr, "Rows skipped: \t%d\n", n_skipped);
+    fprintf(stderr, "Lines   total/unmapped/skipped:\t%d/%d/%d\n", annot->n_records, n_unmapped, n_skipped);
 
     free(gts);
     free(gt_arr);
@@ -868,11 +889,11 @@ static const char *usage_text(void)
         "\n"
         "About: convert Affymetrix apt-probeset-genotype output files to VCF. (version "AFFY2VCF_VERSION" https://github.com/freeseek/gtc2vcf)\n"
         "\n"
-        "Usage: bcftools +affy2vcf [options] --annot <file> --fasta-ref <file> --calls <file>\n"
+        "Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> --calls <file>\n"
         "                                    --confidences <file> --summary <file> --snp-posteriors <file>\n"
         "\n"
         "Plugin options:\n"
-        "    -a, --annot <file>            probe set annotation file\n"
+        "    -c, --csv <file>              CSV manifest file\n"
         "    -f, --fasta-ref <file>        reference sequence in fasta format\n"
         "        --set-cache-size <int>    select fasta cache size in bytes\n"
         "        --calls <file>            apt-probeset-genotype calls output\n"
@@ -888,12 +909,12 @@ static const char *usage_text(void)
         "        --threads <int>           number of extra output compression threads [0]\n"
         "\n"
         "Manifest options:\n"
-        "        --fasta-flank             output flank sequence in FASTA format (requires --annot)\n"
-        "    -s, --sam-flank <file>        input source sequence alignment in SAM/BAM format (requires --annot)\n"
+        "        --fasta-flank             output flank sequence in FASTA format (requires --csv)\n"
+        "    -s, --sam-flank <file>        input source sequence alignment in SAM/BAM format (requires --csv)\n"
         "\n"
         "Example:\n"
         "    bcftools +affy2vcf \\\n"
-        "        --annot GenomeWideSNP_6.na35.annot.csv \\\n"
+        "        --csv GenomeWideSNP_6.na35.annot.csv \\\n"
         "        --fasta-ref human_g1k_v37.fasta \\\n"
         "        --calls AxiomGT1.calls.txt \\\n"
         "        --confidences AxiomGT1.confidences.txt \\\n"
@@ -902,9 +923,9 @@ static const char *usage_text(void)
         "        --output AxiomGT1.vcf\n"
         "\n"
         "Examples of manifest file options:\n"
-        "    bcftools +affy2vcf -a GenomeWideSNP_6.na35.annot.csv --fasta-flank -o GenomeWideSNP_6.fasta\n"
+        "    bcftools +affy2vcf -c GenomeWideSNP_6.na35.annot.csv --fasta-flank -o GenomeWideSNP_6.fasta\n"
         "    bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GenomeWideSNP_6.fasta -o GenomeWideSNP_6.sam\n"
-        "    bcftools +affy2vcf -a GenomeWideSNP_6.na35.annot.csv -s GenomeWideSNP_6.sam -o GenomeWideSNP_6.na35.annot.GRCh38.csv\n"
+        "    bcftools +affy2vcf -c GenomeWideSNP_6.na35.annot.csv -s GenomeWideSNP_6.sam -o GenomeWideSNP_6.na35.annot.GRCh38.csv\n"
         "\n";
 }
 
@@ -912,7 +933,7 @@ int run(int argc, char *argv[])
 {
     const char *ref_fname = NULL;
     const char *sex_fname = NULL;
-    const char *annot_fname = NULL;
+    const char *csv_fname = NULL;
     const char *snp_posteriors_fname = NULL;
     const char *summary_fname = NULL;
     const char *report_fname = NULL;
@@ -930,7 +951,7 @@ int run(int argc, char *argv[])
 
     static struct option loptions[] =
     {
-        {"annot", required_argument, NULL, 'a'},
+        {"csv", required_argument, NULL, 'c'},
         {"fasta-ref", required_argument, NULL, 'f'},
         {"set-cache-size", required_argument, NULL, 1},
         {"calls", required_argument, NULL, 2},
@@ -949,11 +970,11 @@ int run(int argc, char *argv[])
         {NULL, 0, NULL, 0}
     };
     int c;
-    while ((c = getopt_long(argc, argv, "h?a:f:x:o:O:s:", loptions, NULL)) >= 0)
+    while ((c = getopt_long(argc, argv, "h?c:f:x:o:O:s:", loptions, NULL)) >= 0)
     {
         switch (c)
         {
-            case 'a': annot_fname = optarg; break;
+            case 'c': csv_fname = optarg; break;
             case 'f': ref_fname = optarg; break;
             case  1 : cache_size = strtol(optarg, NULL, 0); break;
             case  2 : calls_fname = optarg; flags |= CALLS_LOADED; break;
@@ -982,15 +1003,15 @@ int run(int argc, char *argv[])
             default: error("%s", usage_text());
         }
     }
-    if ( !annot_fname ) error("Expected --annot option\n%s", usage_text());
+    if ( !csv_fname ) error("Expected --csv option\n%s", usage_text());
     if ( fasta_flank && sam_fname ) error("Only one of --fasta-flank or --sam-flank options can be used at once\n%s", usage_text());
     if ( !fasta_flank && !sam_fname && !ref_fname ) error("Expected one of --fasta-flank or --sam-flank or --fasta-ref options\n%s", usage_text());
     if ( ( flags & ADJUST_CLUSTERS ) && ( !summary_fname || !snp_posteriors_fname ) )
         error("Expected --summary and --snp-posteriors options with --adjust-clusters option\n%s", usage_text());
     if ( sex_fname && !report_fname ) error("Expected --report option with --sex option\n%s", usage_text());
 
-    fprintf(stderr, "Reading probeset annotation file %s\n", annot_fname);
-    annot_t *annot = annot_init(annot_fname, sam_fname, ( ( sam_fname && !ref_fname ) || fasta_flank ) ? output_fname : NULL);
+    fprintf(stderr, "Reading probeset annotation file %s\n", csv_fname);
+    annot_t *annot = annot_init(csv_fname, sam_fname, ( ( sam_fname && !ref_fname ) || fasta_flank ) ? output_fname : NULL);
 
     if ( annot )
     {
@@ -998,14 +1019,13 @@ int run(int argc, char *argv[])
         if ( !fai ) error("Could not load the reference %s\n", ref_fname);
         if ( cache_size ) fai_set_cache_size( fai, cache_size );
         bcf_hdr_t *hdr = hdr_init(fai, flags);
-
+        bcf_hdr_printf(hdr, "##CSV=%s", strrchr(csv_fname, '/') ? strrchr(csv_fname, '/') + 1 : csv_fname);
+        if ( sam_fname ) bcf_hdr_printf(hdr, "##SAM=%s", strrchr(sam_fname, '/') ? strrchr(sam_fname, '/') + 1 : sam_fname);
         if (record_cmd_line) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+affy2vcf");
         htsFile *out_fh = hts_open(output_fname, hts_bcf_wmode(output_type));
         if ( out_fh == NULL ) error("Can't write to \"%s\": %s\n", output_fname, strerror(errno));
         if ( n_threads ) hts_set_threads(out_fh, n_threads);
-
         process(fai, annot, calls_fname, confidences_fname, summary_fname, snp_posteriors_fname, out_fh, hdr, flags);
-
         fai_destroy(fai);
         bcf_hdr_destroy(hdr);
         hts_close(out_fh);

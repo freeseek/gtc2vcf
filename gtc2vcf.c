@@ -37,7 +37,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-24"
+#define GTC2VCF_VERSION "2019-12-26"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -659,24 +659,25 @@ static void bpm_destroy(bpm_t *bpm)
     free(bpm->norm_ids);
     for (int i=0; i<bpm->num_loci; i++)
     {
-        free(bpm->locus_entries[i].ilmn_id);
-        free(bpm->locus_entries[i].name);
-        free(bpm->locus_entries[i].ilmn_strand);
-        free(bpm->locus_entries[i].snp);
-        free(bpm->locus_entries[i].chrom);
-        free(bpm->locus_entries[i].ploidy);
-        free(bpm->locus_entries[i].species);
-        free(bpm->locus_entries[i].map_info);
-        free(bpm->locus_entries[i].unknown_strand);
-        free(bpm->locus_entries[i].allele_a_probe_seq);
-        free(bpm->locus_entries[i].allele_b_probe_seq);
-        free(bpm->locus_entries[i].genome_build);
-        free(bpm->locus_entries[i].source);
-        free(bpm->locus_entries[i].source_version);
-        free(bpm->locus_entries[i].source_strand);
-        free(bpm->locus_entries[i].source_seq);
-        free(bpm->locus_entries[i].top_genomic_seq);
-        free(bpm->locus_entries[i].ref_strand);
+        LocusEntry *locus_entry = &bpm->locus_entries[i];
+        free(locus_entry->ilmn_id);
+        free(locus_entry->name);
+        free(locus_entry->ilmn_strand);
+        free(locus_entry->snp);
+        free(locus_entry->chrom);
+        free(locus_entry->ploidy);
+        free(locus_entry->species);
+        free(locus_entry->map_info);
+        free(locus_entry->unknown_strand);
+        free(locus_entry->allele_a_probe_seq);
+        free(locus_entry->allele_b_probe_seq);
+        free(locus_entry->genome_build);
+        free(locus_entry->source);
+        free(locus_entry->source_version);
+        free(locus_entry->source_strand);
+        free(locus_entry->source_seq);
+        free(locus_entry->top_genomic_seq);
+        free(locus_entry->ref_strand);
     }
     free(bpm->locus_entries);
     free(bpm->norm_lookups);
@@ -1662,22 +1663,29 @@ static bpm_t *sam_csv_init(const char *fn,
 
     kstring_t str = {0, 0, NULL};
     const char *chromosome = NULL;
-    int strand = -1, position = 0, idx = -1;
+    int strand = -1, position = 0, n_unmapped = 0;
     for (int i=0; i<bpm->num_loci; i++)
     {
-        if ( get_position(hts, sam_hdr, b, bpm->locus_entries[i].ilmn_id, bpm->locus_entries[i].source_seq, 1, &idx, &chromosome, &position, &strand) < 0 )
-            error("Reading from %s failed", fn);
-        free(bpm->locus_entries[i].genome_build);
-        bpm->locus_entries[i].genome_build = strdup(genome_build);
-        free(bpm->locus_entries[i].chrom);
-        bpm->locus_entries[i].chrom = strdup(chromosome);
-        free(bpm->locus_entries[i].map_info);
+        LocusEntry *locus_entry = &bpm->locus_entries[i];
+        int idx = get_position(hts, sam_hdr, b, locus_entry->ilmn_id, locus_entry->source_seq, 1, &chromosome, &position, &strand);
+        if ( idx < 0 ) error("Reading from %s failed", fn);
+        else if ( idx == 0 )
+        {
+            fprintf(stderr, "Unable to determine position for marker %s\n", locus_entry->ilmn_id);
+            n_unmapped++;
+        }
+        free(locus_entry->genome_build);
+        locus_entry->genome_build = strdup(genome_build);
+        free(locus_entry->chrom);
+        locus_entry->chrom = strdup(chromosome ? chromosome : "0");
+        free(locus_entry->map_info);
         str.l = 0;
         kputw(position, &str);
-        bpm->locus_entries[i].map_info = strdup(str.s);
-        free(bpm->locus_entries[i].ref_strand);
-        bpm->locus_entries[i].ref_strand = ( ( strcmp(bpm->locus_entries[i].ilmn_strand, bpm->locus_entries[i].source_strand) != 0 ) != strand ) ? strdup("-") : strdup("+");
+        locus_entry->map_info = strdup(str.s);
+        free(locus_entry->ref_strand);
+        locus_entry->ref_strand = ( ( strand < 0 ) || ( ( strcmp(locus_entry->ilmn_strand, locus_entry->source_strand) != 0 ) == strand ) ) ? strdup("+") : strdup("-");
     }
+    fprintf(stderr,"Lines   total/unmapped:\t%d/%d\n", bpm->num_loci, n_unmapped);
     free(str.s);
 
     bam_destroy1(b);
@@ -1864,20 +1872,21 @@ static void gtcs_to_gs(gtc_t **gtc,
     // print loci
     for (int j=0; j<bpm->num_loci; j++)
     {
-        int strand = !bpm->locus_entries[j].ref_strand ? -1 :
-             ( strcmp(bpm->locus_entries[j].ref_strand, "+") == 0 ? 0 :
-             ( strcmp(bpm->locus_entries[j].ref_strand, "-") == 0 ? 1 : -1 ) );
-        if ( strand < 0 ) error("Unable to process reference strand %s\n", bpm->locus_entries[j].ref_strand);
+        LocusEntry *locus_entry = &bpm->locus_entries[j];
+        int strand = !locus_entry->ref_strand ? -1 :
+             ( strcmp(locus_entry->ref_strand, "+") == 0 ? 0 :
+             ( strcmp(locus_entry->ref_strand, "-") == 0 ? 1 : -1 ) );
+        if ( strand < 0 ) error("Unable to process reference strand %s\n", locus_entry->ref_strand);
         fprintf(stream, "%d\t%s\t%d\t%s\t%s\t%f\t%f\t%f\t%f\t%f", bpm->indexes ? bpm->indexes[j] : j,
-                                                                  bpm->locus_entries[j].name,
-                                                                  bpm->locus_entries[j].address_a,
-                                                                  bpm->locus_entries[j].chrom,
-                                                                  bpm->locus_entries[j].map_info,
+                                                                  locus_entry->name,
+                                                                  locus_entry->address_a,
+                                                                  locus_entry->chrom,
+                                                                  locus_entry->map_info,
                                                                   egt ? egt->cluster_records[j].cluster_score.total_score : NAN,
-                                                                  bpm->locus_entries[j].frac_a,
-                                                                  bpm->locus_entries[j].frac_c,
-                                                                  bpm->locus_entries[j].frac_g,
-                                                                  bpm->locus_entries[j].frac_t);
+                                                                  locus_entry->frac_a,
+                                                                  locus_entry->frac_c,
+                                                                  locus_entry->frac_g,
+                                                                  locus_entry->frac_t);
         for (int i=0; i<n; i++)
         {
             uint8_t genotype;
@@ -1888,8 +1897,8 @@ static void gtcs_to_gs(gtc_t **gtc,
             get_element(gtc[i]->base_calls, (void *)&base_call, j);
             intensities_t intensities;
             get_intensities(gtc[i], bpm, egt, j, &intensities);
-            char allele_a = strand ? revnt(bpm->locus_entries[j].snp[1]) : bpm->locus_entries[j].snp[1];
-            char allele_b = strand ? revnt(bpm->locus_entries[j].snp[3]) : bpm->locus_entries[j].snp[3];
+            char allele_a = strand ? revnt(locus_entry->snp[1]) : locus_entry->snp[1];
+            char allele_b = strand ? revnt(locus_entry->snp[3]) : locus_entry->snp[3];
             BaseCall ref_call;
             switch ( genotype )
             {
@@ -1910,7 +1919,7 @@ static void gtcs_to_gs(gtc_t **gtc,
                     ref_call[1] = allele_b;
                     break;
                 default:
-                    error("Unable to process marker %s\n", bpm->locus_entries[j].name);
+                    error("Unable to process marker %s\n", locus_entry->name);
                     break;
             }
             fprintf(stream, "\t%s\t%f\t%f\t%f\t%f\t%f\t%c%c\t%c%c", code2genotype[genotype],
@@ -2054,7 +2063,7 @@ static void gtcs_to_vcf(faidx_t *fai,
     int32_t *raw_x_arr = (int32_t *) malloc(n * sizeof(int32_t));
     int32_t *raw_y_arr = (int32_t *) malloc(n * sizeof(int32_t));
 
-    int n_skipped = 0;
+    int n_unmapped = 0, n_skipped = 0;
     for (int j=0; j<bpm->num_loci; j++)
     {
         LocusEntry *locus_entry = &bpm->locus_entries[j];
@@ -2093,7 +2102,11 @@ static void gtcs_to_vcf(faidx_t *fai,
 
             int allele_b_is_del = locus_entry->snp[3] == 'D';
             int ref_is_del = get_indel_alleles( flank.s, fai, bcf_seqname(hdr, rec), rec->pos, allele_b_is_del, ref_base, &allele_a, &allele_b );
-            if ( ref_is_del < 0 ) fprintf(stderr, "Unable to determine alleles for indel %s\n", locus_entry->ilmn_id);
+            if ( ref_is_del < 0 )
+            {
+                fprintf(stderr, "Unable to determine alleles for indel %s\n", locus_entry->ilmn_id);
+                n_unmapped++;
+            }
             if ( ref_is_del == 0 ) rec->pos--;
             allele_b_idx = ref_is_del < 0 ? 1 : ref_is_del ^ allele_b_is_del;
         }
@@ -2190,8 +2203,7 @@ static void gtcs_to_vcf(faidx_t *fai,
         if ( flags & FORMAT_Y     ) bcf_update_format_int32(hdr, rec, "Y", raw_y_arr, n);
         if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
     }
-    fprintf(stderr, "Rows total: \t%d\n", bpm->num_loci);
-    fprintf(stderr, "Rows skipped: \t%d\n", n_skipped);
+    fprintf(stderr, "Lines   total/unmapped/skipped:\t%d/%d/%d\n", bpm->num_loci, n_unmapped, n_skipped);
 
     free(gts);
     free(gt_arr);
@@ -2554,8 +2566,7 @@ static void gs_to_vcf(faidx_t *fai,
             n_skipped++;
         }
     }
-    fprintf(stderr, "Rows total: \t%d\n", n_total);
-    fprintf(stderr, "Rows skipped: \t%d\n", n_skipped);
+    fprintf(stderr,"Lines   total/skipped:\t%d/%d\n", n_total, n_skipped);
     free(line.s);
 
     free(col2sample);
@@ -2809,6 +2820,7 @@ int run(int argc, char *argv[])
         nfiles = argc - optind;
         files = argv + optind;
     }
+
     // make sure the process is allowed to open enough files
     struct rlimit lim;
     getrlimit(RLIMIT_NOFILE, &lim);
@@ -2956,6 +2968,7 @@ int run(int argc, char *argv[])
             if ( bpm_fname ) bcf_hdr_printf(hdr, "##BPM=%s", strrchr(bpm_fname, '/') ? strrchr(bpm_fname, '/') + 1 : bpm_fname);
             if ( csv_fname ) bcf_hdr_printf(hdr, "##CSV=%s", strrchr(csv_fname, '/') ? strrchr(csv_fname, '/') + 1 : csv_fname);
             if ( egt_fname ) bcf_hdr_printf(hdr, "##EGT=%s", strrchr(egt_fname, '/') ? strrchr(egt_fname, '/') + 1 : egt_fname);
+            if ( sam_fname ) bcf_hdr_printf(hdr, "##SAM=%s", strrchr(sam_fname, '/') ? strrchr(sam_fname, '/') + 1 : sam_fname);
             if ( bpm && bpm->norm_lookups ) bcf_hdr_printf(hdr, "##BeadSet_Order=%s", str.s);
             if ( record_cmd_line ) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+gtc2vcf");
             if ( gs_fname )

@@ -57,11 +57,11 @@ Examples of manifest file options:
 
 Affymetrix tool:
 ```
-Usage: bcftools +affy2vcf [options] --annot <file> --fasta-ref <file> --calls <file>
+Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> --calls <file>
                                     --confidences <file> --summary <file> --snp-posteriors <file>
 
 Plugin options:
-    -a, --annot <file>            probe set annotation file
+    -c, --csv <file>              CSV manifest file
     -f, --fasta-ref <file>        reference sequence in fasta format
         --set-cache-size <int>    select fasta cache size in bytes
         --calls <file>            apt-probeset-genotype calls output
@@ -77,12 +77,12 @@ Plugin options:
         --threads <int>           number of extra output compression threads [0]
 
 Manifest options:
-        --fasta-flank             output flank sequence in FASTA format (requires --annot)
-    -s, --sam-flank <file>        input source sequence alignment in SAM/BAM format (requires --annot)
+        --fasta-flank             output flank sequence in FASTA format (requires --csv)
+    -s, --sam-flank <file>        input source sequence alignment in SAM/BAM format (requires --csv)
 
 Example:
     bcftools +affy2vcf \
-        --annot GenomeWideSNP_6.na35.annot.csv \
+        --csv GenomeWideSNP_6.na35.annot.csv \
         --fasta-ref human_g1k_v37.fasta \
         --calls AxiomGT1.calls.txt \
         --confidences AxiomGT1.confidences.txt \
@@ -91,9 +91,9 @@ Example:
         --output AxiomGT1.vcf
 
 Examples of manifest file options:
-    bcftools +affy2vcf -a GenomeWideSNP_6.na35.annot.csv --fasta-flank -o GenomeWideSNP_6.fasta
+    bcftools +affy2vcf -c GenomeWideSNP_6.na35.annot.csv --fasta-flank -o GenomeWideSNP_6.fasta
     bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GenomeWideSNP_6.fasta -o GenomeWideSNP_6.sam
-    bcftools +affy2vcf -a GenomeWideSNP_6.na35.annot.csv -s GenomeWideSNP_6.sam -o GenomeWideSNP_6.na35.annot.GRCh38.csv
+    bcftools +affy2vcf -c GenomeWideSNP_6.na35.annot.csv -s GenomeWideSNP_6.sam -o GenomeWideSNP_6.na35.annot.GRCh38.csv
 ```
 
 Installation
@@ -348,7 +348,7 @@ path_to_output_folder="..."
 out_prefix="..."
 bcftools +affy2vcf \
   --no-version -Ou \
-  --annot $annot_file \
+  --csv $annot_file \
   --fasta-ref $ref \
   --calls $path_to_output_folder/AxiomGT1.calls.txt \
   --confidences $path_to_output_folder/AxiomGT1.confidences.txt \
