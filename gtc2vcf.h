@@ -228,7 +228,7 @@ static inline int get_position(htsFile *hts,
                 else
                 {
                     const char *ptr = left - len;
-                    while( ptr >= flank && ( strncmp( ptr, middle + 1, len ) == 0 ) ) { qlen -= len; ptr -= len; }
+                    while( ptr >= flank && ( strncasecmp( ptr, middle + 1, len ) == 0 ) ) { qlen -= len; ptr -= len; }
                 }
             }
             if ( strchr( flank, '-' ) && idx == 0 ) qlen--;
