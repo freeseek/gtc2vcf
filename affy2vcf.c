@@ -34,18 +34,19 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2019-12-26"
+#define AFFY2VCF_VERSION "2019-12-27"
 
 #define GT_NC -1
 #define GT_AA 0
 #define GT_AB 1
 #define GT_BB 2
 
-#define CALLS_LOADED           (1<<0)
-#define CONFIDENCES_LOADED     (1<<1)
-#define SUMMARY_LOADED         (1<<2)
-#define SNP_POSTERIORS_LOADED  (1<<3)
-#define ADJUST_CLUSTERS        (1<<4)
+#define VERBOSE                (1<<0)
+#define CALLS_LOADED           (1<<1)
+#define CONFIDENCES_LOADED     (1<<2)
+#define SUMMARY_LOADED         (1<<3)
+#define SNP_POSTERIORS_LOADED  (1<<4)
+#define ADJUST_CLUSTERS        (1<<5)
 
 /****************************************
  * htsFILE READING FUNCTIONS            *
@@ -98,7 +99,8 @@ static inline char *unquote(char *str)
 
 static annot_t *annot_init(const char *fn,
                            const char *sam_fn,
-                           const char *out_fn)
+                           const char *out_fn,
+                           int flags)
 {
     annot_t *annot = NULL;
     FILE *out_txt = get_file_handle( out_fn );
@@ -193,7 +195,7 @@ static annot_t *annot_init(const char *fn,
             {
                 if ( !flank )
                 {
-                    fprintf(stderr, "Missing flank sequence for marker %s\n", probe_set_id);
+                    if ( flags & VERBOSE ) fprintf(stderr, "Missing flank sequence for marker %s\n", probe_set_id);
                     n_unmapped++;
                 }
                 else
@@ -202,7 +204,7 @@ static annot_t *annot_init(const char *fn,
                     if ( idx < 0 ) error("Reading from %s failed", sam_fn);
                     else if ( idx == 0 )
                     {
-                        fprintf(stderr, "Unable to determine position for marker %s\n", probe_set_id);
+                        if ( flags & VERBOSE ) fprintf(stderr, "Unable to determine position for marker %s\n", probe_set_id);
                         n_unmapped++;
                     }
                 }
@@ -621,7 +623,7 @@ static void process(faidx_t *fai,
     float *baf_arr = (float *)malloc(nsmpl * sizeof(float));
     float *lrr_arr = (float *)malloc(nsmpl * sizeof(float));
 
-    int n_unmapped = 0, n_skipped = 0;
+    int n_missing = 0, n_skipped = 0;
     for (int i=0; i<annot->n_records; i++)
     {
         const char *probe_set_id = NULL;
@@ -718,7 +720,7 @@ static void process(faidx_t *fai,
         record_t *record = &annot->records[idx];
         if ( !record->chromosome || record->position == 0 || record->strand < 0 || !record->flank )
         {
-            fprintf(stderr, "Skipping unlocalized marker %s\n", record->probe_set_id);
+            if ( flags & VERBOSE ) fprintf(stderr, "Skipping unlocalized marker %s\n", record->probe_set_id);
             n_skipped++;
             continue;
         }
@@ -743,8 +745,8 @@ static void process(faidx_t *fai,
             int ref_is_del = get_indel_alleles( flank.s, fai, bcf_seqname(hdr, rec), rec->pos, 0, ref_base, &allele_a, &allele_b );
             if ( ref_is_del < 0 )
             {
-                fprintf(stderr, "Unable to determine alleles for indel %s\n", record->probe_set_id);
-                n_unmapped++;
+                if ( flags & VERBOSE ) fprintf(stderr, "Unable to determine alleles for indel %s\n", record->probe_set_id);
+                n_missing++;
             }
             if ( ref_is_del == 0 ) rec->pos--;
             allele_b_idx = ref_is_del < 0 ? 1 : ref_is_del;
@@ -847,7 +849,7 @@ static void process(faidx_t *fai,
 
         if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
     }
-    fprintf(stderr, "Lines   total/unmapped/skipped:\t%d/%d/%d\n", annot->n_records, n_unmapped, n_skipped);
+    fprintf(stderr, "Lines   total/missing-reference/skipped:\t%d/%d/%d\n", annot->n_records, n_missing, n_skipped);
 
     free(gts);
     free(gt_arr);
@@ -907,6 +909,7 @@ static const char *usage_text(void)
         "    -o, --output <file>           write output to a file [standard output]\n"
         "    -O, --output-type <b|u|z|v>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]\n"
         "        --threads <int>           number of extra output compression threads [0]\n"
+        "    -v, --verbose                 print verbose information\n"
         "\n"
         "Manifest options:\n"
         "        --fasta-flank             output flank sequence in FASTA format (requires --csv)\n"
@@ -965,12 +968,13 @@ int run(int argc, char *argv[])
         {"output", required_argument, NULL, 'o'},
         {"output-type", required_argument, NULL, 'O'},
         {"threads", required_argument, NULL, 9},
+        {"verbose", no_argument, NULL, 'v'},
         {"fasta-flank", no_argument, NULL, 10},
         {"sam-flank", required_argument, NULL, 's'},
         {NULL, 0, NULL, 0}
     };
     int c;
-    while ((c = getopt_long(argc, argv, "h?c:f:x:o:O:s:", loptions, NULL)) >= 0)
+    while ((c = getopt_long(argc, argv, "h?c:f:x:o:O:vs:", loptions, NULL)) >= 0)
     {
         switch (c)
         {
@@ -996,6 +1000,7 @@ int run(int argc, char *argv[])
                       }
                       break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
+            case 'v': flags |= VERBOSE; break;
             case  10 : fasta_flank = 1; break;
             case 's' : sam_fname = optarg; break;
             case 'h':
@@ -1010,14 +1015,17 @@ int run(int argc, char *argv[])
         error("Expected --summary and --snp-posteriors options with --adjust-clusters option\n%s", usage_text());
     if ( sex_fname && !report_fname ) error("Expected --report option with --sex option\n%s", usage_text());
 
-    fprintf(stderr, "Reading probeset annotation file %s\n", csv_fname);
-    annot_t *annot = annot_init(csv_fname, sam_fname, ( ( sam_fname && !ref_fname ) || fasta_flank ) ? output_fname : NULL);
+    fprintf(stderr, "================================================================================\n");
+    fprintf(stderr, "Reading CSV file %s\n", csv_fname);
+    annot_t *annot = annot_init(csv_fname, sam_fname, ( ( sam_fname && !ref_fname ) || fasta_flank ) ? output_fname : NULL, flags);
 
     if ( annot )
     {
         fai = fai_load(ref_fname);
         if ( !fai ) error("Could not load the reference %s\n", ref_fname);
         if ( cache_size ) fai_set_cache_size( fai, cache_size );
+        fprintf(stderr, "================================================================================\n");
+        fprintf(stderr, "Writing VCF file\n");
         bcf_hdr_t *hdr = hdr_init(fai, flags);
         bcf_hdr_printf(hdr, "##CSV=%s", strrchr(csv_fname, '/') ? strrchr(csv_fname, '/') + 1 : csv_fname);
         if ( sam_fname ) bcf_hdr_printf(hdr, "##SAM=%s", strrchr(sam_fname, '/') ? strrchr(sam_fname, '/') + 1 : sam_fname);

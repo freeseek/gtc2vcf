@@ -31,6 +31,7 @@ Plugin options:
     -O, --output-type <b|u|z|v|t>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF
                                     v: uncompressed VCF, t: GenomeStudio tab-delimited text output [v]
         --threads <int>             number of extra output compression threads [0]
+    -v, --verbose                   print verbose information
 
 Manifest options:
         --beadset-order             output BeadSetID normalization order (requires --bpm and --csv)
@@ -75,6 +76,7 @@ Plugin options:
     -o, --output <file>           write output to a file [standard output]
     -O, --output-type <b|u|z|v>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]
         --threads <int>           number of extra output compression threads [0]
+    -v, --verbose                 print verbose information
 
 Manifest options:
         --fasta-flank             output flank sequence in FASTA format (requires --csv)

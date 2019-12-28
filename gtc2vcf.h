@@ -56,9 +56,13 @@ static inline void flank2fasta(const char *name,
     const char *left = strchr(flank, '[');
     const char *middle = strchr(flank, '/');
     const char *right = strchr(flank, ']');
-    if ( !left || !middle || !right ) error("Flank sequence is malformed: %s\n", flank);
-
     fprintf(stream, "@%s:1\n", name);
+    if ( !left && !middle && !right )
+    {
+        fprintf(stream, "%s\n", flank);
+        return;
+    }
+    if ( !left || !middle || !right ) error("Flank sequence is malformed: %s\n", flank);
     if ( *(middle-1) == '-' ) fprintf(stream, "%.*s%s\n", (int)(left - flank), flank, right + 1);
     else fprintf(stream, "%.*s%.*s%s\n", (int)(left - flank), flank, (int)(middle - left) - 1, left + 1, right + 1);
     fprintf(stream, "@%s:2\n", name);
@@ -68,13 +72,13 @@ static inline void flank2fasta(const char *name,
 
 static inline int bcf_hdr_name2id_flexible(const bcf_hdr_t *hdr, char *chr)
 {
-    const char *ucsc[] = {"chr1", "chr2", "chr3", "chr4", "chr5", "chr6", "chr7", "chr8", "chr9", "chr10", "chr11",
-                 "chr12", "chr13", "chr14", "chr15", "chr16", "chr17", "chr18", "chr19", "chr20", "chr21", "chr22"};
+    char buf[] = {'c', 'h', 'r', '\0', '\0', '\0'};
     int rid = bcf_hdr_name2id(hdr, chr);
     if ( rid >= 0 ) return rid;
-    int num = strtol(chr, NULL, 0);
-    if ( num > 22 ) rid = -1;
-    else if ( num > 0 ) rid = bcf_hdr_name2id(hdr, ucsc[num-1]);
+    if ( strlen(chr) > 2 ) return -1;
+    strcpy(buf + 3, chr);
+    rid = bcf_hdr_name2id(hdr, buf);
+    if ( rid >= 0 ) return rid;
     else if ( strcmp(chr, "X") == 0 || strcmp(chr, "XY") == 0 || strcmp(chr, "XX") == 0 )
     {
         rid = bcf_hdr_name2id(hdr, "X");
@@ -117,34 +121,12 @@ static inline void flank_reverse_complement(char *flank)
     char *right = strchr(flank, ']');
     if ( !left || !middle || !right ) error("Flank sequence is malformed: %s\n", flank);
 
-    char tmp[MAX_LENGTH_LEFT_ALLELE];
+    char buf[MAX_LENGTH_LEFT_ALLELE];
     if ( middle - left - 1 > MAX_LENGTH_LEFT_ALLELE ) error("Cannot swap alleles in flank sequence %s\n", flank);
-
-    char *ptr1 = tmp;
-    char *ptr2 = left + 1;
-    while ( ptr2 < middle )
-    {
-        *ptr1 = *ptr2;
-        ptr1++;
-        ptr2++;
-    }
-    ptr1 = left + 1;
-    ptr2++;
-    while ( ptr2 < right )
-    {
-        *ptr1 = *ptr2;
-        ptr1++;
-        ptr2++;
-    }
-    *ptr1 = '/';
-    ptr1++;
-    ptr2 = tmp;
-    while ( ptr1 < right )
-    {
-        *ptr1 = *ptr2;
-        ptr1++;
-        ptr2++;
-    }
+    memmove((void *)buf, left + 1, middle - left - 1);
+    memmove((void *)left + 1, middle + 1, right - middle - 1);
+    *(left + (right - middle)) = '/';
+    memmove(left + (right - middle) + 1, (void *)buf, middle - left - 1);
 
     size_t len = strlen(flank);
     for (size_t i=0; i<len/2; i++)
@@ -188,11 +170,16 @@ static inline int get_position(htsFile *hts,
                                int *position,
                                int *strand)
 {
+    const char *left = strchr(flank, '[');
+    const char *middle = strchr(flank, '/');
+    const char *right = strchr(flank, ']');
+    int cnv = !left && !middle && !right;
+    if ( !cnv && ( !left || !middle || !right ) ) error("Flank sequence is malformed: %s\n", flank);
     const char *chromosome_pair[2];
     int position_pair[2], strand_pair[2];
     int64_t aln_score_pair[2];
-    int idx = 0, ret;
-    while ( idx < 1 && ( ret = sam_read1(hts, sam_hdr, b) ) >= 0 )
+    int idx = -1, ret;
+    while ( idx < 1 - cnv && ( ret = sam_read1(hts, sam_hdr, b) ) >= 0 )
     {
         const char *qname = bam_get_qname(b);
         if ( b->core.flag & BAM_FSECONDARY || b->core.flag & BAM_FSUPPLEMENTARY ) continue;
@@ -212,26 +199,25 @@ static inline int get_position(htsFile *hts,
             const uint32_t *cigar = bam_get_cigar(b);
             position_pair[idx] = b->core.pos;
 
-            const char *left = strchr(flank, '[');
-            const char *middle = strchr(flank, '/');
-            const char *right = strchr(flank, ']');
-            if ( !left || !middle || !right ) error("Flank sequence is malformed: %s\n", flank);
-            int qlen = bam_is_rev(b) ? strlen(flank) - (right - flank) : left - flank + 1;
-            if ( left_shift && strchr( flank, '-' ) )
+            int qlen = cnv ? (strlen(flank) + 1) / 2 : ( bam_is_rev(b) ? strlen(flank) - (right - flank) : left - flank + 1 );
+            if ( strchr( flank, '-' ) )
             {
-                int len = (int)(right - middle) - 1;
-                if ( bam_is_rev(b) )
+                if ( left_shift )
                 {
-                    const char *ptr = right + 1;
-                    while( strncmp( middle + 1, ptr, len ) == 0 ) { qlen -= len; ptr += len; }
+                    int len = (int)(right - middle) - 1;
+                    if ( bam_is_rev(b) )
+                    {
+                        const char *ptr = right + 1;
+                        while( strncmp( middle + 1, ptr, len ) == 0 ) { qlen -= len; ptr += len; }
+                    }
+                    else
+                    {
+                        const char *ptr = left - len;
+                        while( ptr >= flank && ( strncasecmp( ptr, middle + 1, len ) == 0 ) ) { qlen -= len; ptr -= len; }
+                    }
                 }
-                else
-                {
-                    const char *ptr = left - len;
-                    while( ptr >= flank && ( strncasecmp( ptr, middle + 1, len ) == 0 ) ) { qlen -= len; ptr -= len; }
-                }
+                if ( idx == 0 ) qlen--;
             }
-            if ( strchr( flank, '-' ) && idx == 0 ) qlen--;
 
             for (int k = 0; k < n_cigar && qlen > 1; k++)
             {
@@ -262,7 +248,7 @@ static inline int get_position(htsFile *hts,
     }
     if ( ret < -1 ) return -1;
 
-    if ( ( aln_score_pair[0] == aln_score_pair[1] && position_pair[0] != position_pair[1] ) || ( position_pair[0] == 0 && position_pair[1] == 0 ) )
+    if ( !cnv && ( ( aln_score_pair[0] == aln_score_pair[1] && position_pair[0] != position_pair[1] ) || ( position_pair[0] == 0 && position_pair[1] == 0 ) ) )
     {
         idx = -1;
         *chromosome = NULL;
@@ -271,7 +257,7 @@ static inline int get_position(htsFile *hts,
     }
     else
     {
-        idx = aln_score_pair[1] > aln_score_pair[0];
+        idx = cnv ? 0 : ( aln_score_pair[1] > aln_score_pair[0] );
         *chromosome = chromosome_pair[idx];
         *position = position_pair[idx];
         *strand = strand_pair[idx];

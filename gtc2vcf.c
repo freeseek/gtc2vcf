@@ -37,28 +37,29 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-26"
+#define GTC2VCF_VERSION "2019-12-27"
 
 #define GT_NC 0
 #define GT_AA 1
 #define GT_AB 2
 #define GT_BB 3
 
-#define BPM_LOADED      (1<<0)
-#define CSV_LOADED      (1<<1)
-#define BPM_LOOKUPS     (1<<2)
-#define EGT_LOADED      (1<<3)
-#define ADJUST_CLUSTERS (1<<4)
-#define GENOME_STUDIO   (1<<5)
-#define FORMAT_IGC      (1<<6)
-#define FORMAT_BAF      (1<<7)
-#define FORMAT_LRR      (1<<8)
-#define FORMAT_NORMX    (1<<9)
-#define FORMAT_NORMY    (1<<10)
-#define FORMAT_R        (1<<11)
-#define FORMAT_THETA    (1<<12)
-#define FORMAT_X        (1<<13)
-#define FORMAT_Y        (1<<14)
+#define VERBOSE         (1<<0)
+#define BPM_LOADED      (1<<1)
+#define CSV_LOADED      (1<<2)
+#define BPM_LOOKUPS     (1<<3)
+#define EGT_LOADED      (1<<4)
+#define ADJUST_CLUSTERS (1<<5)
+#define GENOME_STUDIO   (1<<6)
+#define FORMAT_IGC      (1<<7)
+#define FORMAT_BAF      (1<<8)
+#define FORMAT_LRR      (1<<9)
+#define FORMAT_NORMX    (1<<10)
+#define FORMAT_NORMY    (1<<11)
+#define FORMAT_R        (1<<12)
+#define FORMAT_THETA    (1<<13)
+#define FORMAT_X        (1<<14)
+#define FORMAT_Y        (1<<15)
 
 /****************************************
  * hFILE READING FUNCTIONS              *
@@ -1651,7 +1652,8 @@ static void gtc_to_csv(const gtc_t *gtc, FILE *stream)
 
 static bpm_t *sam_csv_init(const char *fn,
                            bpm_t *bpm,
-                           const char *genome_build)
+                           const char *genome_build,
+                           int flags)
 {
     htsFile *hts = hts_open(fn, "r");
     if ( hts == NULL || hts_get_format(hts)->category != sequence_data )
@@ -1671,7 +1673,7 @@ static bpm_t *sam_csv_init(const char *fn,
         if ( idx < 0 ) error("Reading from %s failed", fn);
         else if ( idx == 0 )
         {
-            fprintf(stderr, "Unable to determine position for marker %s\n", locus_entry->ilmn_id);
+            if ( flags & VERBOSE ) fprintf(stderr, "Unable to determine position for marker %s\n", locus_entry->ilmn_id);
             n_unmapped++;
         }
         free(locus_entry->genome_build);
@@ -2063,7 +2065,7 @@ static void gtcs_to_vcf(faidx_t *fai,
     int32_t *raw_x_arr = (int32_t *) malloc(n * sizeof(int32_t));
     int32_t *raw_y_arr = (int32_t *) malloc(n * sizeof(int32_t));
 
-    int n_unmapped = 0, n_skipped = 0;
+    int n_missing = 0, n_skipped = 0;
     for (int j=0; j<bpm->num_loci; j++)
     {
         LocusEntry *locus_entry = &bpm->locus_entries[j];
@@ -2079,7 +2081,7 @@ static void gtcs_to_vcf(faidx_t *fai,
              ( strcmp(locus_entry->ref_strand, "-") == 0 ? 1 : -1 ) );
         if ( rec->rid < 0 || rec->pos < 0 || strand < 0 )
         {
-            fprintf(stderr, "Skipping unlocalized marker %s\n", locus_entry->ilmn_id);
+            if ( flags & VERBOSE ) fprintf(stderr, "Skipping unlocalized marker %s\n", locus_entry->ilmn_id);
             n_skipped++;
             continue;
         }
@@ -2087,6 +2089,7 @@ static void gtcs_to_vcf(faidx_t *fai,
 
         int32_t allele_b_idx;
         allele_a.l = allele_b.l = 0;
+        int ref_is_del = 0;
         if ( locus_entry->snp[1] == 'N' && locus_entry->snp[3] == 'A' )
         {
             ref_base[0] = get_ref_base( fai, hdr, rec );
@@ -2101,12 +2104,7 @@ static void gtcs_to_vcf(faidx_t *fai,
             flank_left_shift( flank.s );
 
             int allele_b_is_del = locus_entry->snp[3] == 'D';
-            int ref_is_del = get_indel_alleles( flank.s, fai, bcf_seqname(hdr, rec), rec->pos, allele_b_is_del, ref_base, &allele_a, &allele_b );
-            if ( ref_is_del < 0 )
-            {
-                fprintf(stderr, "Unable to determine alleles for indel %s\n", locus_entry->ilmn_id);
-                n_unmapped++;
-            }
+            ref_is_del = get_indel_alleles( flank.s, fai, bcf_seqname(hdr, rec), rec->pos, allele_b_is_del, ref_base, &allele_a, &allele_b );
             if ( ref_is_del == 0 ) rec->pos--;
             allele_b_idx = ref_is_del < 0 ? 1 : ref_is_del ^ allele_b_is_del;
         }
@@ -2116,6 +2114,12 @@ static void gtcs_to_vcf(faidx_t *fai,
             kputc(strand ? revnt(locus_entry->snp[3]) : locus_entry->snp[3], &allele_b);
             ref_base[0] = get_ref_base( fai, hdr, rec );
             allele_b_idx = get_allele_b_idx( ref_base[0], allele_a.s, allele_b.s );
+            if ( locus_entry->snp[1] == 'D' || locus_entry->snp[3] == 'I' || locus_entry->snp[1] == 'D' || locus_entry->snp[3] == 'I' ) ref_is_del = -1;
+        }
+        if ( ref_is_del < 0 )
+        {
+            if ( flags & VERBOSE ) fprintf(stderr, "Unable to determine alleles for indel %s\n", locus_entry->ilmn_id);
+            n_missing++;
         }
         int32_t allele_a_idx = get_allele_a_idx( allele_b_idx );
         const char *alleles[3];
@@ -2203,7 +2207,7 @@ static void gtcs_to_vcf(faidx_t *fai,
         if ( flags & FORMAT_Y     ) bcf_update_format_int32(hdr, rec, "Y", raw_y_arr, n);
         if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
     }
-    fprintf(stderr, "Lines   total/unmapped/skipped:\t%d/%d/%d\n", bpm->num_loci, n_unmapped, n_skipped);
+    fprintf(stderr, "Lines   total/missing-reference/skipped:\t%d/%d/%d\n", bpm->num_loci, n_missing, n_skipped);
 
     free(gts);
     free(gt_arr);
@@ -2475,7 +2479,7 @@ static void gs_to_vcf(faidx_t *fai,
     char allele_a[] = {'\0', '\0'};
     char allele_b[] = {'\0', '\0'};
     int32_t allele_a_idx, allele_b_idx;
-    int n_total = 0, n_skipped = 0;
+    int n_total = 0, n_missing = 0, n_skipped = 0;
     while ( hts_getline(gs_fh, KS_SEP_LINE, &line) > 0 )
     {
         if ( line.s[0]=='#' ) continue; // skip comments
@@ -2518,6 +2522,7 @@ static void gs_to_vcf(faidx_t *fai,
                 if ( allele_a[0] == '.' && allele_b[0] == 'D' ) allele_a[0] = 'I';
                 if ( allele_a[0] == '.' && allele_b[0] == 'I' ) allele_a[0] = 'D';
                 allele_b_idx = 1;
+                n_missing++;
             }
             else
             {
@@ -2562,11 +2567,11 @@ static void gs_to_vcf(faidx_t *fai,
         }
         else
         {
-            fprintf(stderr, "Skipping unlocalized marker %s\n", rec->d.id);
+            if ( flags & VERBOSE ) fprintf(stderr, "Skipping unlocalized marker %s\n", rec->d.id);
             n_skipped++;
         }
     }
-    fprintf(stderr,"Lines   total/skipped:\t%d/%d\n", n_total, n_skipped);
+    fprintf(stderr, "Lines   total/missing-reference/skipped:\t%d/%d/%d\n", n_total, n_missing, n_skipped);
     free(line.s);
 
     free(col2sample);
@@ -2629,6 +2634,7 @@ static const char *usage_text(void)
         "    -O, --output-type <b|u|z|v|t>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF\n"
         "                                    v: uncompressed VCF, t: GenomeStudio tab-delimited text output [v]\n"
         "        --threads <int>             number of extra output compression threads [0]\n"
+        "    -v, --verbose                   print verbose information\n"
         "\n"
         "Manifest options:\n"
         "        --beadset-order             output BeadSetID normalization order (requires --bpm and --csv)\n"
@@ -2737,6 +2743,7 @@ int run(int argc, char *argv[])
         {"output", required_argument, NULL, 'o'},
         {"output-type", required_argument, NULL, 'O'},
         {"threads", required_argument, NULL, 9},
+        {"verbose", no_argument, NULL, 'v'},
         {"beadset-order", no_argument, NULL, 5},
         {"fasta-flank", no_argument, NULL, 6},
         {"sam-flank", required_argument, NULL, 's'},
@@ -2744,7 +2751,7 @@ int run(int argc, char *argv[])
         {NULL, 0, NULL, 0}
     };
     int c;
-    while ((c = getopt_long(argc, argv, "h?lt:i:b:c:e:f:g:x:o:O:s:", loptions, NULL)) >= 0)
+    while ((c = getopt_long(argc, argv, "h?lt:i:b:c:e:f:g:x:o:O:vs:", loptions, NULL)) >= 0)
     {
         switch (c)
         {
@@ -2774,6 +2781,7 @@ int run(int argc, char *argv[])
                       }
                       break;
             case  9 : n_threads = strtol(optarg, NULL, 0); break;
+            case 'v': flags |= VERBOSE; break;
             case  5 : beadset_order = 1; break;
             case  6 : fasta_flank = 1; break;
             case 's': sam_fname = optarg; break;
@@ -2888,7 +2896,7 @@ int run(int argc, char *argv[])
     {
         fprintf(stderr, "================================================================================\n");
         fprintf(stderr, "Reading SAM file %s\n", sam_fname);
-        bpm = sam_csv_init(sam_fname, bpm, genome_build);
+        bpm = sam_csv_init(sam_fname, bpm, genome_build, flags);
         if ( binary_to_csv ) bpm_to_csv(bpm, out_txt, flags);
     }
 
@@ -2934,16 +2942,19 @@ int run(int argc, char *argv[])
     if ( gs_fname ) flags |= GENOME_STUDIO;
 
     gtc_t **gtc = (gtc_t **)malloc(nfiles * sizeof(gtc_t *));
-    for (int i=0; i<nfiles; i++)
+    if ( nfiles > 0 )
     {
         fprintf(stderr, "================================================================================\n");
-        fprintf(stderr, "Reading GTC file %s\n", files[i]);
+        fprintf(stderr, "Reading GTC files\n");
+    }
+    for (int i=0; i<nfiles; i++)
+    {
         gtc[i] = gtc_init(files[i]);
         // GenCall fills the GTC SNP manifest with the BPM file name rather than the BPM manifest name
         if ( bpm_check && bpm && strcmp( bpm->manifest_name, gtc[i]->snp_manifest ) &&
              strcmp( strrchr(bpm->fn, '/') ? strrchr(bpm->fn, '/') + 1 : bpm->fn, gtc[i]->snp_manifest ) )
             error("Manifest name %s in BPM file %s does not match manifest name %s in GTC file %s\n", bpm->manifest_name, bpm->fn, gtc[i]->snp_manifest, gtc[i]->fn);
-        gtc_summary(gtc[i], stderr);
+        if ( flags & VERBOSE ) gtc_summary(gtc[i], stderr);
         if ( binary_to_csv ) gtc_to_csv(gtc[i], out_txt);
 
         // update sample name
@@ -2960,10 +2971,16 @@ int run(int argc, char *argv[])
 
     if ( !binary_to_csv )
     {
-        if ( output_type & FT_TAB_TEXT ) gtcs_to_gs(gtc, nfiles, bpm, egt, out_txt);
+        if ( output_type & FT_TAB_TEXT )
+        {
+            fprintf(stderr, "================================================================================\n");
+            fprintf(stderr, "Writing GenomeStudio file\n");
+            gtcs_to_gs(gtc, nfiles, bpm, egt, out_txt);
+        }
         else
         {
-            // if it couldn't generate the normalization lookup table from the BPM / CSV manifests
+            fprintf(stderr, "================================================================================\n");
+            fprintf(stderr, "Writing VCF file\n");
             bcf_hdr_t *hdr = hdr_init(fai, flags);
             if ( bpm_fname ) bcf_hdr_printf(hdr, "##BPM=%s", strrchr(bpm_fname, '/') ? strrchr(bpm_fname, '/') + 1 : bpm_fname);
             if ( csv_fname ) bcf_hdr_printf(hdr, "##CSV=%s", strrchr(csv_fname, '/') ? strrchr(csv_fname, '/') + 1 : csv_fname);
