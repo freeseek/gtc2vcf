@@ -37,7 +37,7 @@ Manifest options:
         --beadset-order             output BeadSetID normalization order (requires --bpm and --csv)
         --fasta-flank               output flank sequence in FASTA format (requires --csv)
     -s, --sam-flank <file>          input flank sequence alignment in SAM/BAM format (requires --csv)
-        --genome-build <assembly>   genome build to use to update the manifest file [GRCh38]
+        --genome-build <assembly>   genome build ID used to update the manifest file [GRCh38]
 
 Examples:
     bcftools +gtc2vcf -i 5434246082_R03C01_Grn.idat
@@ -190,8 +190,8 @@ If you fail to download the autoconvert software, contact the <a href="mailto:gi
 Affymetrix provides the <a href="https://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-analysis-partners-programs/affymetrix-developers-network/affymetrix-power-tools.html">Analysis Power Tools (APT)</a> for free which allow to call genotypes from raw intensity data using an algorithm derived from <a href="http://tools.thermofisher.com/content/sfs/brochures/brlmmp_whitepaper.pdf">BRLMM-P</a>
 ```
 mkdir -p $HOME/bin && cd /tmp
-wget https://downloads.thermofisher.com/APT/APT2.10.2.2/APT_2.10.2.2_Linux_64_bitx86_binaries.zip
-unzip -ojd $HOME/bin APT_2.10.2.2_Linux_64_bitx86_binaries.zip apt-2.10.2.2-x86_64-intel-linux/bin/apt-probeset-genotype
+wget https://downloads.thermofisher.com/APT/APT2.11.0/apt_2.11.0_linux_64_bit_x86_binaries.zip
+unzip -ojd $HOME/bin apt_2.11.0_linux_64_bit_x86_binaries.zip apt_2.11.0_linux_64_bitx86_binaries/bin/apt-probeset-genotype
 chmod a+x $HOME/bin/apt-probeset-genotype
 ```
 
@@ -279,7 +279,7 @@ bcftools +gtc2vcf \
   bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
   bcftools index -f $out_prefix.bcf
 ```
-Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Without the BPM manifest file normalized intensities cannot be computed. Without the CSV manifest file indel alleles cannot be inferred and will be dropped. If the EGT cluster file is provided, information about genotype cluster centers are included in the VCF
+Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Without the BPM manifest file normalized intensities cannot be computed. Without the CSV manifest file indel alleles cannot be inferred and will be dropped. If the EGT cluster file is provided, information about genotype cluster centers are included in the VCF. If your cohort contains hundred of individuals, using the `--adjust-clusters` option, which will recenter the genotype clusters rather than using those provided in the EGT cluster file, might compute less noisy LRR estimates.
 
 Using a reference not provided by Illumina
 ==========================================
@@ -308,6 +308,7 @@ bcftools +gtc2vcf \
   -s $bam_alignment_file \
   -o $csv_realigned_file
 ```
+You can also load the alignment file while converting your GTC files to VCF, without the need to create a realigned manifest file.
 
 Convert Affymetrix CEL files to genotype calls
 ==============================================

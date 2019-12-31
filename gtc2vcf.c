@@ -26,7 +26,6 @@
 
 #include <getopt.h>
 #include <errno.h>
-#include <ctype.h>
 #include <sys/resource.h>
 #include <htslib/hfile.h>
 #include <htslib/faidx.h>
@@ -37,7 +36,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-27"
+#define GTC2VCF_VERSION "2019-12-31"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -1495,7 +1494,7 @@ static gtc_t *gtc_init(const char *fn)
     gtc->fn = strdup(fn);
     gtc->fp = hopen(gtc->fn, "rb");
     if ( gtc->fp == NULL ) error("Could not open %s: %s\n", gtc->fn, strerror(errno));
-    if ( is_gzip(gtc->fp) ) error("File %s is gzip compressed and currently cannot be seeked\n", gtc->fn);
+    if ( is_gzip(gtc->fp) ) error("File %s is gzip compressed and currently cannot be sought\n", gtc->fn);
 
     uint8_t buffer[4];
     if ( hread(gtc->fp, (void *)buffer, 4) < 4 ) error("Failed to read magic number from %s file\n", gtc->fn);
@@ -2640,7 +2639,7 @@ static const char *usage_text(void)
         "        --beadset-order             output BeadSetID normalization order (requires --bpm and --csv)\n"
         "        --fasta-flank               output flank sequence in FASTA format (requires --csv)\n"
         "    -s, --sam-flank <file>          input flank sequence alignment in SAM/BAM format (requires --csv)\n"
-        "        --genome-build <assembly>   genome build to use to update the manifest file [GRCh38]\n"
+        "        --genome-build <assembly>   genome build ID used to update the manifest file [GRCh38]\n"
         "\n"
         "Examples:\n"
         "    bcftools +gtc2vcf -i 5434246082_R03C01_Grn.idat\n"
