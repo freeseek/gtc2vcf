@@ -26,6 +26,7 @@
 
 #include <getopt.h>
 #include <errno.h>
+#include <htslib/hfile.h>
 #include <htslib/faidx.h>
 #include <htslib/vcf.h>
 #include <htslib/kseq.h>
@@ -34,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2019-12-27"
+#define AFFY2VCF_VERSION "2019-12-31"
 
 #define GT_NC -1
 #define GT_AA 0
@@ -546,6 +547,7 @@ static void get_baf_lrr(const float *delta,
     }
 }
 
+#define MAX_LENGTH_PROBE_SET_ID 24
 static void process(faidx_t *fai,
                     const annot_t *annot,
                     const char *calls_fn,
@@ -623,30 +625,31 @@ static void process(faidx_t *fai,
     float *baf_arr = (float *)malloc(nsmpl * sizeof(float));
     float *lrr_arr = (float *)malloc(nsmpl * sizeof(float));
 
-    int n_missing = 0, n_skipped = 0;
-    for (int i=0; i<annot->n_records; i++)
+    kstring_t probe_set_id = {0, 0, NULL};
+    int i = 0, n_missing = 0, n_skipped = 0;
+    for (i=0; i<annot->n_records; i++)
     {
-        const char *probe_set_id = NULL;
-        char *tmp;
+        char *tmp, buf[MAX_LENGTH_PROBE_SET_ID];
+        probe_set_id.l = 0;
 
         // read genotypes
         if ( calls_fp )
         {
             if ( hts_getline(calls_fp, KS_SEP_LINE, &str) < 0 ) break;
             ncols = ksplit_core(str.s, '\t', &moff, &off);
-            if ( ncols != 1 + nsmpl ) error("Expected %d columns but %d columns found in the call file\n", 1 + nsmpl, ncols);
-            probe_set_id = &str.s[off[0]];
+            if ( ncols != 1 + nsmpl ) error("Expected %d columns but %d columns found in the calls file\n", 1 + nsmpl, ncols);
+            kputs(&str.s[off[0]], &probe_set_id);
             for (int i=1; i<1+nsmpl; i++) gts[i-1] = strtol( &str.s[off[i]], &tmp, 10 );
         }
 
         // read confidences
         if ( confidences_fp )
         {
-            if ( hts_getline(confidences_fp, KS_SEP_LINE, &str) <=0 ) error("Confidences file ended prematurely\n");
+            if ( hts_getline(confidences_fp, KS_SEP_LINE, &str) < 0 ) break;
             ncols = ksplit_core(str.s, '\t', &moff, &off);
             if ( ncols != 1 + nsmpl ) error("Expected %d columns but %d columns found in the confidences file\n", 1 + nsmpl, ncols);
-            if ( !probe_set_id ) probe_set_id = &str.s[off[0]];
-            else if ( strcmp(&str.s[off[0]], probe_set_id) != 0 ) error("Found Probe Set ID %s while %s expected\n", &str.s[off[0]], probe_set_id);
+            if ( probe_set_id.l == 0 ) kputs(&str.s[off[0]], &probe_set_id);
+            else if ( strcmp(&str.s[off[0]], probe_set_id.s) != 0 ) error("Found Probe Set ID %s in the confidences file while %s expected\n", &str.s[off[0]], probe_set_id.s);
             for (int i=1; i<1+nsmpl; i++) conf_arr[i-1] = strtof(&str.s[off[i]], &tmp);
             bcf_update_format_float(hdr, rec, "CONF", conf_arr, nsmpl);
         }
@@ -654,17 +657,30 @@ static void process(faidx_t *fai,
         // read intensities
         if ( summary_fp )
         {
-            if ( hts_getline(summary_fp, KS_SEP_LINE, &str) <=0 ) error("Summary file ended prematurely\n");
-            ncols = ksplit_core(str.s, '\t', &moff, &off);
-            if ( ncols != 1 + nsmpl ) error("Expected %d columns but %d columns found in the confidences file\n", 1 + nsmpl, ncols);
-            int len = strlen(&str.s[off[0]]);
-            str.s[off[0] + len - 2] = '\0';
-            if ( !probe_set_id ) probe_set_id = &str.s[off[0]];
-            else if ( strcmp(&str.s[off[0]], probe_set_id) != 0 ) error("Found Probe Set ID %s while %s expected\n", &str.s[off[0]], probe_set_id);
+            int ret, len;
+            do
+            {
+                if ( ( ret = hts_getline(summary_fp, KS_SEP_LINE, &str) ) < 0 ) break;
+                ncols = ksplit_core(str.s, '\t', &moff, &off);
+                if ( ncols != 1 + nsmpl ) error("Expected %d columns but %d columns found in the summary file\n", 1 + nsmpl, ncols);
+                len = strlen(&str.s[off[0]]);
+                if ( str.s[off[0] + len - 2] != '-' || str.s[off[0] + len - 1] != 'A' )
+                    error("Found Probe Set ID %s while a -A was expected\n", &str.s[off[0]]);
+                str.s[off[0] + len - 2] = '\0';
+                // check whether the next line contains the expected -B probeset_id
+                if ( len > MAX_LENGTH_PROBE_SET_ID ) error("Cannot read Probe Set %s intensities\n", &str.s[off[0]]);
+                ret = hpeek(summary_fp->fp.hfile, buf, len);
+            } while ( ret < len || strncmp(&str.s[off[0]], buf, len - 2) != 0 || buf[len - 2] != '-' || buf[len - 1] != 'B' );
+            if ( ret < 0 ) break;
+
+            if ( probe_set_id.l == 0 ) kputs(&str.s[off[0]], &probe_set_id);
+            else if ( strcmp(&str.s[off[0]], probe_set_id.s) != 0 ) error("Found Probe Set ID %s in the summary file while %s expected\n", &str.s[off[0]], probe_set_id.s);
             for (int i=1; i<1+nsmpl; i++) norm_x_arr[i-1] = strtof(&str.s[off[i]], &tmp);
             if ( hts_getline(summary_fp, KS_SEP_LINE, &str) <=0 ) error("Summary file ended prematurely\n");
             ncols = ksplit_core(str.s, '\t', &moff, &off);
-            if ( ncols != 1 + nsmpl ) error("Expected %d columns but %d columns found in the confidences file\n", 1 + nsmpl, ncols);
+            if ( ncols != 1 + nsmpl ) error("Expected %d columns but %d columns found in the summary file\n", 1 + nsmpl, ncols);
+            len = strlen(&str.s[off[0]]);
+            str.s[off[0] + len - 2] = '\0';
             for (int i=1; i<1+nsmpl; i++) norm_y_arr[i-1] = strtof(&str.s[off[i]], &tmp);
             get_delta_size(norm_x_arr, norm_y_arr, nsmpl, delta_arr, size_arr);
         }
@@ -673,14 +689,16 @@ static void process(faidx_t *fai,
         // read posteriors
         if ( snp_posteriors_fp )
         {
-            if ( hts_getline(snp_posteriors_fp, KS_SEP_LINE, &str) <=0 ) error("Posterior models file ended prematurely\n");
+            if ( hts_getline(snp_posteriors_fp, KS_SEP_LINE, &str) < 0 ) break;
             ncols = ksplit_core(str.s, '\t', &moff, &off);
-            if ( ncols < 4 ) error("Expected %d columns but %d columns found in the posterior models file\n", 4, ncols);
-            if ( !probe_set_id ) probe_set_id = &str.s[off[0]];
-            else if ( strcmp(&str.s[off[0]], probe_set_id) != 0 ) error("Found Probe Set ID %s while %s expected\n", &str.s[off[0]], probe_set_id);
+            if ( ncols < 4 ) error("Expected %d columns but %d columns found in the SNP posteriors file\n", 4, ncols);
+            int len = strlen(&str.s[off[0]]);
+            if ( str.s[off[0] + len - 2] == ':' && str.s[off[0] + len - 1] == '1' ) str.s[off[0] + len - 2] = '\0';
+            if ( probe_set_id.l == 0 ) kputs(&str.s[off[0]], &probe_set_id);
+            else if ( strcmp(&str.s[off[0]], probe_set_id.s) != 0 ) error("Found Probe Set ID %s in the SNP posteriors file while %s expected\n", &str.s[off[0]], probe_set_id.s);
 
             ncols2 = ksplit_core(&str.s[off[1]], ',', &moff2, &off2);
-            if ( ncols2 < 7 ) error("Missing information for cluster BB for Probe Set %s in the posterior models file\n", &str.s[off[0]]);
+            if ( ncols2 < 7 ) error("Missing information for cluster BB for Probe Set %s in the SNP posteriors file\n", &str.s[off[0]]);
             cluster.bb_delta_mean = strtof( &str.s[off[1] + off2[0]], &tmp );
             cluster.bb_delta_dev = strtof( &str.s[off[1] + off2[1]], &tmp );
             cluster.bb_n_mean = strtof( &str.s[off[1] + off2[2]], &tmp );
@@ -690,7 +708,7 @@ static void process(faidx_t *fai,
             cluster.bb_cov = strtof( &str.s[off[1] + off2[6]], &tmp );
 
             ncols2 = ksplit_core(&str.s[off[2]], ',', &moff2, &off2);
-            if ( ncols2 < 7 ) error("Missing information for cluster AB for Probe Set %s in the posterior models file\n", &str.s[off[0]]);
+            if ( ncols2 < 7 ) error("Missing information for cluster AB for Probe Set %s in the SNP posteriors file\n", &str.s[off[0]]);
             cluster.ab_delta_mean = strtof( &str.s[off[2] + off2[0]], &tmp );
             cluster.ab_delta_dev = strtof( &str.s[off[2] + off2[1]], &tmp );
             cluster.ab_n_mean = strtof( &str.s[off[2] + off2[2]], &tmp );
@@ -700,7 +718,7 @@ static void process(faidx_t *fai,
             cluster.ab_cov = strtof( &str.s[off[2] + off2[6]], &tmp );
 
             ncols2 = ksplit_core(&str.s[off[3]], ',', &moff2, &off2);
-            if ( ncols2 < 7 ) error("Missing information for cluster AA for Probe Set %s in the posterior models file\n", &str.s[off[0]]);
+            if ( ncols2 < 7 ) error("Missing information for cluster AA for Probe Set %s in the SNP posteriors file\n", &str.s[off[0]]);
             cluster.aa_delta_mean = strtof( &str.s[off[3] + off2[0]], &tmp );
             cluster.aa_delta_dev = strtof( &str.s[off[3] + off2[1]], &tmp );
             cluster.aa_n_mean = strtof( &str.s[off[3] + off2[2]], &tmp );
@@ -708,13 +726,19 @@ static void process(faidx_t *fai,
             cluster.aa_size_mean = strtof( &str.s[off[3] + off2[4]], &tmp );
             cluster.aa_size_dev = strtof( &str.s[off[3] + off2[5]], &tmp );
             cluster.aa_cov = strtof( &str.s[off[3] + off2[6]], &tmp );
+
+            // check whether the next line should be skipped
+            if ( probe_set_id.l + 2 > MAX_LENGTH_PROBE_SET_ID ) error("Cannot read Probe Set %s SNP posteriors\n", &str.s[off[0]]);
+            int ret = hpeek(snp_posteriors_fp->fp.hfile, buf, probe_set_id.l + 2);
+            if ( ret == probe_set_id.l + 2 && strncmp(probe_set_id.s, buf, probe_set_id.l) == 0 && buf[probe_set_id.l] == ':' && buf[probe_set_id.l+1] == '1' )
+                hts_getline(snp_posteriors_fp, KS_SEP_LINE, &str);
         }
 
         int idx;
-        if ( probe_set_id )
+        if ( probe_set_id.l > 0 )
         {
-            int ret = khash_str2int_get( annot->probe_set_id, probe_set_id, &idx );
-            if ( ret < 0 ) error("Probe Set %s not found in manifest file\n", probe_set_id);
+            int ret = khash_str2int_get( annot->probe_set_id, probe_set_id.s, &idx );
+            if ( ret < 0 ) error("Probe Set %s not found in manifest file\n", probe_set_id.s);
         }
         else idx = i;
         record_t *record = &annot->records[idx];
@@ -849,7 +873,7 @@ static void process(faidx_t *fai,
 
         if ( bcf_write(out_fh, hdr, rec) < 0 ) error("Unable to write to output VCF file\n");
     }
-    fprintf(stderr, "Lines   total/missing-reference/skipped:\t%d/%d/%d\n", annot->n_records, n_missing, n_skipped);
+    fprintf(stderr, "Lines   total/missing-reference/skipped:\t%d/%d/%d\n", i, n_missing, n_skipped);
 
     free(gts);
     free(gt_arr);
@@ -861,6 +885,7 @@ static void process(faidx_t *fai,
     free(baf_arr);
     free(lrr_arr);
 
+    free(probe_set_id.s);
     free(allele_a.s);
     free(allele_b.s);
     free(flank.s);
@@ -869,10 +894,30 @@ static void process(faidx_t *fai,
     free(off);
     free(off2);
     free(str.s);
-    if ( calls_fp ) hts_close(calls_fp);
-    if ( confidences_fp ) hts_close(confidences_fp);
-    if ( summary_fp ) hts_close(summary_fp);
-    if ( snp_posteriors_fp ) hts_close(snp_posteriors_fp);
+    if ( calls_fp )
+    {
+        if ( hgetc(calls_fp->fp.hfile) != EOF )
+            fprintf(stderr, "Warning: End of calls file %s was not reached\n", calls_fn);
+        hts_close(calls_fp);
+    }
+    if ( confidences_fp )
+    {
+        if ( hgetc(confidences_fp->fp.hfile) != EOF )
+            fprintf(stderr, "Warning: End of confidences file %s was not reached\n", confidences_fn);
+        hts_close(confidences_fp);
+    }
+    if ( summary_fp )
+    {
+        if ( hgetc(summary_fp->fp.hfile) != EOF )
+            fprintf(stderr, "Warning: End of summary file %s was not reached\n", summary_fn);
+        hts_close(summary_fp);
+    }
+    if ( snp_posteriors_fp )
+    {
+        if ( hgetc(snp_posteriors_fp->fp.hfile) != EOF )
+            fprintf(stderr, "Warning: End of SNP posteriors file %s was not reached\n", snp_posteriors_fn);
+        hts_close(snp_posteriors_fp);
+    }
     return;
 }
 
@@ -1018,6 +1063,7 @@ int run(int argc, char *argv[])
     fprintf(stderr, "================================================================================\n");
     fprintf(stderr, "Reading CSV file %s\n", csv_fname);
     annot_t *annot = annot_init(csv_fname, sam_fname, ( ( sam_fname && !ref_fname ) || fasta_flank ) ? output_fname : NULL, flags);
+    fprintf(stderr, "Number of loci = %d\n", annot->n_records);
 
     if ( annot )
     {
