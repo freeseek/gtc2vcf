@@ -937,7 +937,7 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm)
 
     kstring_t str = {0, 0, NULL};
     if ( kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0 ) error("Empty file: %s\n", bpm->fn);
-    if ( strncmp(str.s, "Illumina, Inc.", 14) )
+    if ( strncmp(str.s, "Illumina", 8) )
         error("Header of file %s is incorrect: %s\n", bpm->fn, str.s);
     char *tmp = NULL;
     size_t prev = 0;
