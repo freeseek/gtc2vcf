@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2019 Giulio Genovese
+   Copyright (c) 2018-2020 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -36,7 +36,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2019-12-31"
+#define GTC2VCF_VERSION "2020-01-07"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -1948,8 +1948,12 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags)
         int len = faidx_seq_len(fai, seq);
         bcf_hdr_printf(hdr, "##contig=<ID=%s,length=%d>", seq, len);
     }
-    bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_A,Number=1,Type=Integer,Description=\"A allele\">");
-    bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_B,Number=1,Type=Integer,Description=\"B allele\">");
+
+    if ( ( flags & BPM_LOADED ) | ( flags & CSV_LOADED ) )
+    {
+        bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_A,Number=1,Type=Integer,Description=\"A allele\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_B,Number=1,Type=Integer,Description=\"B allele\">");
+    }
     if ( flags & BPM_LOADED )
     {
         bcf_hdr_append(hdr, "##INFO=<ID=FRAC_A,Number=1,Type=Float,Description=\"Fraction of the A nucleotide in the top genomic sequence\">");
@@ -1985,6 +1989,7 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags)
         bcf_hdr_append(hdr, "##INFO=<ID=meanTHETA_AB,Number=1,Type=Float,Description=\"Mean of normalized THETA for AB cluster\">");
         bcf_hdr_append(hdr, "##INFO=<ID=meanTHETA_BB,Number=1,Type=Float,Description=\"Mean of normalized THETA for BB cluster\">");
     }
+
     bcf_hdr_append(hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">");
     bcf_hdr_append(hdr, "##FORMAT=<ID=GQ,Number=1,Type=Integer,Description=\"Genotype Quality\">");
     if ( flags & FORMAT_IGC ) bcf_hdr_append(hdr, "##FORMAT=<ID=IGC,Number=1,Type=Float,Description=\"Illumina GenCall Confidence Score\">");
@@ -2439,10 +2444,18 @@ static void gs_to_vcf(faidx_t *fai,
     char *top_strand_alleles = (char *)malloc(nsamples*2 * sizeof(char));
     gs_col_t gs_top_strand = {col2sample, GS_TOP_STRAND, top_strand_alleles};
     tsv_register_all(tsv, "TOP_STRAND", tsv_setter_gs_col, &gs_top_strand);
+    const char *strand_alleles = top_strand_alleles;
 
     char *ref_strand_alleles = (char *)malloc(nsamples*2 * sizeof(char));
     gs_col_t gs_ref_strand = {col2sample, GS_REF_STRAND, ref_strand_alleles};
-    tsv_register_all(tsv, "REF_STRAND", tsv_setter_gs_col, &gs_ref_strand);
+    if ( tsv_register_all(tsv, "REF_STRAND", tsv_setter_gs_col, &gs_ref_strand) < 0 )
+        fprintf(stderr, "Warning: Plus/Minus Alleles column is missing from the GenomeStudio table\nThis type of conversion is not recommended and will require +fixref -m top\n");
+    else
+    {
+        strand_alleles = ref_strand_alleles;
+        bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_A,Number=1,Type=Integer,Description=\"A allele\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=ALLELE_B,Number=1,Type=Integer,Description=\"B allele\">");
+    }
 
     gs_col_t gs_igc = {col2sample, GS_IGC, NULL};
     if ( (flags & FORMAT_IGC) && tsv_register_all(tsv, "IGC", tsv_setter_gs_col, &gs_igc) == 0 ) gs_igc.ptr = malloc(nsamples * sizeof(float));
@@ -2498,14 +2511,14 @@ static void gs_to_vcf(faidx_t *fai,
                     case GT_NC:
                         break;
                     case GT_AA:
-                        allele_a[0] = ref_strand_alleles[2*i];
+                        allele_a[0] = strand_alleles[2*i];
                         break;
                     case GT_AB:
-                        allele_a[0] = ref_strand_alleles[2*i];
-                        allele_b[0] = ref_strand_alleles[2*i+1];
+                        allele_a[0] = strand_alleles[2*i];
+                        allele_b[0] = strand_alleles[2*i+1];
                         break;
                     case GT_BB:
-                        allele_b[0] = ref_strand_alleles[2*i];
+                        allele_b[0] = strand_alleles[2*i];
                         break;
                     default:
                         error("Unable to process marker %s\n", rec->d.id);
@@ -2514,7 +2527,7 @@ static void gs_to_vcf(faidx_t *fai,
             }
 
             if ( allele_a[0] == '.' && allele_b[0] == '.' ) allele_b_idx = -1;
-            else if ( allele_a[0] == 'D' || allele_a[0] == 'I' || allele_b[0] == 'D' || allele_b[0] == 'I' )
+            else if ( strand_alleles == top_strand_alleles || allele_a[0] == 'D' || allele_a[0] == 'I' || allele_b[0] == 'D' || allele_b[0] == 'I' )
             {
                 if ( allele_a[0] == 'D' && allele_b[0] == '.' ) allele_b[0] = 'I';
                 if ( allele_a[0] == 'I' && allele_b[0] == '.' ) allele_b[0] = 'D';
@@ -2533,8 +2546,11 @@ static void gs_to_vcf(faidx_t *fai,
             int nals = alleles_ab_to_vcf(alleles, ref_base, allele_a, allele_b, allele_b_idx);
             if ( nals < 0 ) error("Unable to process marker %s\n", rec->d.id);
             bcf_update_alleles(hdr, rec, alleles, nals);
-            bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
-            bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
+            if ( strand_alleles == ref_strand_alleles )
+            {
+                bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
+                bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
+            }
             if ( gc_score == 0 ) bcf_update_info_float(hdr, rec, "GC_SCORE", &total_score, 1);
             if ( frac_a == 0 ) bcf_update_info_float(hdr, rec, "FRAC_A", &frac[0], 1);
             if ( frac_c == 0 ) bcf_update_info_float(hdr, rec, "FRAC_C", &frac[1], 1);
@@ -2627,7 +2643,7 @@ static const char *usage_text(void)
         "        --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)\n"
         "    -x, --sex <file>                output GenCall gender estimate into file\n"
         "        --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name\n"
-        "        --genome-studio <file>      input a genome studio final report file (in matrix format)\n"
+        "        --genome-studio <file>      input a GenomeStudio final report file (in matrix format)\n"
         "        --no-version                do not append version and command line to the header\n"
         "    -o, --output <file>             write output to a file [standard output]\n"
         "    -O, --output-type <b|u|z|v|t>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF\n"
@@ -2809,7 +2825,7 @@ int run(int argc, char *argv[])
         if ( idat_fname ) error("IDAT file only allowed when converting to CSV\n%s", usage_text());
         if ( !bpm_fname && !csv_fname && !gs_fname ) error("Manifest file required when converting to VCF\n%s", usage_text());
         if ( !egt_fname && ( flags & ADJUST_CLUSTERS ) ) error("Cluster file required when adjusting cluster centers\n%s", usage_text());
-        if ( gs_fname && (argc-optind>0 || gtc_list || output_type & FT_TAB_TEXT) ) error("If Genome Studio file provided, do not pass GTC files and do not output to GenomeStudio format\n%s", usage_text());
+        if ( gs_fname && (argc-optind>0 || gtc_list || output_type & FT_TAB_TEXT) ) error("If a GenomeStudio final report file is provided, do not pass GTC files and do not output to GenomeStudio format\n%s", usage_text());
         if ( argc-optind>0 && gtc_list ) error("GTC files cannot be listed through both command interface and file list\n%s", usage_text());
         if ( !gs_fname && !(output_type & FT_TAB_TEXT) && sex_fname ) out_sex = get_file_handle( sex_fname );
     }
@@ -2970,10 +2986,11 @@ int run(int argc, char *argv[])
 
     if ( !binary_to_csv )
     {
+        if ( nfiles == 1 ) fprintf(stderr, "Warning: it is recommended to convert multiple GTC files at once\n");
         if ( output_type & FT_TAB_TEXT )
         {
             fprintf(stderr, "================================================================================\n");
-            fprintf(stderr, "Writing GenomeStudio file\n");
+            fprintf(stderr, "Writing GenomeStudio final report file\n");
             gtcs_to_gs(gtc, nfiles, bpm, egt, out_txt);
         }
         else
