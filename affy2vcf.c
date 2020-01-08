@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2019 Giulio Genovese
+   Copyright (c) 2018-2020 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2019-12-31"
+#define AFFY2VCF_VERSION "2020-01-08"
 
 #define GT_NC -1
 #define GT_AA 0
@@ -141,6 +141,8 @@ static annot_t *annot_init(const char *fn,
     int position_end_idx = -1;
     int strand_idx = -1;
     int flank_idx = -1;
+    int allele_a_idx = -1;
+    int allele_b_idx = -1;
 
     int moff = 0, *off = NULL;
     int ncols = ksplit_core(str.s, ',', &moff, &off);
@@ -154,10 +156,14 @@ static annot_t *annot_init(const char *fn,
         else if ( strcmp(&str.s[off[i]], "\"Position End\"")==0 ) position_end_idx = i;
         else if ( strcmp(&str.s[off[i]], "\"Strand\"")==0 ) strand_idx = i;
         else if ( strcmp(&str.s[off[i]], "\"Flank\"")==0 ) flank_idx = i;
+        else if ( strcmp(&str.s[off[i]], "\"Allele A\"")==0 ) allele_a_idx = i;
+        else if ( strcmp(&str.s[off[i]], "\"Allele B\"")==0 ) allele_b_idx = i;
     }
     if ( probe_set_id_idx != 0 ) error("Probe Set ID not the first column in file: %s\n", fn);
     if ( flank_idx == -1 ) error("Flank missing from file: %s\n", fn);
-    const char *probe_set_id, *flank;
+    if ( allele_a_idx == -1 ) error("Allele A missing from file: %s\n", fn);
+    if ( allele_b_idx == -1 ) error("Allele B missing from file: %s\n", fn);
+    const char *probe_set_id, *flank, *allele_a, *allele_b;
 
     if ( !hts && out_txt )
     {
@@ -190,6 +196,8 @@ static annot_t *annot_init(const char *fn,
             ncols = ksplit_core(str.s, ',', &moff, &off);
             probe_set_id = unquote(&str.s[off[probe_set_id_idx]]);
             flank = unquote(&str.s[off[flank_idx]]);
+            allele_a = unquote(&str.s[off[allele_a_idx]]);
+            allele_b = unquote(&str.s[off[allele_b_idx]]);
             const char *chromosome = NULL;
             int strand = -1, position = 0, idx = -1;
             if ( hts )
@@ -230,6 +238,8 @@ static annot_t *annot_init(const char *fn,
                 for (int i=1; i<ncols; i++)
                 {
                     if (i == flank_idx) fprintf(out_txt, ",\"%s\"", flank);
+                    if (i == allele_a_idx) fprintf(out_txt, ",\"%s\"", flank);
+                    if (i == allele_b_idx) fprintf(out_txt, ",\"%s\"", flank);
                     else if (i == chromosome_idx) fprintf(out_txt, ",\"%s\"", chromosome);
                     else if (i == position_idx)
                     {
@@ -268,7 +278,20 @@ static annot_t *annot_init(const char *fn,
                 }
                 if ( chromosome ) annot->records[annot->n_records].chromosome = strdup(chromosome);
                 annot->records[annot->n_records].position = position;
-                if ( flank ) annot->records[annot->n_records].flank = strdup(flank);
+                if ( flank )
+                {
+                    annot->records[annot->n_records].flank = strdup(flank);
+                    // check whether alleles A and B need to be flipped in the flank sequence (happens with T/C and T/G SNPs only)
+                    char *left = strchr(annot->records[annot->n_records].flank, '[');
+                    char *middle = strchr(annot->records[annot->n_records].flank, '/');
+                    char *right = strchr(annot->records[annot->n_records].flank, ']');
+                    if ( strncmp(left + 1, allele_b, middle - left - 1) == 0 && strncmp(middle + 1, allele_a, right - middle - 1) == 0 )
+                    {
+                        memcpy(left + 1, allele_a, right - middle - 1);
+                        *(left + (right - middle)) = '/';
+                        memcpy(left + (right - middle) + 1, allele_b, middle - left - 1);
+                    }
+                }
                 annot->records[annot->n_records].strand = strand;
                 annot->n_records++;
             }
