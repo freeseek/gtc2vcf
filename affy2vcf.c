@@ -238,8 +238,8 @@ static annot_t *annot_init(const char *fn,
                 for (int i=1; i<ncols; i++)
                 {
                     if (i == flank_idx) fprintf(out_txt, ",\"%s\"", flank);
-                    if (i == allele_a_idx) fprintf(out_txt, ",\"%s\"", flank);
-                    if (i == allele_b_idx) fprintf(out_txt, ",\"%s\"", flank);
+                    if (i == allele_a_idx) fprintf(out_txt, ",\"%s\"", allele_a);
+                    if (i == allele_b_idx) fprintf(out_txt, ",\"%s\"", allele_b);
                     else if (i == chromosome_idx) fprintf(out_txt, ",\"%s\"", chromosome);
                     else if (i == position_idx)
                     {
