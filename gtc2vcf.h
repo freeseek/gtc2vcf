@@ -138,7 +138,7 @@ static inline void flank_reverse_complement(char *flank)
     if (len % 2 == 1) flank[len/2] = revnt( flank[len/2] );
 }
 
-// this is the weird way Illumina left shifts indels
+// this is the weird way Illumina left shifts indels (see https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py)
 static inline void flank_left_shift(char *flank)
 {
     char *left = strchr(flank, '[');
@@ -149,11 +149,22 @@ static inline void flank_left_shift(char *flank)
     int len = (int)(right - middle) - 1;
     while( ( left - flank >= len ) && ( strncmp( left - len, middle + 1, len ) == 0 ) )
     {
-        for (char *ptr = left - len; ptr < right + 1 - len; ptr++) *ptr = *(ptr + len);
+        memmove(left - len, left, right - left + 1);
         left -= len;
         middle -= len;
         right -= len;
-        for (char *ptr = middle + 1; ptr < right; ptr++) *(ptr + len + 1) = *ptr;
+        memmove(right + 1, middle + 1, len);
+    }
+
+    char nt = *(middle + 1);
+    for (const char *ptr = middle + 2; ptr < right; ptr++) if (*ptr != nt) nt = -1;
+    while ( nt > 0 && *(left - 1) == nt )
+    {
+        memmove(left - 1, left, right - left + 1);
+        *right = nt;
+        left--;
+        middle--;
+        right--;
     }
 }
 
@@ -205,15 +216,21 @@ static inline int get_position(htsFile *hts,
                 if ( left_shift )
                 {
                     int len = (int)(right - middle) - 1;
+                    char nt = *(middle + 1);
+                    const char *ptr;
+                    for (ptr = middle + 2; ptr < right; ptr++) if (*ptr != nt) nt = -1;
                     if ( bam_is_rev(b) )
                     {
-                        const char *ptr = right + 1;
-                        while( strncmp( middle + 1, ptr, len ) == 0 ) { qlen -= len; ptr += len; }
+                        ptr = right + 1;
+                        while( strncasecmp( middle + 1, ptr, len ) == 0 ) { qlen -= len; ptr += len; }
+                        while ( nt > 0 && *ptr == nt ) { qlen--; ptr++; }
                     }
                     else
                     {
-                        const char *ptr = left - len;
+                        ptr = left - len;
                         while( ptr >= flank && ( strncasecmp( ptr, middle + 1, len ) == 0 ) ) { qlen -= len; ptr -= len; }
+                        ptr += len - 1;
+                        while ( nt > 0 && *ptr == nt ) { qlen--; ptr--; }
                     }
                 }
                 if ( idx == 0 ) qlen--;
