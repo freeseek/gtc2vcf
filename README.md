@@ -321,6 +321,8 @@ HumanOmni1-Quad_v1-0_H
 ```
 We advise to either contact Illumina to demand a fixed version or to use gtc2vcf to realign the source sequences
 
+Also, Illumina assigns chromosomal positions to indels by first left aligning the source sequences in an incoherent way (see <a href="https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py">here</a>). Apparently this is incoherent enough that Illumina also cannot get the coordinates of homopolymer indels right. For example, chromosome 13 ClinVar indel <a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/37959">rs80359507</a> is assigned to position 32913838 in the manifest file for the GSA-24v2-0 array, but it is assigned to position 32913837 in the manifest file for GSA-24v3-0 array (GRCh37 coordinates). If you want to trust genotypes at homopolymer indels, we advise to use gtc2vcf to realign the source sequences
+
 Convert Affymetrix CEL files to genotype calls
 ==============================================
 
