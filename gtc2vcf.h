@@ -72,6 +72,7 @@ static inline void flank2fasta(const char *name,
 
 static inline int bcf_hdr_name2id_flexible(const bcf_hdr_t *hdr, char *chr)
 {
+    if (!chr) return -1;
     char buf[] = {'c', 'h', 'r', '\0', '\0', '\0'};
     int rid = bcf_hdr_name2id(hdr, chr);
     if ( rid >= 0 ) return rid;
@@ -216,21 +217,21 @@ static inline int get_position(htsFile *hts,
                 if ( left_shift )
                 {
                     int len = (int)(right - middle) - 1;
-                    char nt = *(middle + 1);
+                    char nt = toupper(*(middle + 1));
                     const char *ptr;
                     for (ptr = middle + 2; ptr < right; ptr++) if (*ptr != nt) nt = -1;
                     if ( bam_is_rev(b) )
                     {
                         ptr = right + 1;
                         while( strncasecmp( middle + 1, ptr, len ) == 0 ) { qlen -= len; ptr += len; }
-                        while ( nt > 0 && *ptr == nt ) { qlen--; ptr++; }
+                        while ( nt > 0 && toupper(*ptr) == nt ) { qlen--; ptr++; }
                     }
                     else
                     {
                         ptr = left - len;
                         while( ptr >= flank && ( strncasecmp( ptr, middle + 1, len ) == 0 ) ) { qlen -= len; ptr -= len; }
                         ptr += len - 1;
-                        while ( nt > 0 && *ptr == nt ) { qlen--; ptr--; }
+                        while ( nt > 0 && toupper(*ptr) == nt ) { qlen--; ptr--; }
                     }
                 }
                 if ( idx == 0 ) qlen--;

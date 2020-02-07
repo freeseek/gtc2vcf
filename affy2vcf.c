@@ -369,6 +369,7 @@ static report_t *report_init(const char *fn)
 static void report_destroy(report_t *report)
 {
     for (int i=0; i<report->n_samples; i++) free(report->cel_files[i]);
+    free(report->cel_files);
     free(report->genders);
     free(report);
 }
@@ -765,17 +766,17 @@ static void process(faidx_t *fai,
         }
         else idx = i;
         record_t *record = &annot->records[idx];
-        if ( !record->chromosome || record->position == 0 || record->strand < 0 || !record->flank )
+        bcf_clear(rec);
+        rec->n_sample = nsmpl;
+        rec->rid = bcf_hdr_name2id_flexible(hdr, record->chromosome);
+        rec->pos = record->position - 1;
+        if ( rec->rid < 0 || rec->pos < 0 || record->strand < 0 || !record->flank )
         {
             if ( flags & VERBOSE ) fprintf(stderr, "Skipping unlocalized marker %s\n", record->probe_set_id);
             n_skipped++;
             continue;
         }
 
-        bcf_clear(rec);
-        rec->n_sample = nsmpl;
-        rec->rid = bcf_hdr_name2id_flexible(hdr, record->chromosome);
-        rec->pos = record->position - 1;
         if ( record->dbsnp_rs_id ) bcf_update_id(hdr, rec, record->dbsnp_rs_id);
         else if ( record->affy_snp_id ) bcf_update_id(hdr, rec, record->affy_snp_id);
         else bcf_update_id(hdr, rec, record->probe_set_id);
