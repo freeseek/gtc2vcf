@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2020-01-08"
+#define AFFY2VCF_VERSION "2020-02-09"
 
 #define GT_NC -1
 #define GT_AA 0
@@ -112,9 +112,9 @@ static annot_t *annot_init(const char *fn,
     {
         hts = hts_open(sam_fn, "r");
         if ( hts == NULL || hts_get_format(hts)->category != sequence_data )
-            error("File %s does not contain sequence data\n", fn);
+            error("File %s does not contain sequence data\n", sam_fn);
         sam_hdr = sam_hdr_read(hts);
-        if ( sam_hdr == NULL ) error("Reading header from \"%s\" failed", fn);
+        if ( sam_hdr == NULL ) error("Reading header from \"%s\" failed", sam_fn);
         b = bam_init1();
         if ( b == NULL ) error("Cannot create SAM record\n");
     }
@@ -128,6 +128,7 @@ static annot_t *annot_init(const char *fn,
     {
         if ( strcmp( str.s, "#%netaffx-annotation-tabular-format-version=1.0" ) == 0 ) null_strand = "---";
         if ( strcmp( str.s, "#%netaffx-annotation-tabular-format-version=1.5" ) == 0 ) null_strand = "+";
+        if ( hts && out_txt ) fprintf(out_txt, "%s\n", str.s);
         hts_getline(fp, KS_SEP_LINE, &str);
     }
 
@@ -240,7 +241,11 @@ static annot_t *annot_init(const char *fn,
                     if (i == flank_idx) fprintf(out_txt, ",\"%s\"", flank);
                     if (i == allele_a_idx) fprintf(out_txt, ",\"%s\"", allele_a);
                     if (i == allele_b_idx) fprintf(out_txt, ",\"%s\"", allele_b);
-                    else if (i == chromosome_idx) fprintf(out_txt, ",\"%s\"", chromosome);
+                    else if (i == chromosome_idx)
+                    {
+                        if (chromosome) fprintf(out_txt, ",\"%s\"", chromosome);
+                        else fprintf(out_txt, ",\"---\"");
+                    }
                     else if (i == position_idx)
                     {
                         if ( position ) fprintf(out_txt, ",\"%d\"", position);
@@ -1087,7 +1092,6 @@ int run(int argc, char *argv[])
     fprintf(stderr, "================================================================================\n");
     fprintf(stderr, "Reading CSV file %s\n", csv_fname);
     annot_t *annot = annot_init(csv_fname, sam_fname, ( ( sam_fname && !ref_fname ) || fasta_flank ) ? output_fname : NULL, flags);
-    fprintf(stderr, "Number of loci = %d\n", annot->n_records);
 
     if ( annot )
     {
