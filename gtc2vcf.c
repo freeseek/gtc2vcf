@@ -36,7 +36,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-01-14"
+#define GTC2VCF_VERSION "2020-04-01"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -1098,7 +1098,7 @@ static void clusterscore_read(ClusterScore *clusterscore, hFILE *fp)
     read_bytes(fp, (void *)&clusterscore->edited, sizeof(uint8_t));
 }
 
-static void clusterrecord_read(ClusterRecord *clusterrecord, hFILE *fp)
+static void clusterrecord_read(ClusterRecord *clusterrecord, hFILE *fp, int32_t data_block_version)
 {
     read_bytes(fp, (void *)&clusterrecord->aa_cluster_stats.N, sizeof(int32_t));
     read_bytes(fp, (void *)&clusterrecord->ab_cluster_stats.N, sizeof(int32_t));
@@ -1115,8 +1115,11 @@ static void clusterrecord_read(ClusterRecord *clusterrecord, hFILE *fp)
     read_bytes(fp, (void *)&clusterrecord->aa_cluster_stats.theta_mean, sizeof(float));
     read_bytes(fp, (void *)&clusterrecord->ab_cluster_stats.theta_mean, sizeof(float));
     read_bytes(fp, (void *)&clusterrecord->bb_cluster_stats.theta_mean, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->intensity_threshold, sizeof(float));
-    read_bytes(fp, NULL, 14 * sizeof(float));
+    if ( data_block_version >= 7 )
+    {
+        read_bytes(fp, (void *)&clusterrecord->intensity_threshold, sizeof(float));
+        read_bytes(fp, NULL, 14 * sizeof(float));
+    }
 }
 
 static egt_t *egt_init(const char *fn)
@@ -1142,12 +1145,13 @@ static egt_t *egt_init(const char *fn)
     read_pfx_string(egt->fp, &egt->manifest_name, NULL);
 
     read_bytes(egt->fp, (void *)&egt->data_block_version, sizeof(int32_t));
-    if ( egt->data_block_version < 7 || egt->data_block_version > 9 ) error("Data block version %d in cluster file not supported\n", egt->data_block_version);
+    if ( egt->data_block_version < 5 || egt->data_block_version == 6 || egt->data_block_version > 9 )
+        error("Data block version %d in cluster file not supported\n", egt->data_block_version);
     read_pfx_string(egt->fp, NULL, NULL); // opa
 
     read_bytes(egt->fp, (void *)&egt->num_records, sizeof(int32_t));
     egt->cluster_records = (ClusterRecord *)malloc(egt->num_records * sizeof(ClusterRecord));
-    for (int i=0; i<egt->num_records; i++) clusterrecord_read(&egt->cluster_records[i], egt->fp);
+    for (int i=0; i<egt->num_records; i++) clusterrecord_read(&egt->cluster_records[i], egt->fp, egt->data_block_version);
     for (int i=0; i<egt->num_records; i++) clusterscore_read(&egt->cluster_records[i].cluster_score, egt->fp);
 
     // toss useless strings such as aa_ab_bb/aa_ab/aa_bb/ab_bb
@@ -2971,17 +2975,6 @@ int run(int argc, char *argv[])
             error("Manifest name %s in BPM file %s does not match manifest name %s in GTC file %s\n", bpm->manifest_name, bpm->fn, gtc[i]->snp_manifest, gtc[i]->fn);
         if ( flags & VERBOSE ) gtc_summary(gtc[i], stderr);
         if ( binary_to_csv ) gtc_to_csv(gtc[i], out_txt);
-
-        // update sample name
-        if ( !gtc[i]->sample_name ||  strcmp( gtc[i]->sample_name, "" ) == 0 )
-        {
-            char *ptr = strrchr( gtc[i]->fn, '/' );
-            if ( ptr ) ptr++; else ptr = gtc[i]->fn;
-            free( gtc[i]->sample_name );
-            gtc[i]->sample_name = strdup( ptr );
-            ptr = strstr( gtc[i]->sample_name, ".gtc" );
-            if ( ptr ) *ptr = '\0';
-        }
     }
 
     if ( !binary_to_csv )
@@ -3012,12 +3005,21 @@ int run(int argc, char *argv[])
             }
             else
             {
+                kstring_t str = {0, 0, NULL};
                 for (int i=0; i<nfiles; i++)
                 {
-                    if ( bcf_hdr_add_sample(hdr, gtc[i]->sample_name) < 0 )
+                    // retrieve sample ID from file name
+                    char *ptr = strrchr( gtc[i]->fn, '/' );
+                    if ( ptr ) ptr++; else ptr = gtc[i]->fn;
+                    str.l = 0;
+                    kputs(ptr, &str);
+                    ptr = strstr( str.s, ".gtc" );
+                    if ( ptr ) *ptr = '\0';
+                    if ( bcf_hdr_add_sample(hdr, str.s) < 0 )
                         error("GTC files must correspond to different samples\n");
-                    if ( out_sex ) fprintf(out_sex, "%s\t%c\n", gtc[i]->sample_name, gtc[i]->gender);
+                    if ( out_sex ) fprintf(out_sex, "%s\t%c\n", str.s, gtc[i]->gender);
                 }
+                free(str.s);
                 gtcs_to_vcf(fai, bpm, egt, gtc, nfiles, out_fh, hdr, flags);
             }
         }
