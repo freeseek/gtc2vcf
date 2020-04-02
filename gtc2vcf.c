@@ -26,7 +26,9 @@
 
 #include <getopt.h>
 #include <errno.h>
+#include <dirent.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <htslib/hfile.h>
 #include <htslib/faidx.h>
 #include <htslib/vcf.h>
@@ -2632,7 +2634,7 @@ static const char *usage_text(void)
         "\n"
         "About: convert Illumina GTC files containing intensity data into VCF. (version "GTC2VCF_VERSION" https://github.com/freeseek/gtc2vcf)\n"
         "\n"
-        "Usage: bcftools +gtc2vcf [options] <A.gtc> [...]\n"
+        "Usage: bcftools +gtc2vcf [options] [<A.gtc> ...]\n"
         "\n"
         "Plugin options:\n"
         "    -l, --list-tags                 list available tags with description for VCF output\n"
@@ -2643,7 +2645,7 @@ static const char *usage_text(void)
         "    -e  --egt <file>                EGT cluster file\n"
         "    -f, --fasta-ref <file>          reference sequence in fasta format\n"
         "        --set-cache-size <int>      select fasta cache size in bytes\n"
-        "    -g, --gtc-list <file>           read list of GTC file names from file\n"
+        "    -g, --gtcs <dir|file>           GTC genotype files from directory or list from file\n"
         "        --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)\n"
         "    -x, --sex <file>                output GenCall gender estimate into file\n"
         "        --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name\n"
@@ -2725,7 +2727,7 @@ int run(int argc, char *argv[])
     const char *gs_fname = NULL;
     const char *output_fname = "-";
     const char *ref_fname = NULL;
-    const char *gtc_list = NULL;
+    const char *gtc_pathname = NULL;
     const char *sex_fname = NULL;
     const char *sam_fname = NULL;
     const char *genome_build = "GRCh38";
@@ -2753,7 +2755,7 @@ int run(int argc, char *argv[])
         {"egt", required_argument, NULL, 'e'},
         {"fasta-ref", required_argument, NULL, 'f'},
         {"set-cache-size", required_argument, NULL, 1},
-        {"gtc-list", required_argument, NULL, 'g'},
+        {"gtcs", required_argument, NULL, 'g'},
         {"adjust-clusters", no_argument, NULL, 2},
         {"sex", required_argument, NULL, 'x'},
         {"do-not-check-bpm", no_argument, NULL, 3},
@@ -2782,7 +2784,7 @@ int run(int argc, char *argv[])
             case 'e': egt_fname = optarg; break;
             case 'f': ref_fname = optarg; break;
             case  1 : cache_size = strtol(optarg, NULL, 0); break;
-            case 'g': gtc_list = optarg; break;
+            case 'g': gtc_pathname = optarg; break;
             case  2 : flags |= ADJUST_CLUSTERS; break;
             case 'x': sex_fname = optarg; break;
             case  3 : bpm_check = 0; break;
@@ -2829,18 +2831,45 @@ int run(int argc, char *argv[])
         if ( idat_fname ) error("IDAT file only allowed when converting to CSV\n%s", usage_text());
         if ( !bpm_fname && !csv_fname && !gs_fname ) error("Manifest file required when converting to VCF\n%s", usage_text());
         if ( !egt_fname && ( flags & ADJUST_CLUSTERS ) ) error("Cluster file required when adjusting cluster centers\n%s", usage_text());
-        if ( gs_fname && (argc-optind>0 || gtc_list || output_type & FT_TAB_TEXT) ) error("If a GenomeStudio final report file is provided, do not pass GTC files and do not output to GenomeStudio format\n%s", usage_text());
-        if ( argc-optind>0 && gtc_list ) error("GTC files cannot be listed through both command interface and file list\n%s", usage_text());
+        if ( gs_fname && (argc-optind>0 || gtc_pathname || output_type & FT_TAB_TEXT) ) error("If a GenomeStudio final report file is provided, do not pass GTC files and do not output to GenomeStudio format\n%s", usage_text());
+        if ( argc-optind>0 && gtc_pathname ) error("GTC files cannot be listed through both command interface and file list\n%s", usage_text());
         if ( !gs_fname && !(output_type & FT_TAB_TEXT) && sex_fname ) out_sex = get_file_handle( sex_fname );
     }
     flags |= parse_tags(tag_list);
 
-    int nfiles;
-    char **files;
-    if ( gtc_list )
+    int nfiles = 0;
+    char **files = NULL;
+    if ( gtc_pathname )
     {
-        files = hts_readlines(gtc_list, &nfiles);
-        if ( !files ) error("Failed to read from file %s\n", gtc_list);
+       struct stat statbuf;
+       if ( stat(gtc_pathname, &statbuf) < 0 ) error("Can't open \"%s\": %s\n", gtc_pathname, strerror(errno));
+       if ( S_ISDIR(statbuf.st_mode) )
+       {
+           DIR *d = opendir(gtc_pathname);
+           struct dirent *dir;
+           int mfiles = 0;
+           int p = strlen(gtc_pathname);
+           while ( ( dir = readdir(d) ) )
+           {
+               const char *ptr = strrchr( dir->d_name, '.' );
+               if ( ptr && strcmp(ptr + 1, "gtc") == 0 )
+               {
+                   hts_expand0(char*, nfiles + 1, mfiles, files);
+                   int q = strlen(dir->d_name);
+                   files[nfiles] = (char *)malloc((p + q + 2) * sizeof(char));
+                   memcpy(files[nfiles], gtc_pathname, p);
+                   files[nfiles][p] = '/';
+                   memcpy(files[nfiles] + p + 1, dir->d_name, q + 1);
+                   nfiles++;
+               }
+           }
+           closedir(d);
+       }
+       else
+       {
+           files = hts_readlines(gtc_pathname, &nfiles);
+           if ( !files ) error("Failed to read from file %s\n", gtc_pathname);
+       }
     }
     else
     {
@@ -3029,7 +3058,7 @@ int run(int argc, char *argv[])
     fai_destroy(fai);
     egt_destroy(egt);
     bpm_destroy(bpm);
-    if ( gtc_list )
+    if ( gtc_pathname )
     {
         for (int i=0; i<nfiles; i++) free(files[i]);
         free(files);

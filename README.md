@@ -10,7 +10,7 @@ Usage
 
 Illumina tool:
 ```
-Usage: bcftools +gtc2vcf [options] <A.gtc> [...]
+Usage: bcftools +gtc2vcf [options] [<A.gtc> ...]
 
 Plugin options:
     -l, --list-tags                 list available tags with description for VCF output
@@ -21,7 +21,7 @@ Plugin options:
     -e  --egt <file>                EGT cluster file
     -f, --fasta-ref <file>          reference sequence in fasta format
         --set-cache-size <int>      select fasta cache size in bytes
-    -g, --gtc-list <file>           read list of GTC file names from file
+    -g, --gtcs <dir|file>           GTC genotype files from directory or list from file
         --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)
     -x, --sex <file>                output GenCall gender estimate into file
         --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name
@@ -264,7 +264,7 @@ Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumi
 bpm_manifest_file="..."
 csv_manifest_file="..."
 egt_cluster_file="..."
-gtc_list_file="..."
+path_to_output_folder="..."
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 out_prefix="..."
 bcftools +gtc2vcf \
@@ -272,7 +272,7 @@ bcftools +gtc2vcf \
   -b $bpm_manifest_file \
   -c $csv_manifest_file \
   -e $egt_cluster_file \
-  -g $gtc_list_file \
+  -g $path_to_output_folder \
   -f $ref \
   -x $out_prefix.sex | \
   bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
