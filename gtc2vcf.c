@@ -2870,6 +2870,7 @@ int run(int argc, char *argv[])
            files = hts_readlines(gtc_pathname, &nfiles);
            if ( !files ) error("Failed to read from file %s\n", gtc_pathname);
        }
+       if ( nfiles == 0 ) error("No GTC files found in %s\n", gtc_pathname);
     }
     else
     {
