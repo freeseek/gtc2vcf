@@ -38,7 +38,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-04-01"
+#define GTC2VCF_VERSION "2020-04-05"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -738,7 +738,7 @@ static void bpm_to_csv(const bpm_t *bpm,
                 locus_entry->frac_c,
                 locus_entry->frac_g,
                 locus_entry->frac_t,
-                locus_entry->ref_strand);
+                locus_entry->ref_strand ? locus_entry->ref_strand : "");
         }
     }
     else if ( flags & CSV_LOADED )
@@ -770,7 +770,7 @@ static void bpm_to_csv(const bpm_t *bpm,
                 locus_entry->top_genomic_seq,
                 locus_entry->beadset_id,
                 locus_entry->exp_clusters,
-                locus_entry->ref_strand);
+                locus_entry->ref_strand ? locus_entry->ref_strand : "");
         }
     }
     free(address_b.s);
@@ -1978,7 +1978,10 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags)
     }
     if ( flags & EGT_LOADED )
     {
-        bcf_hdr_append(hdr, "##INFO=<ID=GC_SCORE,Number=1,Type=Float,Description=\"Score for a SNP from the GenTrain clustering algorithm\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=GenTrain_Score,Number=1,Type=Float,Description=\"The SNP cluster quality from the GenTrain clustering algorithm\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=Orig_Score,Number=1,Type=Float,Description=\"The original GenTrain score for the SNP before edits\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=Edited,Number=0,Type=Flag,Description=\"The SNP was edited after identifying clustering positions\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=Cluster_Sep,Number=1,Type=Float,Description=\"The cluster separation measurement for the SNP that ranges between 0 and 1\">");
         bcf_hdr_append(hdr, "##INFO=<ID=N_AA,Number=1,Type=Integer,Description=\"Number of AA calls in training set\">");
         bcf_hdr_append(hdr, "##INFO=<ID=N_AB,Number=1,Type=Integer,Description=\"Number of AB calls in training set\">");
         bcf_hdr_append(hdr, "##INFO=<ID=N_BB,Number=1,Type=Integer,Description=\"Number of BB calls in training set\">");
@@ -1994,6 +1997,7 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags)
         bcf_hdr_append(hdr, "##INFO=<ID=meanTHETA_AA,Number=1,Type=Float,Description=\"Mean of normalized THETA for AA cluster\">");
         bcf_hdr_append(hdr, "##INFO=<ID=meanTHETA_AB,Number=1,Type=Float,Description=\"Mean of normalized THETA for AB cluster\">");
         bcf_hdr_append(hdr, "##INFO=<ID=meanTHETA_BB,Number=1,Type=Float,Description=\"Mean of normalized THETA for BB cluster\">");
+        bcf_hdr_append(hdr, "##INFO=<ID=Intensity_Threshold,Number=1,Type=Float,Description=\"The intensity threshold value\">");
     }
 
     bcf_hdr_append(hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">");
@@ -2185,7 +2189,10 @@ static void gtcs_to_vcf(faidx_t *fai,
                     get_baf_lrr(ilmn_theta_arr[i], ilmn_r_arr[i], &egt->cluster_records[j], &baf_arr[i], &lrr_arr[i]);
                 }
             }
-            bcf_update_info_float(hdr, rec, "GC_SCORE", &egt->cluster_records[j].cluster_score.total_score, 1);
+            bcf_update_info_float(hdr, rec, "GenTrain_Score", &egt->cluster_records[j].cluster_score.total_score, 1);
+            bcf_update_info_float(hdr, rec, "Orig_Score", &egt->cluster_records[j].cluster_score.original_score, 1);
+            if (egt->cluster_records[j].cluster_score.edited) bcf_update_info_flag(hdr, rec, "Edited", NULL, 1);
+            bcf_update_info_float(hdr, rec, "Cluster_Sep", &egt->cluster_records[j].cluster_score.cluster_separation, 1);
             bcf_update_info_int32(hdr, rec, "N_AA", &egt->cluster_records[j].aa_cluster_stats.N, 1);
             bcf_update_info_int32(hdr, rec, "N_AB", &egt->cluster_records[j].ab_cluster_stats.N, 1);
             bcf_update_info_int32(hdr, rec, "N_BB", &egt->cluster_records[j].bb_cluster_stats.N, 1);
@@ -2201,6 +2208,7 @@ static void gtcs_to_vcf(faidx_t *fai,
             bcf_update_info_float(hdr, rec, "meanTHETA_AA", &egt->cluster_records[j].aa_cluster_stats.theta_mean, 1);
             bcf_update_info_float(hdr, rec, "meanTHETA_AB", &egt->cluster_records[j].ab_cluster_stats.theta_mean, 1);
             bcf_update_info_float(hdr, rec, "meanTHETA_BB", &egt->cluster_records[j].bb_cluster_stats.theta_mean, 1);
+            bcf_update_info_float(hdr, rec, "Intensity_Threshold", &egt->cluster_records[j].intensity_threshold, 1);
         }
 
         gts_to_gt_arr( gt_arr, gts, n, allele_a_idx, allele_b_idx );
@@ -2408,7 +2416,7 @@ static void gs_to_vcf(faidx_t *fai,
             else if ( strcmp(ptr, "Chr")==0 || strcmp(ptr, "Chromosome")==0 ) kputs("CHROM", &str);
             else if ( strcmp(ptr, "Manifest")==0 ) kputc('-', &str);
             else if ( strcmp(ptr, "Position")==0 ) kputs("POS", &str);
-            else if ( strcmp(ptr, "GenTrain Score")==0 ) kputs("GC_SCORE", &str);
+            else if ( strcmp(ptr, "GenTrain Score")==0 ) kputs("GENTRAIN_SCORE", &str);
             else if ( strcmp(ptr, "Frac A")==0 ) kputs("FRAC_A", &str);
             else if ( strcmp(ptr, "Frac C")==0 ) kputs("FRAC_C", &str);
             else if ( strcmp(ptr, "Frac G")==0 ) kputs("FRAC_G", &str);
@@ -2429,8 +2437,8 @@ static void gs_to_vcf(faidx_t *fai,
     tsv_register(tsv, "ID", tsv_setter_id, hdr);
 
     float total_score;
-    int gc_score = tsv_register(tsv, "GC_SCORE", tsv_read_float, &total_score);
-    if ( gc_score == 0 ) bcf_hdr_append(hdr, "##INFO=<ID=GC_SCORE,Number=1,Type=Float,Description=\"Score for a SNP from the GenTrain clustering algorithm\">");
+    int gentrain_score = tsv_register(tsv, "GENTRAIN_SCORE", tsv_read_float, &total_score);
+    if ( gentrain_score ) bcf_hdr_append(hdr, "##INFO=<ID=GenTrain_Score,Number=1,Type=Float,Description=\"The SNP cluster quality from the GenTrain clustering algorithm\">");
     float frac[4];
     int frac_a = tsv_register(tsv, "FRAC_A", tsv_read_float, &frac[0]);
     if ( frac_a == 0 ) bcf_hdr_append(hdr, "##INFO=<ID=FRAC_A,Number=1,Type=Float,Description=\"Fraction of the A nucleotide in the top genomic sequence\">");
@@ -2557,7 +2565,7 @@ static void gs_to_vcf(faidx_t *fai,
                 bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
                 bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
             }
-            if ( gc_score == 0 ) bcf_update_info_float(hdr, rec, "GC_SCORE", &total_score, 1);
+            if ( gentrain_score == 0 ) bcf_update_info_float(hdr, rec, "GenTrain_Score", &total_score, 1);
             if ( frac_a == 0 ) bcf_update_info_float(hdr, rec, "FRAC_A", &frac[0], 1);
             if ( frac_c == 0 ) bcf_update_info_float(hdr, rec, "FRAC_C", &frac[1], 1);
             if ( frac_g == 0 ) bcf_update_info_float(hdr, rec, "FRAC_G", &frac[2], 1);
@@ -3025,7 +3033,7 @@ int run(int argc, char *argv[])
             if ( csv_fname ) bcf_hdr_printf(hdr, "##CSV=%s", strrchr(csv_fname, '/') ? strrchr(csv_fname, '/') + 1 : csv_fname);
             if ( egt_fname ) bcf_hdr_printf(hdr, "##EGT=%s", strrchr(egt_fname, '/') ? strrchr(egt_fname, '/') + 1 : egt_fname);
             if ( sam_fname ) bcf_hdr_printf(hdr, "##SAM=%s", strrchr(sam_fname, '/') ? strrchr(sam_fname, '/') + 1 : sam_fname);
-            if ( bpm && bpm->norm_lookups ) bcf_hdr_printf(hdr, "##BeadSet_Order=%s", str.s);
+            if ( bpm && flags & BPM_LOOKUPS ) bcf_hdr_printf(hdr, "##BeadSet_Order=%s", str.s);
             if ( record_cmd_line ) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+gtc2vcf");
             if ( gs_fname )
             {
