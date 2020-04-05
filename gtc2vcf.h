@@ -97,7 +97,7 @@ static inline int bcf_hdr_name2id_flexible(const bcf_hdr_t *hdr, char *chr)
     return rid;
 }
 
-static inline char revnt(char iupac)
+static inline char rev_nt(char iupac)
 {
     static const char iupac_complement[128] = {
           0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
@@ -133,10 +133,10 @@ static inline void flank_reverse_complement(char *flank)
     for (size_t i=0; i<len/2; i++)
     {
         char tmp = flank[i];
-        flank[i] = revnt( flank[len-i-1] );
-        flank[len-i-1] = revnt( tmp );
+        flank[i] = rev_nt( flank[len-i-1] );
+        flank[len-i-1] = rev_nt( tmp );
     }
-    if (len % 2 == 1) flank[len/2] = revnt( flank[len/2] );
+    if (len % 2 == 1) flank[len/2] = rev_nt( flank[len/2] );
 }
 
 // this is the weird way Illumina left shifts indels (see https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py)

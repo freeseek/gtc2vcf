@@ -1865,6 +1865,20 @@ static void adjust_clusters(const uint8_t *gts,
  * CONVERSION UTILITIES                 *
  ****************************************/
 
+static inline char rev_allele(char allele)
+{
+    static const char allele_complement[128] = {
+          0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+          0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+          0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+          0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+          0,'T',  0,'G','I',  0,  0,'C',  0,'D',  0,  0,  0,  0,  0,  0,
+          0,  0,  0,  0,'A',  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,
+    };
+    if ( allele > 95 ) return 0;
+    return allele_complement[(int)allele];
+}
+
 static void gtcs_to_gs(gtc_t **gtc,
                        int n,
                        const bpm_t *bpm,
@@ -1904,8 +1918,8 @@ static void gtcs_to_gs(gtc_t **gtc,
             get_element(gtc[i]->base_calls, (void *)&base_call, j);
             intensities_t intensities;
             get_intensities(gtc[i], bpm, egt, j, &intensities);
-            char allele_a = strand ? revnt(locus_entry->snp[1]) : locus_entry->snp[1];
-            char allele_b = strand ? revnt(locus_entry->snp[3]) : locus_entry->snp[3];
+            char allele_a = strand ? rev_allele(locus_entry->snp[1]) : locus_entry->snp[1];
+            char allele_b = strand ? rev_allele(locus_entry->snp[3]) : locus_entry->snp[3];
             BaseCall ref_call;
             switch ( genotype )
             {
@@ -2124,8 +2138,8 @@ static void gtcs_to_vcf(faidx_t *fai,
         }
         else
         {
-            kputc(strand ? revnt(locus_entry->snp[1]) : locus_entry->snp[1], &allele_a);
-            kputc(strand ? revnt(locus_entry->snp[3]) : locus_entry->snp[3], &allele_b);
+            kputc(strand ? rev_allele(locus_entry->snp[1]) : locus_entry->snp[1], &allele_a);
+            kputc(strand ? rev_allele(locus_entry->snp[3]) : locus_entry->snp[3], &allele_b);
             ref_base[0] = get_ref_base( fai, hdr, rec );
             allele_b_idx = get_allele_b_idx( ref_base[0], allele_a.s, allele_b.s );
             if ( locus_entry->snp[1] == 'D' || locus_entry->snp[3] == 'I' || locus_entry->snp[1] == 'D' || locus_entry->snp[3] == 'I' ) ref_is_del = -1;
