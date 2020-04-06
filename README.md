@@ -5,6 +5,19 @@ A set of tools to convert Illumina and Affymetrix array intensity data files int
 
 ![](gtc2vcf.png)
 
+<!--ts-->
+   * [Usage](#usage)
+   * [Installation](#installation)
+   * [Software Installation](#software-installation)
+   * [Convert Illumina IDAT files to GTC files](#convert-illumina-idat-files-to-gtc-files)
+   * [Convert Illumina GTC files to VCF](#convert-illumina-idat-files-to-gtc-files)
+   * [Using a reference not provided by Illumina](#using-a-reference-not-provided-by-illumina)
+   * [Convert Affymetrix CEL files to genotype calls](#convert-affymetrix-cel-files-to-genotype-calls)
+   * [Convert Affymetrix genotype calls and intensities to VCF](#convert-affymetrix-genotype-calls-and-intensities-to-vcf)
+   * [Plot variants](#plot-variants)
+   * [Acknowledgements](#acknowledgements)
+<!--te-->
+
 Usage
 =====
 
