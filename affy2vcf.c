@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2020-04-05"
+#define AFFY2VCF_VERSION "2020-04-07"
 
 #define GT_NC -1
 #define GT_AA 0
@@ -1139,7 +1139,6 @@ static const char *usage_text(void)
 	return "\n"
 	       "About: convert Affymetrix apt-probeset-genotype output files to VCF. (version " AFFY2VCF_VERSION
 	       " https://github.com/freeseek/gtc2vcf)\n"
-	       "\n"
 	       "Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> --calls <file>\n"
 	       "                                    --confidences <file> --summary <file> --snp-posteriors <file>\n"
 	       "\n"

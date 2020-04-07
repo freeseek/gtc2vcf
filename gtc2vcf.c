@@ -38,7 +38,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-04-05"
+#define GTC2VCF_VERSION "2020-04-07"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -3024,7 +3024,7 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
 
 const char *about(void)
 {
-	return "Convert GTC files to VCF.\n";
+	return "Convert Illumina GTC files to VCF.\n";
 }
 
 static const char *usage_text(void)
@@ -3032,7 +3032,6 @@ static const char *usage_text(void)
 	return "\n"
 	       "About: convert Illumina GTC files containing intensity data into VCF. (version " GTC2VCF_VERSION
 	       " https://github.com/freeseek/gtc2vcf)\n"
-	       "\n"
 	       "Usage: bcftools +gtc2vcf [options] [<A.gtc> ...]\n"
 	       "\n"
 	       "Plugin options:\n"
