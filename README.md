@@ -116,7 +116,7 @@ Installation
 
 Install basic tools (Debian/Ubuntu specific if you have admin privileges)
 ```
-sudo apt install wget autoconf zlib1g-dev bwa gzip unzip samtools msitools cabextract mono-devel libgdiplus r-cran-optparse r-cran-ggplot2
+sudo apt install wget autoconf zlib1g-dev bwa gzip unzip samtools msitools cabextract mono-devel libgdiplus bcftools
 ```
 
 Optionally, you can install these libraries to activate further HTSlib features:
@@ -129,7 +129,7 @@ Preparation steps
 mkdir -p $HOME/bin $HOME/res && cd /tmp
 ```
 
-We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download <a href="http://software.broadinstitute.org/software/gtc2vcf">here</a>
+We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download <a href="http://software.broadinstitute.org/software/gtc2vcf">here</a>. However, notice that you will require a copy of BCFtools 1.10 or newer (available with Ubuntu 20.04)
 
 Download latest version of <a href="https://github.com/samtools/htslib">HTSlib</a> and <a href="https://github.com/samtools/bcftools">BCFtools</a> (if not downloaded already)
 ```
@@ -398,7 +398,7 @@ Plot variants
 
 Install basic tools (Debian/Ubuntu specific if you have admin privileges):
 ```
-sudo apt install r-cran-ggplot2 r-cran-data.table r-cran-gridextra
+sudo apt install r-cran-optparse r-cran-ggplot2 r-cran-data.table r-cran-gridextra
 ```
 
 Download R scripts
@@ -413,11 +413,24 @@ Plot variant (for Illumina data)
 gtc2vcf_plot.R \
   --illumina \
   --vcf input.vcf \
-  --chrom 19 \
-  --pos 45411941 \
-  --png rs429358.png
+  --chrom 11 \
+  --pos 66328095 \
+  --png rs1815739.png
 ```
-If you want to plot a variant from an Affymetrix array use `--affymetrix` instead
+
+![](rs1815739.png)
+
+Plot variant (for Affymetrix data)
+```
+gtc2vcf_plot.R \
+  --affymetrix \
+  --vcf input.vcf \
+  --chrom 1 \
+  --pos 196642233 \
+  --png	rs800292.png
+```
+
+![](rs800292.png)
 
 Acknowledgements
 ================

@@ -30,6 +30,7 @@ library(data.table)
 library(ggplot2)
 library(grid)
 library(gridExtra)
+options(bitmapType = 'cairo')
 
 parser <- OptionParser('usage: gtc2vcf_plot.R [options] --illumina|--affymetrix --vcf <file.vcf> --chrom <string> --pos <integer> --pdf|--png <file>')
 parser <- add_option(parser, c('--vcf'), type = 'character', help = 'input VCF file', metavar = '<file.vcf>')
@@ -39,6 +40,7 @@ parser <- add_option(parser, c('--pdf'), type = 'character', help = 'output PDF 
 parser <- add_option(parser, c('--png'), type = 'character', help = 'output PNG file', metavar = '<file.png>')
 parser <- add_option(parser, c('--width'), type = 'integer', default = 7, help = 'inches width of the output file [7]', metavar = '<integer>')
 parser <- add_option(parser, c('--height'), type = 'integer', default = 7, help = 'inches height of the output file [7]', metavar = '<integer>')
+parser <- add_option(parser, c('--fontsize'), type = 'integer', default = 12, help = 'font size [12]', metavar = '<integer>')
 parser <- add_option(parser, c('--chrom'), type = 'character', help = 'chromosome', metavar = '<string>')
 parser <- add_option(parser, c('--pos'), type = 'integer', help = 'chromosome position', metavar = '<integer>')
 parser <- add_option(parser, c('--id'), type = 'character', help = 'variant ID', metavar = '<string>')
@@ -109,13 +111,17 @@ if (args$illumina)
 {
   p1 <- ggplot(df, aes_string(x = 'Y', y = 'X', color = gt_color, shape = gt_shape)) +
     geom_point() +
-    ggtitle(unique(df$ID)) +
-    theme_bw() +
-    theme(legend.position = 'none', plot.title = element_text(hjust = 0.5))
+    theme_bw(base_size = args$fontsize) +
+    theme(legend.position = 'none')
+  normx <- 'NORMY'
+  normy <- 'NORMX'
+} else {
+  normx <- 'NORMX'
+  normy <- 'NORMY'
 }
-p2 <- ggplot(df, aes_string(x = 'NORMY', y = 'NORMX', color = gt_color, shape = gt_shape)) +
+p2 <- ggplot(df, aes_string(x = normx, y = normy, color = gt_color, shape = gt_shape)) +
   geom_point() +
-  theme_bw() +
+  theme_bw(base_size = args$fontsize) +
   theme(legend.position = 'none')
 if (args$zcall) {
   zthresh_X <- unique(df$zthresh_X)
@@ -128,12 +134,12 @@ df_centers = setNames(data.frame(x = sapply(df[,paste0('mean', x, '_', c('AA', '
 p3 <- ggplot(df, aes_string(x = x, y = y, color = gt_color, shape = gt_shape)) +
   geom_point() +
   geom_point(data = df_centers, color = 'black', size = 5, shape = 8) +
-  theme_bw() +
+  theme_bw(base_size = args$fontsize) +
   theme(legend.position = 'none')
 if (args$illumina) p3 <- p3 + coord_cartesian(xlim = c(0,1))
 p4 <- ggplot(df, aes_string(x = 'BAF', y = 'LRR', color = gt_color, shape = gt_shape)) +
   geom_point() +
-  theme_bw() +
+  theme_bw(base_size = args$fontsize) +
   theme(legend.position = 'bottom', legend.box = 'horizontal') +
   coord_cartesian(xlim = c(0,1))
 if (args$ellipses) {
@@ -148,9 +154,9 @@ if (!is.null(args$pdf)) {
   png(args$png, width = args$width, height = args$height, units = 'in', res = 150)
 }
 if (args$minimal) {
-  do.call(grid.arrange, c(list(p2, p4), nrow = 2, ncol = 1))
+  grid.arrange(p2, p4, nrow = 2, ncol = 1, heights = c(3, 4), top = unique(df$ID))
 } else {
-  if (args$illumina) do.call(grid.arrange, c(list(p1, p2, p3, p4), nrow = 4, ncol = 1))
-  if (args$affymetrix) do.call(grid.arrange, c(list(p2, p3, p4), nrow = 4, ncol = 1))
+  if (args$illumina) grid.arrange(p1, p2, p3, p4, nrow = 4, ncol = 1, heights = c(3, 3, 3, 4), top = unique(df$ID))
+  if (args$affymetrix) grid.arrange(p2, p3, p4, nrow = 3, ncol = 1, heights = c(3, 3, 4), top = unique(df$ID))
 }
 invisible(dev.off())
