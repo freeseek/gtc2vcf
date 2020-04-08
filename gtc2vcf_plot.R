@@ -2,7 +2,7 @@
 ###
 #  The MIT License
 #
-#  Copyright (C) 2019 Giulio Genovese
+#  Copyright (C) 2019-2020 Giulio Genovese
 #
 #  Author: Giulio Genovese <giulio.genovese@gmail.com>
 #
@@ -25,34 +25,40 @@
 #  THE SOFTWARE.
 ###
 
-suppressPackageStartupMessages(library(argparse))
-suppressPackageStartupMessages(library(data.table))
-suppressPackageStartupMessages(library(ggplot2))
-suppressPackageStartupMessages(library(grid))
-suppressPackageStartupMessages(library(gridExtra))
+library(optparse)
+library(data.table)
+library(ggplot2)
+library(grid)
+library(gridExtra)
 
-parser <- ArgumentParser(description = 'Plot genotype calls from Illumina (version 2019-02-19)')
-parser$add_argument('--vcf', metavar = '<file.vcf>', type = 'character', required = TRUE, help = 'input VCF file')
-parser$add_argument('--illumina', action = 'store_true', help = 'whether the input VCF file contains Illumina data')
-parser$add_argument('--affymetrix', action = 'store_true', help = 'whether the input VCF file contains Affymetrix data')
-parser$add_argument('--pdf', metavar = '<file.pdf>', type = 'character', help = 'output PDF file')
-parser$add_argument('--png', metavar = '<file.png>', type = 'character', help = 'output PNG file')
-parser$add_argument('--width', metavar = '<integer>', type = 'integer', default = 7, help = 'inches width of the output file [7]')
-parser$add_argument('--height', metavar = '<integer>', type = 'integer', default = 7, help = 'inches height of the output file [7]')
-parser$add_argument('--chrom', metavar = '<string>', type = 'character', required = TRUE, help = 'chromosome')
-parser$add_argument('--pos', metavar = '<integer>', type = 'integer', required = TRUE, help = 'chromosome position')
-parser$add_argument('--id', metavar = '<string>', type = 'character',  help = 'variant ID')
-parser$add_argument('--samples', metavar = '<list>', type = 'character', help = 'list of samples to include')
-parser$add_argument('--samples-file', metavar = '<file>', type = 'character', help = 'file of samples to include')
-parser$add_argument('--ellipses', action = 'store_true', help = 'plot ellipses around genotype clusters')
-parser$add_argument('--minimal', action = 'store_true', help = 'only plot NORMX/NORMY and BAF/LRR plots')
-parser$add_argument('--zcall', action = 'store_true', help = 'plot ZCall thresholds')
-args <- parser$parse_args(commandArgs(trailingOnly = TRUE))
-if (!args$illumina && !args$affymetrix) stop('either --illumina or --affymetrix is required')
-if (args$illumina && args$affymetrix) stop('cannot use --illumina and --affymetrix at the same time')
-if (is.null(args$pdf) && is.null(args$png)) stop('either --pdf or --png is required')
-if (!is.null(args$pdf) && !is.null(args$png)) stop('cannot use --pdf and --png at the same time')
-if (!is.null(args$samples) && !is.null(args$samples_file)) stop('cannot use --samples and --samples-file at the same time')
+parser <- OptionParser('usage: gtc2vcf_plot.R [options] --illumina|--affymetrix --vcf <file.vcf> --chrom <string> --pos <integer> --pdf|--png <file>')
+parser <- add_option(parser, c('--vcf'), type = 'character', help = 'input VCF file', metavar = '<file.vcf>')
+parser <- add_option(parser, c('--illumina'), action = 'store_true', default = FALSE, help = 'whether the input VCF file contains Illumina data')
+parser <- add_option(parser, c('--affymetrix'), action = 'store_true', default = FALSE, help = 'whether the input VCF file contains Affymetrix data')
+parser <- add_option(parser, c('--pdf'), type = 'character', help = 'output PDF file', metavar = '<file.pdf>')
+parser <- add_option(parser, c('--png'), type = 'character', help = 'output PNG file', metavar = '<file.png>')
+parser <- add_option(parser, c('--width'), type = 'integer', default = 7, help = 'inches width of the output file [7]', metavar = '<integer>')
+parser <- add_option(parser, c('--height'), type = 'integer', default = 7, help = 'inches height of the output file [7]', metavar = '<integer>')
+parser <- add_option(parser, c('--chrom'), type = 'character', help = 'chromosome', metavar = '<string>')
+parser <- add_option(parser, c('--pos'), type = 'integer', help = 'chromosome position', metavar = '<integer>')
+parser <- add_option(parser, c('--id'), type = 'character', help = 'variant ID', metavar = '<string>')
+parser <- add_option(parser, c('--samples'), type = 'character', help = 'comma-separated list of samples to include', metavar = '<list>')
+parser <- add_option(parser, c('--samples-file'), type = 'character', help = 'file with list of samples to include', metavar = '<file>')
+parser <- add_option(parser, c('--ellipses'), action = 'store_true', default = FALSE, help = 'plot ellipses around genotype clusters')
+parser <- add_option(parser, c('--minimal'), action = 'store_true', default = FALSE, help = 'only plot NORMX/NORMY and BAF/LRR plots')
+parser <- add_option(parser, c('--zcall'), action = 'store_true', default = FALSE, help = 'plot ZCall thresholds')
+args <- parse_args(parser, commandArgs(trailingOnly = TRUE))
+
+# make sure VCF is passed
+if (is.null(args$vcf)) {print_help(parser); stop('option --vcf is required')}
+if (is.null(args$chrom)) {print_help(parser); stop('option --chrom is required')}
+if (is.null(args$pos)) {print_help(parser); stop('option --pos is required')}
+if (!args$illumina && !args$affymetrix) {print_help(parser); stop('either --illumina or --affymetrix is required')}
+if (args$illumina && args$affymetrix) {print_help(parser); stop('cannot use --illumina and --affymetrix at the same time')}
+if (is.null(args$pdf) && is.null(args$png)) {print_help(parser); stop('either --pdf or --png is required')}
+if (!is.null(args$pdf) && !is.null(args$png)) {print_help(parser); stop('cannot use --pdf and --png at the same time')}
+if (!is.null(args$png) && !capabilities('png')) {print_help(parser); stop('unable to start device PNG: no png support in this version of R\nyou need to reinstall R with support for PNG to use the --png option\n')}
+if (!is.null(args$samples) && !is.null(args$samples_file)) {print_help(parser); stop('cannot use --samples and --samples-file at the same time')}
 
 base <- c('CHROM', 'POS', 'ID')
 if (args$illumina)
