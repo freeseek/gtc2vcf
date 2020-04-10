@@ -38,7 +38,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-04-07"
+#define GTC2VCF_VERSION "2020-04-09"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -144,9 +144,11 @@ static inline void read_pfx_string(hFILE *fp, char **str, size_t *m_str)
 			break;
 		shift += 7;
 	}
-	read_array(fp, (void **)str, m_str, n, 1, 1);
-	if (str)
-		(*str)[n] = '\0';
+	if (n || m_str) {
+        read_array(fp, (void **)str, m_str, n, 1, 1);
+        if (str)
+            (*str)[n] = '\0';
+	}
 }
 
 static inline int is_gzip(hFILE *fp)
@@ -511,15 +513,15 @@ typedef struct {
 	char *map_info; // Mapping location of locus
 	char *unknown_strand;
 	int32_t address_a;	  // AddressA ID of locus
-	char *allele_a_probe_seq; // CSV files
+	char *allele_a_probe_seq; // CSV files or BPM files with version 4 data block
 	int32_t address_b;	  // AddressB ID of locus (0 if none)
-	char *allele_b_probe_seq; // CSV files (empty if none)
+	char *allele_b_probe_seq; // CSV files or BPM files with version 4 data block (empty if none)
 	char *genome_build;
 	char *source;
 	char *source_version;
 	char *source_strand;
-	char *source_seq;      // CSV files
-	char *top_genomic_seq; // CSV files
+	char *source_seq;      // CSV files or BPM files with version 4 data block
+	char *top_genomic_seq; // CSV files or BPM files with version 4 data block
 	int32_t beadset_id;    // CSV files
 	uint8_t exp_clusters;
 	uint8_t intensity_only;
@@ -532,10 +534,49 @@ typedef struct {
 	char *ref_strand; // RefStrand annotation
 } LocusEntry;
 
+// retrieve assay type according to the following (allele_a_probe_seq, source_seq) -> assay_type
+// map
+// (...W., ...W[./.]W...) -> 1
+// (...S., ...S[./.]S...) -> 2
+// (...S., ...S[./.]W...) -> 1
+// (...S., ...W[./.]S...) -> 1
+// (...W., ...S[./.]W...) -> 2
+// (...W., ...W[./.]S...) -> 2
+static uint8_t get_assay_type(const char *allele_a_probe_seq, const char *allele_b_probe_seq,
+			      const char *source_seq)
+{
+	if (!allele_a_probe_seq || !source_seq)
+		return 0xFF;
+	if (!allele_b_probe_seq)
+		return 0;
+	const char *left = strchr(source_seq, '[');
+	const char *right = strchr(source_seq, ']');
+	if (!left || !right)
+		error("Source sequence is malformed: %s\n", source_seq);
+	char trail_left = toupper(*(left - 1));
+	char trail_right = toupper(*(right + 1));
+	if ((trail_left == 'A' || trail_left == 'T')
+	    && (trail_right == 'A' || trail_right == 'T'))
+		return 1;
+	if ((trail_left == 'C' || trail_left == 'G')
+	    && (trail_right == 'C' || trail_right == 'G'))
+		return 2;
+	char trail_a_probe_seq = toupper(allele_a_probe_seq[strlen(allele_a_probe_seq) - 2]);
+	if (trail_a_probe_seq == 'C' || trail_a_probe_seq == 'G')
+		return 1;
+	if (trail_a_probe_seq == 'A' || trail_a_probe_seq == 'T')
+		return 2;
+	error("Unable to retrieve assay type: %s %s\n", allele_a_probe_seq, source_seq);
+}
+
 static void locusentry_read(LocusEntry *locus_entry, hFILE *fp)
 {
 	locus_entry->norm_id = 0xFF;
 	read_bytes(fp, (void *)&locus_entry->version, sizeof(int32_t));
+	if (locus_entry->version < 4 || locus_entry->version == 5
+	    || locus_entry->version > 8)
+		error("Locus version %d in manifest file not supported\n",
+		      locus_entry->version);
 	read_pfx_string(fp, &locus_entry->ilmn_id, NULL);
 	read_pfx_string(fp, &locus_entry->name, NULL);
 	read_pfx_string(fp, NULL, NULL);
@@ -549,31 +590,37 @@ static void locusentry_read(LocusEntry *locus_entry, hFILE *fp)
 	read_pfx_string(fp, &locus_entry->ploidy, NULL);
 	read_pfx_string(fp, &locus_entry->species, NULL);
 	read_pfx_string(fp, &locus_entry->map_info, NULL);
-	read_pfx_string(fp, NULL, NULL);
+	read_pfx_string(fp, &locus_entry->top_genomic_seq, NULL);
 	read_pfx_string(fp, &locus_entry->unknown_strand, NULL);
 	read_bytes(fp, (void *)&locus_entry->address_a, sizeof(int32_t));
 	read_bytes(fp, (void *)&locus_entry->address_b, sizeof(int32_t));
-	read_pfx_string(fp, NULL, NULL);
-	read_pfx_string(fp, NULL, NULL);
+	read_pfx_string(fp, &locus_entry->allele_a_probe_seq, NULL);
+	read_pfx_string(fp, &locus_entry->allele_b_probe_seq, NULL);
 	read_pfx_string(fp, &locus_entry->genome_build, NULL);
 	read_pfx_string(fp, &locus_entry->source, NULL);
 	read_pfx_string(fp, &locus_entry->source_version, NULL);
 	read_pfx_string(fp, &locus_entry->source_strand, NULL);
-	read_pfx_string(fp, NULL, NULL);
-	read_bytes(fp, NULL, 1);
-	read_bytes(fp, (void *)&locus_entry->exp_clusters, sizeof(int8_t));
-	read_bytes(fp, (void *)&locus_entry->intensity_only, sizeof(int8_t));
-	read_bytes(fp, (void *)&locus_entry->assay_type, sizeof(uint8_t));
+	read_pfx_string(fp, &locus_entry->source_seq, NULL);
 
-	// if ( strcmp(locus_entry->unknown_strand, locus_entry->source_strand) )
-	// fprintf(stderr, "%s %s\n", locus_entry->unknown_strand, locus_entry->source_strand);
+    // if ( strcmp(locus_entry->unknown_strand, locus_entry->source_strand) )
+    // fprintf(stderr, "%s %s\n", locus_entry->unknown_strand, locus_entry->source_strand);
 
-	if (locus_entry->assay_type < 0 || locus_entry->assay_type > 2)
-		error("Format error in reading assay type from locus entry\n");
-	if (locus_entry->address_b == 0 && locus_entry->assay_type != 0)
-		error("Manifest format error: Assay type is inconsistent with address B\n");
-	if (locus_entry->address_b != 0 && locus_entry->assay_type == 0)
-		error("Manifest format error: Assay type is inconsistent with address B\n");
+	if (locus_entry->version >= 6) {
+	    read_bytes(fp, NULL, 1);
+        read_bytes(fp, (void *)&locus_entry->exp_clusters, sizeof(int8_t));
+        read_bytes(fp, (void *)&locus_entry->intensity_only, sizeof(int8_t));
+        read_bytes(fp, (void *)&locus_entry->assay_type, sizeof(uint8_t));
+
+        if (locus_entry->assay_type < 0 || locus_entry->assay_type > 2)
+            error("Format error in reading assay type from locus entry\n");
+        if (locus_entry->address_b == 0 && locus_entry->assay_type != 0)
+            error("Manifest format error: Assay type is inconsistent with address B\n");
+        if (locus_entry->address_b != 0 && locus_entry->assay_type == 0)
+            error("Manifest format error: Assay type is inconsistent with address B\n");
+	} else {
+	    locus_entry->assay_type = get_assay_type(locus_entry->allele_a_probe_seq,
+	        locus_entry->allele_b_probe_seq, locus_entry->source_seq);
+	}
 
 	if (locus_entry->version >= 7) {
 		read_bytes(fp, &locus_entry->frac_a, sizeof(float));
@@ -581,7 +628,7 @@ static void locusentry_read(LocusEntry *locus_entry, hFILE *fp)
 		read_bytes(fp, &locus_entry->frac_t, sizeof(float));
 		read_bytes(fp, &locus_entry->frac_g, sizeof(float));
 	}
-	if (locus_entry->version == 8)
+	if (locus_entry->version >= 8)
 		read_pfx_string(fp, &locus_entry->ref_strand, NULL);
 }
 
@@ -883,41 +930,6 @@ static int csv_parse(tsv_t *tsv, bcf1_t *rec, char *str)
 	return status ? 0 : -1;
 }
 
-// retrieve assay type according to the following (allele_a_probe_seq, source_seq) -> assay_type
-// map
-// (...W., ...W[./.]W...) -> 1
-// (...S., ...S[./.]S...) -> 2
-// (...S., ...S[./.]W...) -> 1
-// (...S., ...W[./.]S...) -> 1
-// (...W., ...S[./.]W...) -> 2
-// (...W., ...W[./.]S...) -> 2
-static uint8_t get_assay_type(const char *allele_a_probe_seq, const char *allele_b_probe_seq,
-			      const char *source_seq)
-{
-	if (!allele_a_probe_seq || !source_seq)
-		return 0xFF;
-	if (!allele_b_probe_seq)
-		return 0;
-	const char *left = strchr(source_seq, '[');
-	const char *right = strchr(source_seq, ']');
-	if (!left || !right)
-		error("Source sequence is malformed: %s\n", source_seq);
-	char trail_left = toupper(*(left - 1));
-	char trail_right = toupper(*(right + 1));
-	if ((trail_left == 'A' || trail_left == 'T')
-	    && (trail_right == 'A' || trail_right == 'T'))
-		return 1;
-	if ((trail_left == 'C' || trail_left == 'G')
-	    && (trail_right == 'C' || trail_right == 'G'))
-		return 2;
-	char trail_a_probe_seq = toupper(allele_a_probe_seq[strlen(allele_a_probe_seq) - 2]);
-	if (trail_a_probe_seq == 'C' || trail_a_probe_seq == 'G')
-		return 1;
-	if (trail_a_probe_seq == 'A' || trail_a_probe_seq == 'T')
-		return 2;
-	error("Unable to retrieve assay type: %s %s\n", allele_a_probe_seq, source_seq);
-}
-
 static void locus_merge(LocusEntry *dest, LocusEntry *src)
 {
 	if (src->version)
@@ -1045,7 +1057,7 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm)
 	kstring_t str = {0, 0, NULL};
 	if (kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0)
 		error("Empty file: %s\n", bpm->fn);
-	if (strncmp(str.s, "Illumina", 8))
+	if (strncmp(str.s, "Illumina", 8) && strncmp(str.s, "\"Illumina", 9))
 		error("Header of file %s is incorrect: %s\n", bpm->fn, str.s);
 	char *tmp = NULL;
 	size_t prev = 0;
@@ -1855,7 +1867,7 @@ static bpm_t *sam_csv_init(const char *fn, bpm_t *bpm, const char *genome_build,
 		free(locus_entry->ref_strand);
 		locus_entry->ref_strand =
 			((strand < 0)
-			 || ((strcmp(locus_entry->ilmn_strand, locus_entry->source_strand) != 0)
+			 || ((strcasecmp(locus_entry->ilmn_strand, locus_entry->source_strand) != 0)
 			     == strand))
 				? strdup("+")
 				: strdup("-");
@@ -2347,7 +2359,7 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
 			flank.l = 0;
 			kputs(locus_entry->source_seq, &flank);
 			strupper(flank.s);
-			if ((strcmp(locus_entry->ilmn_strand, locus_entry->source_strand) != 0)
+			if ((strcasecmp(locus_entry->ilmn_strand, locus_entry->source_strand) != 0)
 			    != strand)
 				flank_reverse_complement(flank.s);
 			flank_left_shift(flank.s);
