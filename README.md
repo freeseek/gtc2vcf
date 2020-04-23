@@ -9,6 +9,7 @@ A set of tools to convert Illumina and Affymetrix DNA microarray intensity data 
    * [Usage](#usage)
    * [Installation](#installation)
    * [Software Installation](#software-installation)
+   * [Identifying manifest files for Illumina IDAT files](#Identifying-manifest-files-for-illumina-idat-files)
    * [Convert Illumina IDAT files to GTC files](#convert-illumina-idat-files-to-gtc-files)
    * [Convert Illumina GTC files to VCF](#convert-illumina-idat-files-to-gtc-files)
    * [Using a reference not provided by Illumina](#using-a-reference-not-provided-by-illumina)
@@ -28,17 +29,17 @@ Usage: bcftools +gtc2vcf [options] [<A.gtc> ...]
 Plugin options:
     -l, --list-tags                 list available tags with description for VCF output
     -t, --tags LIST                 list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
-    -i  --idat <file>               IDAT intensity data file
-    -b  --bpm <file>                BPM manifest file
-    -c  --csv <file>                CSV manifest file
-    -e  --egt <file>                EGT cluster file
+    -b, --bpm <file>                BPM manifest file
+    -c, --csv <file>                CSV manifest file
+    -e, --egt <file>                EGT cluster file
     -f, --fasta-ref <file>          reference sequence in fasta format
         --set-cache-size <int>      select fasta cache size in bytes
     -g, --gtcs <dir|file>           GTC genotype files from directory or list from file
+    -i, --idat                      input IDAT files rather than GTC files
         --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)
     -x, --sex <file>                output GenCall gender estimate into file
         --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name
-        --genome-studio <file>      input a genome studio final report file (in matrix format)
+        --genome-studio <file>      input a GenomeStudio final report file (in matrix format)
         --no-version                do not append version and command line to the header
     -o, --output <file>             write output to a file [standard output]
     -O, --output-type <b|u|z|v|t>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF
@@ -60,7 +61,6 @@ Examples:
     bcftools +gtc2vcf -c GSA-24v3-0_A1.csv -e GSA-24v3-0_A1_ClusterFile.egt -f human_g1k_v37.fasta -o GSA-24v3-0_A1.vcf
     bcftools +gtc2vcf -c HumanOmni2.5-4v1_H.csv -f human_g1k_v37.fasta 5434246082_R03C01.gtc -o 5434246082_R03C01.vcf
     bcftools +gtc2vcf -f human_g1k_v37.fasta --genome-studio GenotypeReport.txt -o GenotypeReport.vcf
-
 
 Examples of manifest file options:
     bcftools +gtc2vcf -b GSA-24v3-0_A1.bpm -c GSA-24v3-0_A1.csv --beadset-order
@@ -181,9 +181,9 @@ mkdir -p $HOME/bin && cd /tmp
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/software/iaap/iaap-cli-linux-x64-1.1.0.tar.gz
 tar xzvf iaap-cli-linux-x64-1.1.0.tar.gz -C $HOME/bin/ iaap-cli-linux-x64-1.1.0/iaap-cli --strip-components=1
 ```
-However, notice that in some older Linux machines this approach does not work
+However, notice that in some older Linux machines this approach does not work and at the time of this writing iaap-cli is unable to read old BPM manifest files yielding error `Unknown Manifest version`, while the AutoConvert command line tool does not have this limitation
 
-Alternatively, Illumina provides the <a href="https://support.illumina.com/array/array_software/beeline.html">Beeline</a> software for free and this includes the AutoConvert.exe command line executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, with the exception of one small mathmatical function (findClosestSitesToPointsAlongAxis) which is contained instead within a Windows PE32+ library (MathRoutines.dll). As this is <a href="http://www.mono-project.com/docs/advanced/embedding/">unmanaged code</a>, to be run on Linux with <a href="https://www.mono-project.com/">Mono</a> it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the <a href="http://doi.org/10.1093/bioinformatics/btm443">normalization</a> of the raw intensities when sampling 400 <a href="http://patft.uspto.gov/netacgi/nph-Parser?patentnumber=7035740">candidate homozygotes</a> before calling genotypes (see also <a href="https://patents.google.com/patent/US7035740">here</a>). For some unclear reasons, you will also need to separately download an additional Mono/.Net library (Heatmap.dll) from <a href="https://support.illumina.com/array/array_software/genomestudio.html">GenomeStudio</a> and include it in your binary directory as shown below, most likely due to differences in which Mono and .Net resolve library dependencies
+Illumina also provides the <a href="https://support.illumina.com/array/array_software/beeline.html">Beeline</a> software for free and this includes the AutoConvert.exe command line executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, with the exception of one small mathmatical function (findClosestSitesToPointsAlongAxis) which is contained instead within a Windows PE32+ library (MathRoutines.dll). As this is <a href="http://www.mono-project.com/docs/advanced/embedding/">unmanaged code</a>, to be run on Linux with <a href="https://www.mono-project.com/">Mono</a> it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the <a href="http://doi.org/10.1093/bioinformatics/btm443">normalization</a> of the raw intensities when sampling 400 <a href="http://patft.uspto.gov/netacgi/nph-Parser?patentnumber=7035740">candidate homozygotes</a> before calling genotypes (see also <a href="https://patents.google.com/patent/US7035740">here</a>). For some unclear reasons, you will also need to separately download an additional Mono/.Net library (Heatmap.dll) from <a href="https://support.illumina.com/array/array_software/genomestudio.html">GenomeStudio</a> and include it in your binary directory as shown below, most likely due to differences in which Mono and .Net resolve library dependencies
 ```
 mkdir -p $HOME/bin && cd /tmp
 wget https://support.illumina.com/content/dam/illumina-support/documents/downloads/software/beeline/autoconvert-software-v2-0-1-installer.zip
@@ -209,6 +209,17 @@ wget https://downloads.thermofisher.com/APT/APT2.11.0/apt_2.11.0_linux_64_bit_x8
 unzip -ojd $HOME/bin apt_2.11.0_linux_64_bit_x86_binaries.zip apt_2.11.0_linux_64_bitx86_binaries/bin/apt-probeset-genotype
 chmod a+x $HOME/bin/apt-probeset-genotype
 ```
+
+Identifying manifest files for Illumina IDAT files
+==================================================
+
+To convert a pair of green and red IDAT files with raw Illumina intensities into a GTC file with genotype calls you need to provide both a BPM manifest file with the location of the probes and an EGT cluster file with the expected intensities of each genotype cluster. It is important to provide the correct BPM and EGT files otherwise the calling will fail possibly generating a GTC file with meaningless calls. Unfortunately newer IDAT files do not contain information about which BPM manifest file to use. The gtc2vcf bcftools plugin can be used to guess which files to use
+```
+path_to_idat_folder="..."
+bcftools +gtc2vcf \
+  -i -g $path_to_idat_folder
+```
+This will generate a spreadsheet table with information about each IDAT file including a guess for what manifest and cluster files you should use. If a guess is not provided, contact the <a href="mailto:giulio.genovese@gmail.com">author</a> for troubleshooting
 
 Convert Illumina IDAT files to GTC files
 ========================================
