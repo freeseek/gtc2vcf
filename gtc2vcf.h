@@ -24,6 +24,9 @@
 
  */
 
+#include <dirent.h>
+#include <sys/stat.h>
+
 #define min(a, b)                                                                              \
 	({                                                                                     \
 		__typeof__(a) _a = (a);                                                        \
@@ -37,6 +40,40 @@
 		__typeof__(b) _b = (b);                                                        \
 		_a > _b ? _a : _b;                                                             \
 	})
+
+static inline char **get_file_list(const char *pathname, const char *extension, int *nfiles)
+{
+	char **filenames = NULL;
+	struct stat statbuf;
+	if (stat(pathname, &statbuf) < 0)
+		error("Can't open \"%s\": %s\n", pathname, strerror(errno));
+	if (S_ISDIR(statbuf.st_mode)) {
+		DIR *d = opendir(pathname);
+		struct dirent *dir;
+		int mfiles = 0;
+		int p = strlen(pathname);
+		while ((dir = readdir(d))) {
+			const char *ptr = strrchr(dir->d_name, '.');
+			if (ptr && strcmp(ptr + 1, extension) == 0) {
+				hts_expand0(char *, *nfiles + 1, mfiles, filenames);
+				int q = strlen(dir->d_name);
+				filenames[*nfiles] = (char *)malloc((p + q + 2) * sizeof(char));
+				memcpy(filenames[*nfiles], pathname, p);
+				filenames[*nfiles][p] = '/';
+				memcpy(filenames[*nfiles] + p + 1, dir->d_name, q + 1);
+				(*nfiles)++;
+			}
+		}
+		closedir(d);
+	} else {
+		filenames = hts_readlines(pathname, nfiles);
+		if (!filenames)
+			error("Failed to read from file %s\n", pathname);
+	}
+	if (*nfiles == 0)
+		error("No .%s files found in %s\n", extension, pathname);
+	return filenames;
+}
 
 static inline FILE *get_file_handle(const char *str)
 {
@@ -153,8 +190,8 @@ static inline void flank_reverse_complement(char *flank)
 		flank[len / 2] = rev_nt(flank[len / 2]);
 }
 
-// this is the weird way Illumina left shifts indels (see
-// https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py)
+// this is the weird way Illumina left shifts indels
+// http://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py
 static inline void flank_left_shift(char *flank)
 {
 	char *left = strchr(flank, '[');
@@ -351,7 +388,7 @@ static inline int len_common_prefix(const char *s1, const char *s2, size_t n)
 	return ret;
 }
 
-// see BPMRecord.py from https://github.com/Illumina/GTCtoVCF
+// http://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py
 // For an insertion relative to the reference, the position of the base immediately 5' to the
 // insertion (on the plus strand) is given. For a deletion relative to the reference, the
 // position of the most 5' deleted based (on the plus strand) is given.

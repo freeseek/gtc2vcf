@@ -11,10 +11,10 @@ A set of tools to convert Illumina and Affymetrix DNA microarray intensity data 
    * [Software Installation](#software-installation)
    * [Identifying manifest files for Illumina IDAT files](#Identifying-manifest-files-for-illumina-idat-files)
    * [Convert Illumina IDAT files to GTC files](#convert-illumina-idat-files-to-gtc-files)
-   * [Convert Illumina GTC files to VCF](#convert-illumina-idat-files-to-gtc-files)
+   * [Convert Illumina GTC files to VCF](#convert-illumina-gtc-files-to-vcf)
    * [Using a reference not provided by Illumina](#using-a-reference-not-provided-by-illumina)
-   * [Convert Affymetrix CEL files to genotype calls](#convert-affymetrix-cel-files-to-genotype-calls)
-   * [Convert Affymetrix genotype calls and intensities to VCF](#convert-affymetrix-genotype-calls-and-intensities-to-vcf)
+   * [Convert Affymetrix CEL files to CHP files](#convert-affymetrix-cel-files-to-chp-files)
+   * [Convert Affymetrix CHP files to VCF](#convert-affymetrix-chp-files-to-vcf)
    * [Plot variants](#plot-variants)
    * [Acknowledgements](#acknowledgements)
 <!--te-->
@@ -71,8 +71,7 @@ Examples of manifest file options:
 
 Affymetrix tool:
 ```
-Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> --calls <file>
-                                    --confidences <file> --summary <file> --snp-posteriors <file>
+Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> [<A.chp> ...]
 
 Plugin options:
     -c, --csv <file>              CSV manifest file
@@ -81,9 +80,11 @@ Plugin options:
         --calls <file>            apt-probeset-genotype calls output
         --confidences <file>      apt-probeset-genotype confidences output
         --summary <file>          apt-probeset-genotype summary output
-        --snp-posteriors <file>   apt-probeset-genotype snp-posteriors output
+        --models <file>           apt-probeset-genotype SNP models output
         --report <file>           apt-probeset-genotype report output
-        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --summary and --snp-posteriors)
+        --chps <dir|file>         input CHP files rather than tab delimited files
+        --cel <file>              input CEL files rather CHP files
+        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --summary and --models)
     -x, --sex <file>              output apt-probeset-genotype gender estimate into file (requires --report)
         --no-version              do not append version and command line to the header
     -o, --output <file>           write output to a file [standard output]
@@ -95,14 +96,20 @@ Manifest options:
         --fasta-flank             output flank sequence in FASTA format (requires --csv)
     -s, --sam-flank <file>        input source sequence alignment in SAM/BAM format (requires --csv)
 
-Example:
+Examples:
+    bcftools +affy2vcf \
+        --csv GenomeWideSNP_6.na35.annot.csv \
+        --fasta-ref human_g1k_v37.fasta \
+        --chps cc-chp/ \
+        --models AxiomGT1.snp-posteriors.txt \
+        --output AxiomGT1.vcf
     bcftools +affy2vcf \
         --csv GenomeWideSNP_6.na35.annot.csv \
         --fasta-ref human_g1k_v37.fasta \
         --calls AxiomGT1.calls.txt \
         --confidences AxiomGT1.confidences.txt \
         --summary AxiomGT1.summary.txt \
-        --snp-posteriors AxiomGT1.snp-posteriors.txt \
+        --models AxiomGT1.snp-posteriors.txt \
         --output AxiomGT1.vcf
 
 Examples of manifest file options:
@@ -183,7 +190,7 @@ tar xzvf iaap-cli-linux-x64-1.1.0.tar.gz -C $HOME/bin/ iaap-cli-linux-x64-1.1.0/
 ```
 However, notice that in some older Linux machines this approach does not work and at the time of this writing iaap-cli is unable to read old BPM manifest files yielding error `Unknown Manifest version`, while the AutoConvert command line tool does not have this limitation
 
-Illumina also provides the <a href="https://support.illumina.com/array/array_software/beeline.html">Beeline</a> software for free and this includes the AutoConvert.exe command line executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, with the exception of one small mathmatical function (findClosestSitesToPointsAlongAxis) which is contained instead within a Windows PE32+ library (MathRoutines.dll). As this is <a href="http://www.mono-project.com/docs/advanced/embedding/">unmanaged code</a>, to be run on Linux with <a href="https://www.mono-project.com/">Mono</a> it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the <a href="http://doi.org/10.1093/bioinformatics/btm443">normalization</a> of the raw intensities when sampling 400 <a href="http://patft.uspto.gov/netacgi/nph-Parser?patentnumber=7035740">candidate homozygotes</a> before calling genotypes (see also <a href="https://patents.google.com/patent/US7035740">here</a>). For some unclear reasons, you will also need to separately download an additional Mono/.Net library (Heatmap.dll) from <a href="https://support.illumina.com/array/array_software/genomestudio.html">GenomeStudio</a> and include it in your binary directory as shown below, most likely due to differences in which Mono and .Net resolve library dependencies
+Illumina also provides the <a href="https://support.illumina.com/array/array_software/beeline.html">Beeline</a> software for free and this includes the AutoConvert.exe command line executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, with the exception of one small mathmatical function (findClosestSitesToPointsAlongAxis) which is contained instead within a Windows PE32+ library (MathRoutines.dll). As this is <a href="http://www.mono-project.com/docs/advanced/embedding/">unmanaged code</a>, to be run on Linux with <a href="https://www.mono-project.com/">Mono</a> it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the <a href="http://doi.org/10.1093/bioinformatics/btm443">normalization</a> of the raw intensities when sampling <a href="https://dnatech.genomecenter.ucdavis.edu/wp-content/uploads/2013/06/illumina_gt_normalization.pdf">400 candidate homozygotes</a> before calling genotypes. For some unclear reasons, you will also need to separately download an additional Mono/.Net library (Heatmap.dll) from <a href="https://support.illumina.com/array/array_software/genomestudio.html">GenomeStudio</a> and include it in your binary directory as shown below, most likely due to differences in which Mono and .Net resolve library dependencies
 ```
 mkdir -p $HOME/bin && cd /tmp
 wget https://support.illumina.com/content/dam/illumina-support/documents/downloads/software/beeline/autoconvert-software-v2-0-1-installer.zip
@@ -349,8 +356,8 @@ We advise to either contact Illumina to demand a fixed version or to use gtc2vcf
 
 Also, Illumina assigns chromosomal positions to indels by first left aligning the source sequences in an incoherent way (see <a href="https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py">here</a>). Apparently this is incoherent enough that Illumina also cannot get the coordinates of homopolymer indels right. For example, chromosome 13 ClinVar indel <a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/37959">rs80359507</a> is assigned to position 32913838 in the manifest file for the GSA-24v2-0 array, but it is assigned to position 32913837 in the manifest file for GSA-24v3-0 array (GRCh37 coordinates). If you want to trust genotypes at homopolymer indels, we advise to use gtc2vcf to realign the source sequences
 
-Convert Affymetrix CEL files to genotype calls
-==============================================
+Convert Affymetrix CEL files to CHP files
+=========================================
 
 Affymetrix provides a best practice workflow for genotyping data generated using <a href="https://www.affymetrix.com/support/developer/powertools/changelog/VIGNETTE-snp6-on-axiom.html">SNP6</a> and <a href="https://www.affymetrix.com/support/developer/powertools/changelog/VIGNETTE-Axiom-probeset-genotype.html">Axiom</a> arrays. As an example, the following command will run the genotyping for the Affymetrix SNP6 array:
 ```
@@ -362,7 +369,8 @@ apt-probeset-genotype \
   --analysis-files-path . \
   --xml-file GenomeWideSNP_6.apt-probeset-genotype.AxiomGT1.xml \
   --cel-files $cel_list_file \
-  --summaries \
+  --table-output false \
+  --cc-chp-output \
   --write-models
 ```
 Affymetrix provides Library and NetAffx Annotation files for their arrays <a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a>
@@ -379,30 +387,28 @@ unzip -o GenomeWideSNP_6.na35.annot.csv.zip GenomeWideSNP_6.na35.annot.csv
 
 Note: If the program exits due to different chip types or probe counts with error message such as `Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWideEx_6'` then add the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem
 
-Convert Affymetrix genotype calls and intensities to VCF
-========================================================
+Convert Affymetrix CHP files to VCF
+===================================
 
-The affy2vcf bcftools plugin can be used to convert Affymetrix genotype calls and intensity files to VCF
+The affy2vcf bcftools plugin can be used to convert Affymetrix CHP files to VCF
 ```
-annot_file="..." # for example annot_file="GenomeWideSNP_6.na35.annot.csv"
+csv_manifest_file="..." # for example csv_manifest_file="GenomeWideSNP_6.na35.annot.csv"
 ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
 path_to_output_folder="..."
 out_prefix="..."
 bcftools +affy2vcf \
   --no-version -Ou \
-  --csv $annot_file \
+  --csv $csv_manifest_file \
   --fasta-ref $ref \
-  --calls $path_to_output_folder/AxiomGT1.calls.txt \
-  --confidences $path_to_output_folder/AxiomGT1.confidences.txt \
-  --summary $path_to_output_folder/AxiomGT1.summary.txt \
-  --snp-posteriors $path_to_output_folder/AxiomGT1.snp-posteriors.txt \
+  --chps cc-chp/ \
+  --models $path_to_output_folder/AxiomGT1.snp-posteriors.txt \
   --report $path_to_output_folder/AxiomGT1.report.txt \
   --sex $out_prefix.sex | \
   bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
   bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
   bcftools index -f $out_prefix.bcf
 ```
-The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. There is no need to use the `--adjust-clusters` option for Affymetrix data as the cluster posteriors are already adjusted using the data processed by the genotype caller
+The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. There is often no need to use the `--adjust-clusters` option for Affymetrix data as the cluster posteriors are already adjusted using the data processed by the genotype caller
 
 Plot variants
 =============

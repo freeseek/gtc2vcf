@@ -26,9 +26,7 @@
 
 #include <getopt.h>
 #include <errno.h>
-#include <dirent.h>
 #include <sys/resource.h>
-#include <sys/stat.h>
 #include <htslib/hfile.h>
 #include <htslib/faidx.h>
 #include <htslib/vcf.h>
@@ -38,7 +36,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-04-23"
+#define GTC2VCF_VERSION "2020-05-08"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -131,7 +129,7 @@ static inline void read_pfx_array(hFILE *fp, void **arr, size_t *m_arr, size_t i
 }
 
 // read or skip a length-prefixed string
-// https://en.wikipedia.org/wiki/LEB128#Decode_unsigned_integer
+// http://en.wikipedia.org/wiki/LEB128#Decode_unsigned_integer
 static inline void read_pfx_string(hFILE *fp, char **str, size_t *m_str)
 {
 	uint8_t byte;
@@ -227,7 +225,8 @@ static void buffer_array_destroy(buffer_array_t *arr)
  * BPM FILE IMPLEMENTATION              *
  ****************************************/
 
-// see BeadPoolManifest.py from https://github.com/Illumina/BeadArrayFiles
+// http://github.com/snewhouse/glu-genetics/blob/master/glu/lib/illumina.py
+// http://github.com/Illumina/BeadArrayFiles/blob/develop/module/BeadPoolManifest.py
 
 typedef struct {
 	int32_t version;
@@ -450,6 +449,9 @@ static bpm_t *bpm_init(const char *fn)
 		if (bpm->norm_ids[idx] > 100)
 			error("Manifest format error: read invalid normalization ID %d\n",
 			      bpm->norm_ids[idx]);
+		// To mimic the flawed byte-wrapping behavior from GenomeStudio, AutoCall, and
+		// IAAP, this value is allowed to overflow beyond 255, which happens with some
+		// probes in the Omni5 arrays
 		locus_entry.norm_id = bpm->norm_ids[idx] + 100 * locus_entry.assay_type;
 		memcpy(&bpm->locus_entries[idx], &locus_entry, sizeof(LocusEntry));
 	}
@@ -926,7 +928,8 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm)
  * EGT FILE IMPLEMENTATION              *
  ****************************************/
 
-// see ClusterFile.py from https://github.com/Illumina/BeadArrayFiles
+// http://github.com/broadinstitute/picard/blob/master/src/main/java/picard/arrays/illumina/InfiniumEGTFile.java
+// http://github.com/Illumina/BeadArrayFiles/blob/develop/module/ClusterFile.py
 
 typedef struct {
 	int32_t N;	  // Number of samples assigned to cluster during training
@@ -1147,7 +1150,8 @@ static void egt_to_csv(const egt_t *egt, FILE *stream, int verbose)
  * IDAT FILE IMPLEMENTATION             *
  ****************************************/
 
-// see readIDAT_nonenc.R from https://github.com/HenrikBengtsson/illuminaio
+// http://github.com/snewhouse/glu-genetics/blob/master/glu/lib/illumina.py
+// http://github.com/HenrikBengtsson/illuminaio/blob/master/R/readIDAT.R
 
 #define NUM_SNPS_READ 1000
 #define ILLUMINA_ID 102
@@ -1504,14 +1508,14 @@ static void idat_to_csv(const idat_t *idat, FILE *stream, int verbose)
 	}
 }
 
-static void idats_to_csv(idat_t **idats, int n, FILE *stream)
+static void idats_to_tsv(idat_t **idats, int n, FILE *stream)
 {
 	fprintf(stream,
-		"IDAT File Name,Probes Count,Mid Blocks Count,Red Green,Manifest File,Sentrix Barcode,Chip Type,Sentrix Position,OPA,Sample Name,Description,Sample Plate,Sample Well,Unknown 1,Unknown 2,Chip Prefix (Guess),Imaging Date,Scanner Data\n");
+		"IDAT File Name\tProbes Count\tMid Blocks Count\tRed Green\tManifest File\tSentrix Barcode\tChip Type\tSentrix Position\tOPA\tSample Name\tDescription\tSample Plate\tSample Well\tUnknown 1\tUnknown 2\tChip Prefix (Guess)\tImaging Date\tScanner Data\n");
 	for (int i = 0; i < n; i++) {
 		idat_t *idat = idats[i];
 		fprintf(stream,
-			"%s,%d,%d,%02x %02x %02x %02x,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,\"%s\",\"%s\"\n",
+			"%s\t%d\t%d\t%02x %02x %02x %02x\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			strrchr(idat->fn, '/') ? strrchr(idat->fn, '/') + 1 : idat->fn,
 			idat->num_snps, idat->mid_block->item_num, idat->red_green[0],
 			idat->red_green[1], idat->red_green[2], idat->red_green[3],
@@ -1523,8 +1527,9 @@ static void idats_to_csv(idat_t **idats, int n, FILE *stream)
 			idat->sample_well ? idat->sample_well : "",
 			idat->unknown1 ? idat->unknown1 : "",
 			idat->unknown2 ? idat->unknown2 : "",
-			idat->chip_prefix ? idat->chip_prefix : "Unknown", idat->imaging_date,
-			idat->scanner_data);
+			idat->chip_prefix ? idat->chip_prefix : "Unknown",
+			idat->imaging_date ? idat->imaging_date : "",
+			idat->scanner_data ? idat->scanner_data : "");
 	}
 }
 
@@ -1532,7 +1537,9 @@ static void idats_to_csv(idat_t **idats, int n, FILE *stream)
  * GTC FILE IMPLEMENTATION              *
  ****************************************/
 
-// see GenotypeCalls.py from https://github.com/Illumina/BeadArrayFiles
+// http://github.com/broadinstitute/picard/blob/master/src/main/java/picard/arrays/illumina/InfiniumGTCFile.java
+// http://github.com/Illumina/BeadArrayFiles/blob/develop/docs/GTC_File_Format_v5.pdf
+// http://github.com/Illumina/BeadArrayFiles/blob/develop/module/GenotypeCalls.py
 
 #define NUM_SNPS 1
 #define PLOIDY 2
@@ -1951,18 +1958,18 @@ static void gtc_to_csv(const gtc_t *gtc, FILE *stream, int verbose)
 	}
 }
 
-static void gtcs_to_csv(gtc_t **gtcs, int n, FILE *stream)
+static void gtcs_to_tsv(gtc_t **gtcs, int n, FILE *stream)
 {
 	fprintf(stream,
-		"GTC file name,Number of SNPs,Ploidy,Ploidy Type,Sample name,Sample plate,Sample well,Cluster file,SNP manifest,Imaging date,AutoCall date,"
-		"AutoCall version,Number of normalization transforms,Number of controls X,Number of controls Y,Name of the scanner,Pmt Green,"
-		"Pmt Red,Version of the scanner software used,Name of the scanner user,Call Rate,Gender,LogR deviation,GenCall score - 10th percentile,"
-		"DX,GenCall score - 50th percentile,Number of valid calls,Number of invalid calls,Number of loci that are \"Intensity Only\" or \"Zeroed\","
-		"P05 X,P50 X,P95 X,P05 Y,P50 Y,P95 Y,Sentrix identifier for the slide\n");
+		"GTC file name\tNumber of SNPs\tPloidy\tPloidy Type\tSample name\tSample plate\tSample well\tCluster file\tSNP manifest\tImaging date\tAutoCall date\t"
+		"AutoCall version\tNumber of normalization transforms\tNumber of controls X\tNumber of controls Y\tName of the scanner\tPmt Green\t"
+		"Pmt Red\tVersion of the scanner software used\tName of the scanner user\tCall Rate\tGender\tLogR deviation\tGenCall score - 10th percentile\t"
+		"DX\tGenCall score - 50th percentile\tNumber of valid calls\tNumber of invalid calls\tNumber of loci that are \"Intensity Only\" or \"Zeroed\"\t"
+		"P05 X\tP50 X\tP95 X\tP05 Y\tP50 Y\tP95 Y\tSentrix identifier for the slide\n");
 	for (int i = 0; i < n; i++) {
 		gtc_t *gtc = gtcs[i];
 		fprintf(stream,
-			"%s,%d,%d,%d,%s,%s,%s,%s,%s,\"%s\",\"%s\",%s,%ld,%ld,%ld,%s,%d,%d,%s,%s,%f,%c,%f,%f,%d,%f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%s\n",
+			"%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%ld\t%ld\t%ld\t%s\t%d\t%d\t%s\t%s\t%f\t%c\t%f\t%f\t%d\t%f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n",
 			strrchr(gtc->fn, '/') ? strrchr(gtc->fn, '/') + 1 : gtc->fn,
 			gtc->num_snps, gtc->ploidy, gtc->ploidy_type,
 			gtc->sample_name ? gtc->sample_name : "",
@@ -3305,7 +3312,7 @@ int run(int argc, char *argv[])
 	const char *gs_fname = NULL;
 	const char *output_fname = "-";
 	const char *ref_fname = NULL;
-	const char *gtc_pathname = NULL;
+	const char *pathname = NULL;
 	const char *sex_fname = NULL;
 	const char *sam_fname = NULL;
 	const char *genome_build = "GRCh38";
@@ -3372,7 +3379,7 @@ int run(int argc, char *argv[])
 			cache_size = strtol(optarg, NULL, 0);
 			break;
 		case 'g':
-			gtc_pathname = optarg;
+			pathname = optarg;
 			break;
 		case 'i':
 			flags |= LOAD_IDAT;
@@ -3442,7 +3449,7 @@ int run(int argc, char *argv[])
 	}
 	if (((bpm_fname != NULL) || (csv_fname != NULL)) + (egt_fname != NULL)
 		    + (ref_fname != NULL) + (gs_fname != NULL) + (argc - optind > 0)
-		    + (gtc_pathname != NULL)
+		    + (pathname != NULL)
 	    == 1)
 		binary_to_csv = 1;
 	if (sam_fname && (csv_fname == NULL))
@@ -3470,11 +3477,10 @@ int run(int argc, char *argv[])
 		if (!egt_fname && (flags & ADJUST_CLUSTERS))
 			error("Cluster file required when adjusting cluster centers\n%s",
 			      usage_text());
-		if (gs_fname
-		    && (argc - optind > 0 || gtc_pathname || output_type == FT_TAB_TEXT))
+		if (gs_fname && (argc - optind > 0 || pathname || output_type == FT_TAB_TEXT))
 			error("If a GenomeStudio final report file is provided, do not pass GTC files and do not output to GenomeStudio format\n%s",
 			      usage_text());
-		if (argc - optind > 0 && gtc_pathname)
+		if (argc - optind > 0 && pathname)
 			error("GTC files cannot be listed through both command interface and file list\n%s",
 			      usage_text());
 		if (!gs_fname && output_type != FT_TAB_TEXT && sex_fname)
@@ -3484,42 +3490,14 @@ int run(int argc, char *argv[])
 
 	int nfiles = 0;
 	char **filenames = NULL;
-	if (gtc_pathname) {
-		struct stat statbuf;
-		if (stat(gtc_pathname, &statbuf) < 0)
-			error("Can't open \"%s\": %s\n", gtc_pathname, strerror(errno));
-		if (S_ISDIR(statbuf.st_mode)) {
-			DIR *d = opendir(gtc_pathname);
-			struct dirent *dir;
-			int mfiles = 0;
-			int p = strlen(gtc_pathname);
-			while ((dir = readdir(d))) {
-				const char *ptr = strrchr(dir->d_name, '.');
-				if (ptr
-				    && strcmp(ptr + 1, flags & LOAD_IDAT ? "idat" : "gtc")
-					       == 0) {
-					hts_expand0(char *, nfiles + 1, mfiles, filenames);
-					int q = strlen(dir->d_name);
-					filenames[nfiles] =
-						(char *)malloc((p + q + 2) * sizeof(char));
-					memcpy(filenames[nfiles], gtc_pathname, p);
-					filenames[nfiles][p] = '/';
-					memcpy(filenames[nfiles] + p + 1, dir->d_name, q + 1);
-					nfiles++;
-				}
-			}
-			closedir(d);
-		} else {
-			filenames = hts_readlines(gtc_pathname, &nfiles);
-			if (!filenames)
-				error("Failed to read from file %s\n", gtc_pathname);
-		}
-		if (nfiles == 0)
-			error("No GTC files found in %s\n", gtc_pathname);
+	if (pathname) {
+		filenames =
+			get_file_list(pathname, flags & LOAD_IDAT ? "idat" : "gtc", &nfiles);
 	} else {
 		nfiles = argc - optind;
 		filenames = argv + optind;
 	}
+	void **files = (void **)malloc(nfiles * sizeof(void *));
 
 	// make sure the process is allowed to open enough files
 	struct rlimit lim;
@@ -3531,6 +3509,7 @@ int run(int argc, char *argv[])
 		lim.rlim_cur = nfiles + 7;
 		setrlimit(RLIMIT_NOFILE, &lim);
 	}
+
 	if ((flags & ADJUST_CLUSTERS) && nfiles < 100)
 		fprintf(stderr,
 			"Warning: adjusting clusters with %d sample(s) is not recommended\n",
@@ -3634,7 +3613,6 @@ int run(int argc, char *argv[])
 	if (gs_fname)
 		flags |= GENOME_STUDIO;
 
-	void **files = (void **)malloc(nfiles * sizeof(void *));
 	for (int i = 0; i < nfiles; i++) {
 		if (flags & LOAD_IDAT) {
 			fprintf(stderr, "Reading IDAT file %s\n", filenames[i]);
@@ -3660,12 +3638,12 @@ int run(int argc, char *argv[])
 			if (nfiles == 1)
 				idat_to_csv((idat_t *)files[0], out_txt, flags & VERBOSE);
 			else
-				idats_to_csv((idat_t **)files, nfiles, out_txt);
+				idats_to_tsv((idat_t **)files, nfiles, out_txt);
 		} else {
 			if (nfiles == 1)
 				gtc_to_csv((gtc_t *)files[0], out_txt, flags & VERBOSE);
 			else
-				gtcs_to_csv((gtc_t **)files, nfiles, out_txt);
+				gtcs_to_tsv((gtc_t **)files, nfiles, out_txt);
 		}
 	}
 
@@ -3729,7 +3707,7 @@ int run(int argc, char *argv[])
 	fai_destroy(fai);
 	egt_destroy(egt);
 	bpm_destroy(bpm);
-	if (gtc_pathname) {
+	if (pathname) {
 		for (int i = 0; i < nfiles; i++)
 			free(filenames[i]);
 		free(filenames);

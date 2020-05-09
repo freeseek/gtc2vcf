@@ -36,6 +36,7 @@ parser <- OptionParser('usage: gtc2vcf_plot.R [options] --illumina|--affymetrix 
 parser <- add_option(parser, c('--vcf'), type = 'character', help = 'input VCF file', metavar = '<file.vcf>')
 parser <- add_option(parser, c('--illumina'), action = 'store_true', default = FALSE, help = 'whether the input VCF file contains Illumina data')
 parser <- add_option(parser, c('--affymetrix'), action = 'store_true', default = FALSE, help = 'whether the input VCF file contains Affymetrix data')
+parser <- add_option(parser, c('--birdseed'), action = 'store_true', default = FALSE, help = 'whether the input VCF file contains Affymetrix data from Birdseed')
 parser <- add_option(parser, c('--pdf'), type = 'character', help = 'output PDF file', metavar = '<file.pdf>')
 parser <- add_option(parser, c('--png'), type = 'character', help = 'output PNG file', metavar = '<file.png>')
 parser <- add_option(parser, c('--width'), type = 'integer', default = 7, help = 'inches width of the output file [7]', metavar = '<integer>')
@@ -46,7 +47,6 @@ parser <- add_option(parser, c('--pos'), type = 'integer', help = 'chromosome po
 parser <- add_option(parser, c('--id'), type = 'character', help = 'variant ID', metavar = '<string>')
 parser <- add_option(parser, c('--samples'), type = 'character', help = 'comma-separated list of samples to include', metavar = '<list>')
 parser <- add_option(parser, c('--samples-file'), type = 'character', help = 'file with list of samples to include', metavar = '<file>')
-parser <- add_option(parser, c('--ellipses'), action = 'store_true', default = FALSE, help = 'plot ellipses around genotype clusters')
 parser <- add_option(parser, c('--minimal'), action = 'store_true', default = FALSE, help = 'only plot NORMX/NORMY and BAF/LRR plots')
 parser <- add_option(parser, c('--zcall'), action = 'store_true', default = FALSE, help = 'plot ZCall thresholds')
 args <- parse_args(parser, commandArgs(trailingOnly = TRUE))
@@ -57,35 +57,24 @@ if (is.null(args$chrom)) {print_help(parser); stop('option --chrom is required')
 if (is.null(args$pos)) {print_help(parser); stop('option --pos is required')}
 if (!args$illumina && !args$affymetrix) {print_help(parser); stop('either --illumina or --affymetrix is required')}
 if (args$illumina && args$affymetrix) {print_help(parser); stop('cannot use --illumina and --affymetrix at the same time')}
+if (args$illumina && args$birdseed) {print_help(parser); stop('cannot use --illumina and --birdseed at the same time')}
+if (args$affymetrix && args$zcall) {print_help(parser); stop('cannot use --affymetrix and --zcall at the same time')}
 if (is.null(args$pdf) && is.null(args$png)) {print_help(parser); stop('either --pdf or --png is required')}
 if (!is.null(args$pdf) && !is.null(args$png)) {print_help(parser); stop('cannot use --pdf and --png at the same time')}
 if (!is.null(args$png) && !capabilities('png')) {print_help(parser); stop('unable to start device PNG: no png support in this version of R\nyou need to reinstall R with support for PNG to use the --png option\n')}
 if (!is.null(args$samples) && !is.null(args$samples_file)) {print_help(parser); stop('cannot use --samples and --samples-file at the same time')}
 
 base <- c('CHROM', 'POS', 'ID')
-if (args$illumina)
-{
-  info <- c('meanR_AA', 'meanR_AB', 'meanR_BB', 'meanTHETA_AA', 'meanTHETA_AB', 'meanTHETA_BB')
+if (args$illumina) {
+  info <- c('meanR_AA', 'meanR_AB', 'meanR_BB', 'meanTHETA_AA', 'meanTHETA_AB', 'meanTHETA_BB', 'devR_AA', 'devR_AB', 'devR_BB', 'devTHETA_AA', 'devTHETA_AB', 'devTHETA_BB')
   format <- c('GT', 'X', 'Y', 'NORMX', 'NORMY', 'R', 'THETA', 'BAF', 'LRR')
-  x <- 'THETA'
-  y <- 'R'
+  if (args$zcall) {
+    info <- c(info, c('zthresh_X', 'zthresh_Y'))
+  }
 }
-if (args$affymetrix)
-{
-  info <- c('meanDELTA_AA', 'meanDELTA_AB', 'meanDELTA_BB', 'meanSIZE_AA', 'meanSIZE_AB', 'meanSIZE_BB')
+if (args$affymetrix) {
+  info <- c('meanX_AA', 'meanX_AB', 'meanX_BB', 'meanY_AA', 'meanY_AB', 'meanY_BB', 'varX_AA', 'varX_AB', 'varX_BB', 'varY_AA', 'varY_AB', 'varY_BB', 'covarXY_AA', 'covarXY_AB', 'covarXY_BB')
   format <- c('GT', 'NORMX', 'NORMY', 'DELTA', 'SIZE', 'BAF', 'LRR')
-  x <- 'DELTA'
-  y <- 'SIZE'
-}
-
-if (args$zcall) {
-  info <- c(info, c('zthresh_X', 'zthresh_Y'))
-  format <- c(format, c('GTA', 'GTZ'))
-  gt_color <- 'GTA'
-  gt_shape <- 'GTZ'
-} else {
-  gt_color <- 'GT'
-  gt_shape <- 'GT'
 }
 
 fmt <- paste0('"[%', paste(base, collapse = '\\t%'), paste(c('', info), collapse = '\\t%INFO/'), paste(c('', format), collapse = '\\t%'), '\\n]"')
@@ -99,6 +88,7 @@ if (packageVersion("data.table") < '1.11.6') {
 } else {
   df <- setNames(fread(cmd = cmd, sep = '\t', header = FALSE, na.strings = '.', data.table = FALSE), names)
 }
+v <- sapply(df[,info], unique)
 
 if (!is.null(args$id)) {
   if (!(args$id %in% unique(df$ID))) stop('Specified ID not present at specified location')
@@ -107,52 +97,70 @@ if (!is.null(args$id)) {
   if ( length(unique(df$ID)) > 1 ) stop('More than one variant at the specified position, use --id to specify which variant to plot')  
 }
 
-if (args$illumina)
-{
-  p1 <- ggplot(df, aes_string(x = 'Y', y = 'X', color = gt_color, shape = gt_shape)) +
-    geom_point() +
+if (args$illumina) {
+  p1 <- ggplot(df, aes(x = Y, y = X, color = GT, shape = GT)) +
+    geom_point(size = .5) +
     theme_bw(base_size = args$fontsize) +
     theme(legend.position = 'none')
-  normx <- 'NORMY'
-  normy <- 'NORMX'
-} else {
-  normx <- 'NORMX'
-  normy <- 'NORMY'
+  p2 <- ggplot(df, aes(x = NORMY, y = NORMX, color = GT, shape = GT)) +
+    geom_point(size = .5) +
+    theme_bw(base_size = args$fontsize) +
+    theme(legend.position = 'none')
+  if (args$zcall) {
+    zthresh_X <- unique(df$zthresh_X)
+    zthresh_Y <- unique(df$zthresh_Y)
+    p2 <- p2 + geom_vline(xintercept = zthresh_Y, color = 'gray') +
+      geom_hline(yintercept = zthresh_X, color = 'gray')
+  }
+  p3 <- ggplot(df, aes(x = THETA, y = R, color = GT, shape = GT)) +
+    geom_point(size = .5) +
+    coord_cartesian(xlim = c(0,1)) +
+    theme_bw(base_size = args$fontsize) +
+    theme(legend.position = 'none')
+  for (gt in c('AA', 'AB', 'BB')) {
+    t <- seq(0, 2*pi, length.out = 100)
+    x <- unname(v[paste0('meanTHETA_', gt)]) + unname(v[paste0('devTHETA_', gt)])*cos(t)
+    y <- unname(v[paste0('meanR_', gt)]) + unname(v[paste0('devR_', gt)])*sin(t)
+    p3 <- p3 + annotate('path', x=x, y=y)
+  }
+} else if (args$affymetrix) {
+  p2 <- ggplot(df, aes(x = NORMX, y = NORMY, color = GT, shape = GT)) +
+    geom_point(size = .5) +
+    theme_bw(base_size = args$fontsize) +
+    theme(legend.position = 'none')
+  p3 <- ggplot(df, aes(x = DELTA, y = SIZE, color = GT, shape = GT)) +
+    geom_point(size = .5) +
+    theme_bw(base_size = args$fontsize) +
+    theme(legend.position = 'none')
+  for (gt in c('AA', 'AB', 'BB')) {
+    a <- unname(v[paste0('varX_', gt)])
+    b <- unname(v[paste0('covarXY_', gt)])
+    c <- unname(v[paste0('varY_', gt)])
+    lambda1 <- (a+c)/2 + sqrt(((a-c)/2)^2+b^2)
+    lambda2 <- (a+c)/2 - sqrt(((a-c)/2)^2+b^2)
+    theta <- atan2(lambda1 - a, b)
+    t <- seq(0, 2*pi, length.out = 100)
+    x <- unname(v[paste0('meanX_', gt)]) + sqrt(lambda1)*cos(theta)*cos(t) - sqrt(lambda2)*sin(theta)*sin(t)
+    y <- unname(v[paste0('meanY_', gt)]) + sqrt(lambda1)*sin(theta)*cos(t) + sqrt(lambda2)*cos(theta)*sin(t)
+    if (args$birdseed) {
+      p2 <- p2 + annotate('path', x=x, y=y)
+    } else {
+      p3 <- p3 + annotate('path', x=x, y=y)
+    }
+  }
 }
-p2 <- ggplot(df, aes_string(x = normx, y = normy, color = gt_color, shape = gt_shape)) +
-  geom_point() +
-  theme_bw(base_size = args$fontsize) +
-  theme(legend.position = 'none')
-if (args$zcall) {
-  zthresh_X <- unique(df$zthresh_X)
-  zthresh_Y <- unique(df$zthresh_Y)
-  p2 <- p2 + geom_vline(xintercept = zthresh_Y, color = 'gray') +
-             geom_hline(yintercept = zthresh_X, color = 'gray')
-}
-df_centers = setNames(data.frame(x = sapply(df[,paste0('mean', x, '_', c('AA', 'AB', 'BB'))], unique),
-                                 y = sapply(df[,paste0('mean', y, '_', c('AA', 'AB', 'BB'))], unique)), c(x, y))
-p3 <- ggplot(df, aes_string(x = x, y = y, color = gt_color, shape = gt_shape)) +
-  geom_point() +
-  geom_point(data = df_centers, color = 'black', size = 5, shape = 8) +
-  theme_bw(base_size = args$fontsize) +
-  theme(legend.position = 'none')
-if (args$illumina) p3 <- p3 + coord_cartesian(xlim = c(0,1))
-p4 <- ggplot(df, aes_string(x = 'BAF', y = 'LRR', color = gt_color, shape = gt_shape)) +
-  geom_point() +
+p4 <- ggplot(df, aes(x = BAF, y = LRR, color = GT, shape = GT)) +
+  geom_point(size = .5) +
   theme_bw(base_size = args$fontsize) +
   theme(legend.position = 'bottom', legend.box = 'horizontal') +
   coord_cartesian(xlim = c(0,1))
-if (args$ellipses) {
-  p1 <- p1 + stat_ellipse(alpha = 1/2)
-  p2 <- p2 + stat_ellipse(alpha = 1/2)
-  p3 <- p3 + stat_ellipse(alpha = 1/2)
-}
 
 if (!is.null(args$pdf)) {
   pdf(args$pdf, width = args$width, height = args$height)
 } else {
   png(args$png, width = args$width, height = args$height, units = 'in', res = 150)
 }
+
 if (args$minimal) {
   grid.arrange(p2, p4, nrow = 2, ncol = 1, heights = c(3, 4), top = unique(df$ID))
 } else {
