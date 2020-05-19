@@ -136,7 +136,7 @@ done
 bcftools +gtc2vcf {HumanCNV370v1,HumanOmni25M-8v1-1,HumanOmni2.5-4v1}/*.gtc -o gtc2vcf.gtc.tsv
 ```
 
-Convert	GTCs to VCF
+Convert GTCs to VCF
 ===================
 
 ```
@@ -204,6 +204,7 @@ for chip in GenomeWideEx_6 GenomeWideSNP_6; do
     --csv GenomeWideSNP_6.na35.annot.csv \
     --sam GenomeWideSNP_6.na35.annot.bam \
     --models $chip/AxiomGT1.snp-posteriors.txt \
+    --report $chip/AxiomGT1.report.txt \
     --chps $chip \
     --sex HapMap.$chip.sex | \
     bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
