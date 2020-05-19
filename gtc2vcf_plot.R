@@ -74,6 +74,7 @@ if (args$illumina) {
 }
 if (args$affymetrix) {
   info <- c('meanX_AA', 'meanX_AB', 'meanX_BB', 'meanY_AA', 'meanY_AB', 'meanY_BB', 'varX_AA', 'varX_AB', 'varX_BB', 'varY_AA', 'varY_AB', 'varY_BB', 'covarXY_AA', 'covarXY_AB', 'covarXY_BB')
+  info <- c(info, paste0(info, '.1'))
   format <- c('GT', 'NORMX', 'NORMY', 'DELTA', 'SIZE', 'BAF', 'LRR')
 }
 
@@ -88,22 +89,25 @@ if (packageVersion("data.table") < '1.11.6') {
 } else {
   df <- setNames(fread(cmd = cmd, sep = '\t', header = FALSE, na.strings = '.', data.table = FALSE), names)
 }
-v <- sapply(df[,info], unique)
-
 if (!is.null(args$id)) {
   if (!(args$id %in% unique(df$ID))) stop('Specified ID not present at specified location')
   df <- df[df$ID == args$id,]
 } else {
   if ( length(unique(df$ID)) > 1 ) stop('More than one variant at the specified position, use --id to specify which variant to plot')  
 }
+v <- sapply(df[,info], unique)
 
 if (args$illumina) {
   p1 <- ggplot(df, aes(x = Y, y = X, color = GT, shape = GT)) +
     geom_point(size = .5) +
+    scale_x_continuous(limits = c(0, NA), expand = expand_scale(mult = c(0, .05))) +
+    scale_y_continuous(limits = c(0, NA), expand = expand_scale(mult = c(0, .05))) +
     theme_bw(base_size = args$fontsize) +
     theme(legend.position = 'none')
   p2 <- ggplot(df, aes(x = NORMY, y = NORMX, color = GT, shape = GT)) +
     geom_point(size = .5) +
+    scale_x_continuous(limits = c(0, NA), expand = expand_scale(mult = c(0, .05))) +
+    scale_y_continuous(limits = c(0, NA), expand = expand_scale(mult = c(0, .05))) +
     theme_bw(base_size = args$fontsize) +
     theme(legend.position = 'none')
   if (args$zcall) {
@@ -114,7 +118,7 @@ if (args$illumina) {
   }
   p3 <- ggplot(df, aes(x = THETA, y = R, color = GT, shape = GT)) +
     geom_point(size = .5) +
-    coord_cartesian(xlim = c(0,1)) +
+    scale_x_continuous(limits = c(0,1), expand = expand_scale(0)) +
     theme_bw(base_size = args$fontsize) +
     theme(legend.position = 'none')
   for (gt in c('AA', 'AB', 'BB')) {
@@ -126,13 +130,15 @@ if (args$illumina) {
 } else if (args$affymetrix) {
   p2 <- ggplot(df, aes(x = NORMX, y = NORMY, color = GT, shape = GT)) +
     geom_point(size = .5) +
+    scale_x_continuous(limits = c(0, NA), expand = expand_scale(mult = c(0, .05))) +
+    scale_y_continuous(limits = c(0, NA), expand = expand_scale(mult = c(0, .05))) +
     theme_bw(base_size = args$fontsize) +
     theme(legend.position = 'none')
   p3 <- ggplot(df, aes(x = DELTA, y = SIZE, color = GT, shape = GT)) +
     geom_point(size = .5) +
     theme_bw(base_size = args$fontsize) +
     theme(legend.position = 'none')
-  for (gt in c('AA', 'AB', 'BB')) {
+  for (gt in c('AA', 'AB', 'BB', 'AA.1', 'BB.1')) {
     a <- unname(v[paste0('varX_', gt)])
     b <- unname(v[paste0('covarXY_', gt)])
     c <- unname(v[paste0('varY_', gt)])
@@ -152,8 +158,7 @@ if (args$illumina) {
 p4 <- ggplot(df, aes(x = BAF, y = LRR, color = GT, shape = GT)) +
   geom_point(size = .5) +
   theme_bw(base_size = args$fontsize) +
-  theme(legend.position = 'bottom', legend.box = 'horizontal') +
-  coord_cartesian(xlim = c(0,1))
+  theme(legend.position = 'bottom', legend.box = 'horizontal')
 
 if (!is.null(args$pdf)) {
   pdf(args$pdf, width = args$width, height = args$height)

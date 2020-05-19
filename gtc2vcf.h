@@ -26,6 +26,8 @@
 
 #include <dirent.h>
 #include <sys/stat.h>
+#include <htslib/faidx.h>
+#include <htslib/sam.h>
 
 #define min(a, b)                                                                              \
 	({                                                                                     \
@@ -494,5 +496,32 @@ static inline int alleles_ab_to_vcf(const char **alleles, const char *ref_base,
 		return 3;
 	default:
 		return -1;
+	}
+}
+
+// compute BAF and LRR from Theta and R
+static inline void get_baf_lrr(const float ilmn_theta, const float ilmn_r, float aa_theta,
+			       float ab_theta, float bb_theta, float aa_r, float ab_r,
+			       float bb_r, float *baf, float *lrr)
+{
+	// compute LRR and BAF
+	if (ilmn_theta == ab_theta) {
+		*lrr = logf(ilmn_r / ab_r) * (float)M_LOG2E;
+		*baf = 0.5f;
+	} else if (ilmn_theta < ab_theta) {
+		float slope = (aa_r - ab_r) / (aa_theta - ab_theta);
+		float b = aa_r - (aa_theta * slope);
+		float r_ref = (slope * ilmn_theta) + b;
+		*lrr = logf(ilmn_r / r_ref) * (float)M_LOG2E;
+		*baf = 0.5f - (ab_theta - ilmn_theta) * 0.5f / (ab_theta - aa_theta);
+	} else if (ilmn_theta > ab_theta) {
+		float slope = (ab_r - bb_r) / (ab_theta - bb_theta);
+		float b = ab_r - (ab_theta * slope);
+		float r_ref = (slope * ilmn_theta) + b;
+		*lrr = logf(ilmn_r / r_ref) * (float)M_LOG2E;
+		*baf = 1.0f - (bb_theta - ilmn_theta) * 0.5f / (bb_theta - ab_theta);
+	} else {
+		*lrr = NAN;
+		*baf = NAN;
 	}
 }

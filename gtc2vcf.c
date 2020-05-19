@@ -36,7 +36,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-05-08"
+#define GTC2VCF_VERSION "2020-05-13"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -2082,43 +2082,6 @@ static inline void get_ilmn_theta_r(float norm_x, float norm_y, float *ilmn_thet
 	*ilmn_r = norm_x + norm_y;
 }
 
-// compute BAF and LRR from Theta and R
-static void get_baf_lrr(const float ilmn_theta, const float ilmn_r,
-			const ClusterRecord *cluster_record, float *baf, float *lrr)
-{
-	float aa_theta = cluster_record->aa_cluster_stats.theta_mean;
-	float ab_theta = cluster_record->ab_cluster_stats.theta_mean;
-	float bb_theta = cluster_record->bb_cluster_stats.theta_mean;
-	float aa_r = cluster_record->aa_cluster_stats.r_mean;
-	float ab_r = cluster_record->ab_cluster_stats.r_mean;
-	float bb_r = cluster_record->bb_cluster_stats.r_mean;
-
-	// compute LRR and BAF
-	if (ilmn_theta == ab_theta) {
-		*lrr = logf(ilmn_r / ab_r) * (float)M_LOG2E;
-		*baf = 0.5f;
-	} else if (ilmn_theta < ab_theta) {
-		float slope = (aa_r - ab_r) / (aa_theta - ab_theta);
-		float b = aa_r - (aa_theta * slope);
-		float r_ref = (slope * ilmn_theta) + b;
-		*lrr = logf(ilmn_r / r_ref) * (float)M_LOG2E;
-		*baf = ilmn_theta < aa_theta
-			       ? 0.0f
-			       : 0.5f - (ab_theta - ilmn_theta) * 0.5f / (ab_theta - aa_theta);
-	} else if (ilmn_theta > ab_theta) {
-		float slope = (ab_r - bb_r) / (ab_theta - bb_theta);
-		float b = ab_r - (ab_theta * slope);
-		float r_ref = (slope * ilmn_theta) + b;
-		*lrr = logf(ilmn_r / r_ref) * (float)M_LOG2E;
-		*baf = ilmn_theta >= bb_theta
-			       ? 1.0f
-			       : 1.0f - (bb_theta - ilmn_theta) * 0.5f / (bb_theta - ab_theta);
-	} else {
-		*lrr = NAN;
-		*baf = NAN;
-	}
-}
-
 static inline void get_intensities(gtc_t *gtc, const bpm_t *bpm, const egt_t *egt, int idx,
 				   intensities_t *intensities)
 {
@@ -2131,7 +2094,13 @@ static inline void get_intensities(gtc_t *gtc, const bpm_t *bpm, const egt_t *eg
 
 	if (bpm->norm_lookups && egt) {
 		get_baf_lrr(intensities->ilmn_theta, intensities->ilmn_r,
-			    &egt->cluster_records[idx], &intensities->baf, &intensities->lrr);
+			    egt->cluster_records[idx].aa_cluster_stats.theta_mean,
+			    egt->cluster_records[idx].ab_cluster_stats.theta_mean,
+			    egt->cluster_records[idx].bb_cluster_stats.theta_mean,
+			    egt->cluster_records[idx].aa_cluster_stats.r_mean,
+			    egt->cluster_records[idx].ab_cluster_stats.r_mean,
+			    egt->cluster_records[idx].bb_cluster_stats.r_mean,
+			    &intensities->baf, &intensities->lrr);
 	} else if (gtc->b_allele_freqs && gtc->logr_ratios) {
 		get_element(gtc->b_allele_freqs, (void *)&intensities->baf, idx);
 		get_element(gtc->logr_ratios, (void *)&intensities->lrr, idx);
@@ -2605,9 +2574,18 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
 				adjust_clusters(gts, ilmn_theta_arr, ilmn_r_arr, n,
 						&egt->cluster_records[j]);
 				for (int i = 0; i < n; i++) {
-					get_baf_lrr(ilmn_theta_arr[i], ilmn_r_arr[i],
-						    &egt->cluster_records[j], &baf_arr[i],
-						    &lrr_arr[i]);
+					get_baf_lrr(
+						ilmn_theta_arr[i], ilmn_r_arr[i],
+						egt->cluster_records[j]
+							.aa_cluster_stats.theta_mean,
+						egt->cluster_records[j]
+							.ab_cluster_stats.theta_mean,
+						egt->cluster_records[j]
+							.bb_cluster_stats.theta_mean,
+						egt->cluster_records[j].aa_cluster_stats.r_mean,
+						egt->cluster_records[j].ab_cluster_stats.r_mean,
+						egt->cluster_records[j].bb_cluster_stats.r_mean,
+						&baf_arr[i], &lrr_arr[i]);
 				}
 			}
 			bcf_update_info_float(
@@ -3487,6 +3465,9 @@ int run(int argc, char *argv[])
 			out_sex = get_file_handle(sex_fname);
 	}
 	flags |= parse_tags(tag_list);
+
+	// beginning of plugin run
+	fprintf(stderr, "gtc2vcf " GTC2VCF_VERSION " https://github.com/freeseek/gtc2vcf\n");
 
 	int nfiles = 0;
 	char **filenames = NULL;

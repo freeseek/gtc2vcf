@@ -38,7 +38,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2020-05-08"
+#define AFFY2VCF_VERSION "2020-05-17"
 
 #define GT_NC -1
 #define GT_AA 0
@@ -418,16 +418,17 @@ static void chp_read_parameters(Parameter *parameter, hFILE *fp, int flags)
 	else
 		error("MIME type %ls not allowed\n", parameter->mime_type);
 
-    // drop parameters that can increase the size of the header dramatically
-    if (flags && wcsncmp(parameter->name, L"affymetrix-algorithm-param-apt-opt-cel", 38) == 0) {
-        free(parameter->name);
-        parameter->name = NULL;
-        parameter->n_value = 0;
-        free(parameter->value);
-        parameter->value = NULL;
-        free(parameter->mime_type);
-        parameter->mime_type = NULL;
-    }
+	// drop parameters that can increase the size of the header dramatically
+	if (flags
+	    && wcsncmp(parameter->name, L"affymetrix-algorithm-param-apt-opt-cel", 38) == 0) {
+		free(parameter->name);
+		parameter->name = NULL;
+		parameter->n_value = 0;
+		free(parameter->value);
+		parameter->value = NULL;
+		free(parameter->mime_type);
+		parameter->mime_type = NULL;
+	}
 }
 
 static void chp_read_data_header(DataHeader *data_header, hFILE *fp, int flags)
@@ -544,8 +545,17 @@ static chp_t *chp_init(const char *fn, int flags)
 		error("Fail to seek to end of CHP %s file\n", chp->fn);
 	chp->size = htell(chp->fp);
 
-	const char *ptr = strrchr(chp->fn, '/') ? strrchr(chp->fn, '/') + 1 : chp->fn;
-	chp->display_name = strndup(ptr, strlen(ptr) - 4);
+	char *ptr = strrchr(chp->fn, '/') ? strrchr(chp->fn, '/') + 1 : chp->fn;
+	chp->display_name = strdup(ptr);
+	ptr = strrchr(chp->display_name, '.');
+	if (ptr && strcmp(ptr + 1, "chp") == 0) {
+		*ptr = '\0';
+		ptr = strrchr(chp->display_name, '.');
+		if (ptr
+		    && (strcmp(ptr + 1, "AxiomGT1") == 0 || strcmp(ptr + 1, "birdseed-v2") == 0
+			|| strcmp(ptr + 1, "brlmm-p") == 0))
+			*ptr = '\0';
+	}
 
 	return chp;
 }
@@ -849,7 +859,7 @@ static htsFile *unheader(const char *fn, kstring_t *str)
 {
 	htsFile *fp = hts_open(fn, "r");
 	if (fp == NULL)
-	    error("Could not open %s: %s\n", fn, strerror(errno));
+		error("Could not open %s: %s\n", fn, strerror(errno));
 
 	if (hts_getline(fp, KS_SEP_LINE, str) <= 0)
 		error("Empty file: %s\n", fn);
@@ -1522,8 +1532,12 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn,
 			error("Malformed first line from calls file: %s\n%s\n", calls_fn,
 			      str.s);
 		varitr->nsmpl = ncols - 1;
-		for (int i = 1; i < ncols; i++)
+		for (int i = 1; i < ncols; i++) {
+			char *ptr = strrchr(&str.s[off[i]], '.');
+			if (ptr && strcmp(ptr + 1, "CEL") == 0)
+				*ptr = '\0';
 			bcf_hdr_add_sample(hdr, &str.s[off[i]]);
+		}
 	}
 
 	if (confidences_fn) {
@@ -1534,8 +1548,12 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn,
 			      confidences_fn, str.s);
 		if (!varitr->calls_fp) {
 			varitr->nsmpl = ncols - 1;
-			for (int i = 1; i < ncols; i++)
+			for (int i = 1; i < ncols; i++) {
+				char *ptr = strrchr(&str.s[off[i]], '.');
+				if (ptr && strcmp(ptr + 1, "CEL") == 0)
+					*ptr = '\0';
 				bcf_hdr_add_sample(hdr, &str.s[off[i]]);
+			}
 		}
 	}
 
@@ -1547,8 +1565,12 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn,
 			      str.s);
 		if (!varitr->calls_fp && !varitr->confidences_fp) {
 			varitr->nsmpl = ncols - 1;
-			for (int i = 1; i < ncols; i++)
+			for (int i = 1; i < ncols; i++) {
+				char *ptr = strrchr(&str.s[off[i]], '.');
+				if (ptr && strcmp(ptr + 1, "CEL") == 0)
+					*ptr = '\0';
 				bcf_hdr_add_sample(hdr, &str.s[off[i]]);
+			}
 		}
 	}
 
@@ -1840,67 +1862,67 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags)
 			"##INFO=<ID=covarXY_BB,Number=1,Type=Float,Description=\"Covariance for BB diploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=meanX_AA:1,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AA haploid cluster\">");
+			"##INFO=<ID=meanX_AA.1,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AA haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=meanX_AB:1,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AB haploid cluster\">");
+			"##INFO=<ID=meanX_AB.1,Number=1,Type=Float,Description=\"Mean of normalized DELTA for AB haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=meanX_BB:1,Number=1,Type=Float,Description=\"Mean of normalized DELTA for BB haploid cluster\">");
+			"##INFO=<ID=meanX_BB.1,Number=1,Type=Float,Description=\"Mean of normalized DELTA for BB haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=varX_AA:1,Number=1,Type=Float,Description=\"Variance of normalized DELTA for AA haploid cluster\">");
+			"##INFO=<ID=varX_AA.1,Number=1,Type=Float,Description=\"Variance of normalized DELTA for AA haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=varX_AB:1,Number=1,Type=Float,Description=\"Variance of normalized DELTA for AB haploid cluster\">");
+			"##INFO=<ID=varX_AB.1,Number=1,Type=Float,Description=\"Variance of normalized DELTA for AB haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=varX_BB:1,Number=1,Type=Float,Description=\"Variance of normalized DELTA for BB haploid cluster\">");
+			"##INFO=<ID=varX_BB.1,Number=1,Type=Float,Description=\"Variance of normalized DELTA for BB haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=nObsMean_AA:1,Number=1,Type=Float,Description=\"Number of AA calls in training set for haploid mean\">");
+			"##INFO=<ID=nObsMean_AA.1,Number=1,Type=Float,Description=\"Number of AA calls in training set for haploid mean\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=nObsMean_AB:1,Number=1,Type=Float,Description=\"Number of AB calls in training set for haploid mean\">");
+			"##INFO=<ID=nObsMean_AB.1,Number=1,Type=Float,Description=\"Number of AB calls in training set for haploid mean\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=nObsMean_BB:1,Number=1,Type=Float,Description=\"Number of BB calls in training set for haploid mean\">");
+			"##INFO=<ID=nObsMean_BB.1,Number=1,Type=Float,Description=\"Number of BB calls in training set for haploid mean\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=nObsVar_AA:1,Number=1,Type=Float,Description=\"Number of AA calls in training set for haploid variance\">");
+			"##INFO=<ID=nObsVar_AA.1,Number=1,Type=Float,Description=\"Number of AA calls in training set for haploid variance\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=nObsVar_AB:1,Number=1,Type=Float,Description=\"Number of AB calls in training set for haploid variance\">");
+			"##INFO=<ID=nObsVar_AB.1,Number=1,Type=Float,Description=\"Number of AB calls in training set for haploid variance\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=nObsVar_BB:1,Number=1,Type=Float,Description=\"Number of BB calls in training set for haploid variance\">");
+			"##INFO=<ID=nObsVar_BB.1,Number=1,Type=Float,Description=\"Number of BB calls in training set for haploid variance\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=meanY_AA:1,Number=1,Type=Float,Description=\"Mean of normalized SIZE for AA haploid cluster\">");
+			"##INFO=<ID=meanY_AA.1,Number=1,Type=Float,Description=\"Mean of normalized SIZE for AA haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=meanY_AB:1,Number=1,Type=Float,Description=\"Mean of normalized SIZE for AB haploid cluster\">");
+			"##INFO=<ID=meanY_AB.1,Number=1,Type=Float,Description=\"Mean of normalized SIZE for AB haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=meanY_BB:1,Number=1,Type=Float,Description=\"Mean of normalized SIZE for BB haploid cluster\">");
+			"##INFO=<ID=meanY_BB.1,Number=1,Type=Float,Description=\"Mean of normalized SIZE for BB haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=varY_AA:1,Number=1,Type=Float,Description=\"Variance of normalized SIZE for AA haploid cluster\">");
+			"##INFO=<ID=varY_AA.1,Number=1,Type=Float,Description=\"Variance of normalized SIZE for AA haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=varY_AB:1,Number=1,Type=Float,Description=\"Variance of normalized SIZE for AB haploid cluster\">");
+			"##INFO=<ID=varY_AB.1,Number=1,Type=Float,Description=\"Variance of normalized SIZE for AB haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=varY_BB:1,Number=1,Type=Float,Description=\"Variance of normalized SIZE for BB haploid cluster\">");
+			"##INFO=<ID=varY_BB.1,Number=1,Type=Float,Description=\"Variance of normalized SIZE for BB haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=covarXY_AA:1,Number=1,Type=Float,Description=\"Covariance for AA haploid cluster\">");
+			"##INFO=<ID=covarXY_AA.1,Number=1,Type=Float,Description=\"Covariance for AA haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=covarXY_AB:1,Number=1,Type=Float,Description=\"Covariance for AB haploid cluster\">");
+			"##INFO=<ID=covarXY_AB.1,Number=1,Type=Float,Description=\"Covariance for AB haploid cluster\">");
 		bcf_hdr_append(
 			hdr,
-			"##INFO=<ID=covarXY_BB:1,Number=1,Type=Float,Description=\"Covariance for BB haploid cluster\">");
+			"##INFO=<ID=covarXY_BB.1,Number=1,Type=Float,Description=\"Covariance for BB haploid cluster\">");
 	}
 	if (flags & CALLS_LOADED)
 		bcf_hdr_append(
@@ -2008,58 +2030,41 @@ static void update_info_cluster(const bcf_hdr_t *hdr, bcf1_t *rec, const char **
 // compute LRR and BAF
 // similar to
 // http://github.com/WGLab/PennCNV/blob/master/affy/bin/normalize_affy_geno_cluster.pl
-static void get_baf_lrr(const float *delta, const float *size, int n, const snp_t *snp,
-			int is_birdseed, float *baf, float *lrr)
+static void compute_baf_lrr(const float *norm_x, const float *norm_y, int n, const snp_t *snp,
+			    int is_birdseed, float *baf, float *lrr)
 {
-	float aa_delta, aa_size, ab_delta, ab_size, bb_delta, bb_size;
+	float aa_theta, ab_theta, bb_theta, aa_r, ab_r, bb_r;
+
 	if (is_birdseed) {
-		float log2x = logf(snp->aa.xm) * (float)M_LOG2E;
-		float log2y = logf(snp->aa.ym) * (float)M_LOG2E;
-		aa_delta = log2x - log2y;
-		aa_size = (log2x + log2y) * 0.5f;
-		log2x = logf(snp->ab.xm) * (float)M_LOG2E;
-		log2y = logf(snp->ab.ym) * (float)M_LOG2E;
-		ab_delta = log2x - log2y;
-		ab_size = (log2x + log2y) * 0.5f;
-		log2x = logf(snp->bb.xm) * (float)M_LOG2E;
-		log2y = logf(snp->bb.ym) * (float)M_LOG2E;
-		bb_delta = log2x - log2y;
-		bb_size = (log2x + log2y) * 0.5f;
+		aa_theta = atanf(snp->aa.ym / snp->aa.xm) * (float)M_2_PI;
+		ab_theta = atanf(snp->ab.ym / snp->ab.xm) * (float)M_2_PI;
+		bb_theta = atanf(snp->bb.ym / snp->bb.xm) * (float)M_2_PI;
+		aa_r = snp->aa.xm + snp->aa.ym;
+		ab_r = snp->ab.xm + snp->ab.ym;
+		bb_r = snp->bb.xm + snp->bb.ym;
 	} else {
-		aa_delta = snp->aa.xm;
-		aa_size = snp->aa.ym;
-		ab_delta = snp->ab.xm;
-		ab_size = snp->ab.ym;
-		bb_delta = snp->bb.xm;
-		bb_size = snp->bb.ym;
+		aa_theta = atanf(expf(-snp->aa.xm * (float)M_LN2)) * (float)M_2_PI;
+		ab_theta = atanf(expf(-snp->ab.xm * (float)M_LN2)) * (float)M_2_PI;
+		bb_theta = atanf(expf(-snp->bb.xm * (float)M_LN2)) * (float)M_2_PI;
+		aa_r = expf(snp->aa.ym * (float)M_LN2) * 2.0f
+		       * coshf(snp->aa.xm * 0.5f * (float)M_LN2);
+		ab_r = expf(snp->ab.ym * (float)M_LN2) * 2.0f
+		       * coshf(snp->ab.xm * 0.5f * (float)M_LN2);
+		bb_r = expf(snp->bb.ym * (float)M_LN2) * 2.0f
+		       * coshf(snp->bb.xm * 0.5f * (float)M_LN2);
+	}
+
+	// handles chromosome Y SNPs
+	if (snp->copynumber == 1) {
+		ab_theta = (aa_theta + bb_theta) * 0.5f;
+		ab_r = (aa_r + bb_r) * 0.5f;
 	}
 
 	for (int i = 0; i < n; i++) {
-		if (delta[i] == ab_delta) {
-			lrr[i] = size[i] - ab_size;
-			baf[i] = 0.5f;
-		} else if ((delta[i] < ab_delta && aa_delta < ab_delta)
-			   || (delta[i] > ab_delta && aa_delta > ab_delta)) {
-			float slope = (aa_size - ab_size) / (aa_delta - ab_delta);
-			float b = aa_size - (aa_delta * slope);
-			float size_ref = (slope * delta[i]) + b;
-			lrr[i] = size[i] - size_ref;
-			baf[i] = 0.5f - (ab_delta - delta[i]) * 0.5f / (ab_delta - aa_delta);
-		} else if ((delta[i] > ab_delta && bb_delta > ab_delta)
-			   || (delta[i] < ab_delta && bb_delta < ab_delta)) {
-			float slope = (ab_size - bb_size) / (ab_delta - bb_delta);
-			float b = ab_size - (ab_delta * slope);
-			float size_ref = (slope * delta[i]) + b;
-			lrr[i] = size[i] - size_ref;
-			baf[i] = 1.0f - (bb_delta - delta[i]) * 0.5f / (bb_delta - ab_delta);
-		} else {
-			lrr[i] = NAN;
-			baf[i] = NAN;
-		}
-		if (baf[i] < 0.0f)
-			baf[i] = 0.0f;
-		if (baf[i] > 1.0f)
-			baf[i] = 1.0f;
+		float ilmn_theta = atanf(norm_y[i] / norm_x[i]) * (float)M_2_PI;
+		float ilmn_r = norm_x[i] + norm_y[i];
+		get_baf_lrr(ilmn_theta, ilmn_r, aa_theta, ab_theta, bb_theta, aa_r, ab_r, bb_r,
+			    &baf[i], &lrr[i]);
 	}
 }
 
@@ -2235,13 +2240,13 @@ static void process(faidx_t *fai, const annot_t *annot, models_t *models, varitr
 								    : varitr->size_arr,
 						nsmpl, &models->snps[models->curr]);
 			static const char *hap_info_str[] = {
-				"meanX_AA:1",	 "meanX_AB:1",	  "meanX_BB:1",
-				"varX_AA:1",	 "varX_AB:1",	  "varX_BB:1",
-				"nObsMean_AA:1", "nObsMean_AB:1", "nObsMean_BB:1",
-				"nObsVar_AA:1",	 "nObsVar_AB:1",  "nObsVar_BB:1",
-				"meanY_AA:1",	 "meanY_AB:1",	  "meanY_BB:1",
-				"varY_AA:1",	 "varY_AB:1",	  "varY_BB:1",
-				"covarXY_AA:1",	 "covarXY_AB:1",  "covarXY_BB:1"};
+				"meanX_AA.1",	 "meanX_AB.1",	  "meanX_BB.1",
+				"varX_AA.1",	 "varX_AB.1",	  "varX_BB.1",
+				"nObsMean_AA.1", "nObsMean_AB.1", "nObsMean_BB.1",
+				"nObsVar_AA.1",	 "nObsVar_AB.1",  "nObsVar_BB.1",
+				"meanY_AA.1",	 "meanY_AB.1",	  "meanY_BB.1",
+				"varY_AA.1",	 "varY_AB.1",	  "varY_BB.1",
+				"covarXY_AA.1",	 "covarXY_AB.1",  "covarXY_BB.1"};
 			static const char *dip_info_str[] = {
 				"meanX_AA",    "meanX_AB",   "meanX_BB",    "varX_AA",
 				"varX_AB",     "varX_BB",    "nObsMean_AA", "nObsMean_AB",
@@ -2258,9 +2263,9 @@ static void process(faidx_t *fai, const annot_t *annot, models_t *models, varitr
 				update_info_cluster(hdr, rec, hap_info_str,
 						    &models->snps[models->curr_hap]);
 			if (flags & SUMMARY_LOADED) {
-				get_baf_lrr(varitr->delta_arr, varitr->size_arr, nsmpl,
-					    &models->snps[models->curr], models->is_birdseed,
-					    baf_arr, lrr_arr);
+				compute_baf_lrr(varitr->norm_x_arr, varitr->norm_y_arr, nsmpl,
+						&models->snps[models->curr],
+						models->is_birdseed, baf_arr, lrr_arr);
 				bcf_update_format_float(hdr, rec, "BAF", baf_arr, nsmpl);
 				bcf_update_format_float(hdr, rec, "LRR", lrr_arr, nsmpl);
 			}
@@ -2348,7 +2353,6 @@ static const char *usage_text(void)
 
 int run(int argc, char *argv[])
 {
-fprintf(stderr, "%ld\n", sizeof(Parameter));
 	const char *ref_fname = NULL;
 	const char *sex_fname = NULL;
 	const char *csv_fname = NULL;
@@ -2484,6 +2488,28 @@ fprintf(stderr, "%ld\n", sizeof(Parameter));
 	}
 	void **files = (void **)malloc(nfiles * sizeof(void *));
 
+	if (csv_fname) {
+		if (fasta_flank && sam_fname)
+			error("Only one of --fasta-flank or --sam-flank options can be used at once\n%s",
+			      usage_text());
+		if (!fasta_flank && !sam_fname && !ref_fname)
+			error("Expected one of --fasta-flank or --sam-flank or --fasta-ref options\n%s",
+			      usage_text());
+		if ((flags & ADJUST_CLUSTERS) && (!summary_fname || !models_fname))
+			error("Expected --summary and --models options with --adjust-clusters option\n%s",
+			      usage_text());
+		if (sex_fname && !report_fname)
+			error("Expected --report option with --sex option\n%s", usage_text());
+		if (nfiles > 0 && (calls_fname || confidences_fname || summary_fname))
+			error("Cannot load tables --calls, --confidences, --summary if CHP files provided instead\n%s",
+			      usage_text());
+	} else if (nfiles == 0) {
+		error("%s", usage_text());
+	}
+
+	// beginning of plugin run
+	fprintf(stderr, "affy2vcf " AFFY2VCF_VERSION " https://github.com/freeseek/gtc2vcf\n");
+
 	if (nfiles > 0 && !(flags & LOAD_CEL))
 		flags |= CALLS_LOADED | CONFIDENCES_LOADED | SUMMARY_LOADED;
 
@@ -2500,27 +2526,11 @@ fprintf(stderr, "%ld\n", sizeof(Parameter));
 
 	annot_t *annot = NULL;
 	if (csv_fname) {
-		if (fasta_flank && sam_fname)
-			error("Only one of --fasta-flank or --sam-flank options can be used at once\n%s",
-			      usage_text());
-		if (!fasta_flank && !sam_fname && !ref_fname)
-			error("Expected one of --fasta-flank or --sam-flank or --fasta-ref options\n%s",
-			      usage_text());
-		if ((flags & ADJUST_CLUSTERS) && (!summary_fname || !models_fname))
-			error("Expected --summary and --models options with --adjust-clusters option\n%s",
-			      usage_text());
-		if (sex_fname && !report_fname)
-			error("Expected --report option with --sex option\n%s", usage_text());
-		if (nfiles > 0 && (calls_fname || confidences_fname || summary_fname))
-			error("Cannot load tables --calls, --confidences, --summary if CHP files provided instead\n%s",
-			      usage_text());
 		fprintf(stderr, "Reading CSV file %s\n", csv_fname);
 		annot = annot_init(csv_fname, sam_fname,
 				   ((sam_fname && !ref_fname) || fasta_flank) ? output_fname
 									      : NULL,
 				   flags);
-	} else if (nfiles == 0) {
-		error("%s", usage_text());
 	}
 
 	for (int i = 0; i < nfiles; i++) {
