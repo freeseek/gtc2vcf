@@ -1,7 +1,7 @@
 HapMap
 ======
 
-How to A tutorial for how to convert HapMap data from Illumina and Affymetrix arrays to a GRCh38 VCF using gtc2vcf
+A tutorial for how to convert HapMap data from Illumina and Affymetrix arrays to a GRCh38 VCF using gtc2vcf
 
 <!--ts-->
    * [Download manifest files](#download-manifest-files)
@@ -56,7 +56,7 @@ unzip -o GenomeWideSNP_6.na35.annot.csv.zip GenomeWideSNP_6.na35.annot.csv
 /bin/rm genomewidesnp6_libraryfile.zip SNP6_supplemental_axiom_analysis_files.zip GenomeWideSNP_6.na35.annot.csv.zip
 ```
 
-Re-align flank sequences to GRCh38
+Re-align flanking sequences to GRCh38
 ```
 for chip in HumanCNV370v1_C humanomni25m-8v1-1_b HumanOmni2.5-4v1_H; do
   bcftools +gtc2vcf --csv $chip.csv --fasta-flank | \
@@ -75,8 +75,6 @@ Download and unpack IDAT and CEL files
 wget http://bioconductor.org/packages/release/data/annotation/src/contrib/hapmap370k_1.0.1.tar.gz
 wget -nH --cut-dirs 2 -r ftp://ftp.ncbi.nlm.nih.gov/hapmap/raw_data/hapmap3_affy6.0/
 wget -nH --cut-dirs 5 -r ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/supporting/hd_genotype_chip/
-wget ftp://ftp.ncbi.nlm.nih.gov/hapmap/phase_3/relationships_w_pops_051208.txt
-wget ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/working/20130606_sample_info/20130606_g1k.ped
 
 mkdir -p idats
 tar xzvf hapmap370k_1.0.1.tar.gz -C idats hapmap370k/inst/idatFiles
