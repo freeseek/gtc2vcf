@@ -20,11 +20,9 @@ Download HumanCNV370v1 manifest and cluster files from <a href="http://support.i
 ```
 wget ftp://webdata:webdata@ussd-ftp.illumina.com/downloads/ProductFiles/HumanCNV370/HumanCNV370-Duo/humancnv370v1_c.bpm
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/ProductFiles/HumanCNV370/HumanCNV370-Duo/HumanCNV370v1_C.egt
-wget -O GSE21091_RAW.tar "https://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE21091&format=file"
-tar xvf GSE21091_RAW.tar
+wget https://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL6nnn/GPL6986/suppl/GPL6986_HumanCNV370v1_C.csv.gz
 gunzip GPL6986_HumanCNV370v1_C.csv.gz
 /bin/mv GPL6986_HumanCNV370v1_C.csv HumanCNV370v1_C.csv
-/bin/rm GSE21091_RAW.tar
 ```
 
 Download HumanOmni2.5-4v1 manifest and cluster files from <a href="http://support.illumina.com/downloads/humanomni2-5-quad_product_files.html">Illumina</a>
@@ -41,8 +39,8 @@ wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/productfiles/humano
 wget https://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL20nnn/GPL20641/suppl/GPL20641_HumanOmni25M-8v1-1_B.csv.gz
 gunzip GPL20641_HumanOmni2.5M-8v1-1_B.bpm.gz
 gunzip GPL20641_HumanOmni25M-8v1-1_B.csv.gz
-mv GPL20641_HumanOmni2.5M-8v1-1_B.bpm HumanOmni2.5M-8v1-1_B.bpm
-mv GPL20641_HumanOmni25M-8v1-1_B.csv HumanOmni25M-8v1-1_B.csv
+/bin/mv GPL20641_HumanOmni2.5M-8v1-1_B.bpm HumanOmni2.5M-8v1-1_B.bpm
+/bin/mv GPL20641_HumanOmni25M-8v1-1_B.csv HumanOmni25M-8v1-1_B.csv
 ```
 
 Download GenomeWideEx_6 and GenomeWideSNP_6 library and annotation files from <a href="http://www.affymetrix.com/support/technical/byproduct.affx?product=genomewidesnp_6">Affymetrix</a>
