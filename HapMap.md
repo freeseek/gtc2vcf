@@ -156,14 +156,14 @@ for chip in HumanCNV370v1 HumanOmni25M-8v1-1 HumanOmni2.5-4v1; do
   bcftools +gtc2vcf \
     --no-version -Ou \
     --fasta-ref $HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna \
-    --sex hapmap.$chip.sex \
-    --do-not-check-bpm \
     --bpm ${bpm[$chip]} \
     --egt ${egt[$chip]} \
     --csv ${csv[$chip]} \
     --sam ${sam[$chip]} \
+    --gtcs $chip \
     --adjust-clusters \
-    --gtcs $chip | \
+    --sex HapMap.$chip.sex \
+    --do-not-check-bpm | \
     bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
     bcftools norm --no-version -Ob -o HapMap.$chip.bcf -c x -f $ref && \
     bcftools index -f HapMap.$chip.bcf"
@@ -179,8 +179,7 @@ Convert CELs to CHPs
 
 for chip in GenomeWideEx_6 GenomeWideSNP_6; do
   mkdir -p $chip
-  qsub -l h_rt=72:00:00,h_vmem=32g -N "hapmap.apt-probeset-genotype.$chip" -o uger/ ~/bin/UGERsubmit.sh \
-    "apt-probeset-genotype \
+  apt-probeset-genotype \
     --out-dir $chip \
     --special-snps GenomeWideSNP_6.specialSNPs \
     --read-models-brlmmp GenomeWideSNP_6.generic_prior.txt \
@@ -190,7 +189,7 @@ for chip in GenomeWideEx_6 GenomeWideSNP_6; do
     --table-output false \
     --cc-chp-output \
     --cc-chp-out-dir $chip \
-    --write-models"
+    --write-models
 done
 ```
 
@@ -205,7 +204,8 @@ for chip in GenomeWideEx_6 GenomeWideSNP_6; do
     --csv GenomeWideSNP_6.na35.annot.csv \
     --sam GenomeWideSNP_6.na35.annot.bam \
     --models $chip/AxiomGT1.snp-posteriors.txt \
-    --chps $chip | \
+    --chps $chip \
+    --sex HapMap.$chip.sex | \
     bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
     bcftools norm --no-version -Ob -o HapMap.$chip.bcf -c x -f $ref && \
     bcftools index -f HapMap.$chip.bcf"
