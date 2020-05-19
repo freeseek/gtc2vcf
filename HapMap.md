@@ -124,6 +124,7 @@ ls cels/affy6/1000\ Genomes\ phase\ {1\ and\ 2,3}\ cel\ files/*.CEL | sed 's/.CE
 Convert IDATs to GTCs
 =====================
 
+```
 declare -A bpm=( ["HumanCNV370v1"]="humancnv370v1_c.bpm"
                  ["HumanOmni2.5-4v1"]="HumanOmni2.5-4v1_H.bpm"
                  ["HumanOmni25M-8v1-1"]="HumanOmni25M-8v1-1_B.bpm" )
@@ -137,10 +138,12 @@ for idat in $(cut -f1 gtc2vcf.idat.tsv | grep _Grn.idat$); do
   mono $HOME/bin/autoconvert/AutoConvert.exe $(find idats -iname $idat) $chip ${bpm[$chip]} ${egt[$chip]}
 done
 bcftools +gtc2vcf {HumanCNV370v1,HumanOmni25M-8v1-1,HumanOmni2.5-4v1}/*.gtc -o gtc2vcf.gtc.tsv
+```
 
 Convert	GTCs to VCF
 ===================
 
+```
 declare -A bpm=( ["HumanCNV370v1"]="humancnv370v1_c.bpm"
                  ["HumanOmni2.5-4v1"]="HumanOmni2.5-4v1_H.bpm"
                  ["HumanOmni25M-8v1-1"]="HumanOmni25M-8v1-1_B.bpm" )
@@ -169,10 +172,12 @@ for chip in HumanCNV370v1 HumanOmni25M-8v1-1 HumanOmni2.5-4v1; do
     bcftools norm --no-version -Ob -o HapMap.$chip.bcf -c x -f $ref && \
     bcftools index -f HapMap.$chip.bcf"
 done
+```
 
 Convert CELs to CHPs
 ====================
 
+```
 (echo cel_files; find -iname *.CEL | grep _) > cels.GenomeWideEx_6.lst
 (echo cel_files; find cels/affy6 -iname *.CEL) > cels.GenomeWideSNP_6.lst
 
@@ -191,10 +196,12 @@ for chip in GenomeWideEx_6 GenomeWideSNP_6; do
     --cc-chp-out-dir $chip \
     --write-models"
 done
+```
 
 Convert CHPs to VCF
 ===================
 
+```
 for chip in GenomeWideEx_6 GenomeWideSNP_6; do
   bcftools +affy2vcf \
     --no-version -Ou \
@@ -207,3 +214,4 @@ for chip in GenomeWideEx_6 GenomeWideSNP_6; do
     bcftools norm --no-version -Ob -o HapMap.$chip.bcf -c x -f $ref && \
     bcftools index -f HapMap.$chip.bcf"
 done
+```
