@@ -93,7 +93,7 @@ if (!is.null(args$id)) {
   if (!(args$id %in% unique(df$ID))) stop('Specified ID not present at specified location')
   df <- df[df$ID == args$id,]
 } else {
-  if ( length(unique(df$ID)) > 1 ) stop('More than one variant at the specified position, use --id to specify which variant to plot')  
+  if ( length(unique(df$ID)) > 1 ) stop('More than one variant at the specified position, use --id to specify which variant to plot')
 }
 v <- sapply(df[,info], unique)
 

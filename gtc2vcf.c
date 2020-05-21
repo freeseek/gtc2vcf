@@ -36,7 +36,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-05-13"
+#define GTC2VCF_VERSION "2020-05-20"
 
 #define GT_NC 0
 #define GT_AA 1

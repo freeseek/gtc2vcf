@@ -38,7 +38,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2020-05-17"
+#define AFFY2VCF_VERSION "2020-05-20"
 
 #define GT_NC -1
 #define GT_AA 0
@@ -887,9 +887,8 @@ typedef struct {
 	float xyss; // covariance of cluster in both directions
 } cluster_t;
 
-#define MAX_LENGTH_PROBE_SET_ID 17
 typedef struct {
-	char probe_set_id[MAX_LENGTH_PROBE_SET_ID + 1];
+	char *probe_set_id;
 	int copynumber;
 	cluster_t aa;
 	cluster_t ab;
@@ -898,13 +897,10 @@ typedef struct {
 
 typedef struct {
 	int is_birdseed;
-
-	snp_t *snps;
-	int n_snps;
-	int m_snps;
-
-	int curr;
-	int curr_hap;
+	void *probe_set_id[2];
+	snp_t *snps[2];
+	int n_snps[2];
+	int m_snps[2];
 } models_t;
 
 static inline void brlmmp_cluster_init(const char *s, const int *off, cluster_t *cluster)
@@ -929,14 +925,12 @@ static inline void birdseed_cluster_init(const char *s, const int *off, cluster_
 	cluster->v = strtof(&s[off[5]], NULL);
 }
 
-#define BRLMMP 1;
-#define BIRDSEED 2;
-
 static models_t *models_init(const char *fn)
 {
 	models_t *models = (models_t *)calloc(1, sizeof(models_t));
-	models->curr = -1;
-	models->curr_hap = -1;
+	for (int i = 0; i < 2; i++) {
+		models->probe_set_id[i] = khash_str2int_init();
+	}
 
 	kstring_t str = {0, 0, NULL};
 	htsFile *fp = unheader(fn, &str);
@@ -963,26 +957,28 @@ static models_t *models_init(const char *fn)
 	int moff1 = 0, *off1 = NULL, ncols1;
 	int moff2 = 0, *off2 = NULL, ncols2;
 	do {
-		hts_expand(snp_t, models->n_snps + 1, models->m_snps, models->snps);
-		snp = &models->snps[models->n_snps];
-
 		ncols1 = ksplit_core(str.s, sep1, &moff1, &off1);
 		char *col_str = &str.s[off1[0]];
 
 		int len = strlen(col_str);
+		int copynumber;
 		if (col_str[len - 2] == sep3) {
-			snp->copynumber = strtol(&col_str[len - 1], NULL, 10);
+			copynumber = strtol(&col_str[len - 1], NULL, 10);
 			len -= 2;
 			col_str[len] = '\0';
 		} else {
-			snp->copynumber = 2;
+			copynumber = 2;
 		}
-		if (len > MAX_LENGTH_PROBE_SET_ID)
-			error("Cannot read Probe Set %s in SNP posterior models file: %s\n",
-			      col_str, fn);
-		strcpy(snp->probe_set_id, &str.s[off1[0]]);
 
-		if (ncols1 < 4 - (2 - snp->copynumber) * models->is_birdseed)
+		int idx = copynumber == 2;
+		hts_expand(snp_t, models->n_snps[idx] + 1, models->m_snps[idx],
+			   models->snps[idx]);
+		snp = &models->snps[idx][models->n_snps[idx]];
+		snp->probe_set_id = strdup(&str.s[off1[0]]);
+		snp->copynumber = copynumber;
+		khash_str2int_inc(models->probe_set_id[idx], snp->probe_set_id);
+
+		if (ncols1 < 4 - (2 - copynumber) * models->is_birdseed)
 			error("Missing information for probeset %s in SNP posterior models file: %s\n",
 			      str.s, fn);
 		col_str = &str.s[off1[1]];
@@ -997,7 +993,7 @@ static models_t *models_init(const char *fn)
 			brlmmp_cluster_init(col_str, off2, &snp->bb);
 
 		col_str = &str.s[off1[2]];
-		if (models->is_birdseed && snp->copynumber == 1) {
+		if (models->is_birdseed && copynumber == 1) {
 			snp->ab.xm = NAN;
 			snp->ab.xss = NAN;
 			snp->ab.k = NAN;
@@ -1026,7 +1022,7 @@ static models_t *models_init(const char *fn)
 		else
 			brlmmp_cluster_init(col_str, off2, &snp->aa);
 
-		models->n_snps++;
+		models->n_snps[idx]++;
 	} while (hts_getline(fp, KS_SEP_LINE, &str) > 0);
 
 	free(off2);
@@ -1036,35 +1032,15 @@ static models_t *models_init(const char *fn)
 	return models;
 }
 
-static int models_loop(models_t *models)
-{
-	int prev = models->curr;
-	do
-		models->curr++;
-	while (models->curr < models->n_snps && prev >= 0
-	       && strcmp(models->snps[prev].probe_set_id,
-			 models->snps[models->curr].probe_set_id)
-			  == 0);
-	if (models->curr == models->n_snps)
-		return -1;
-	models->curr_hap = -1;
-
-	// check whether SNP has two cluster models
-	if (models->curr + 1 < models->n_snps
-	    && strcmp(models->snps[models->curr].probe_set_id,
-		      models->snps[models->curr + 1].probe_set_id)
-		       == 0) {
-		if (models->snps[models->curr].copynumber == 1)
-			models->curr_hap = models->curr++;
-		else if (models->snps[models->curr + 1].copynumber == 1)
-			models->curr_hap = models->curr + 1;
-	}
-	return 0;
-}
-
 static void models_destroy(models_t *models)
 {
-	free(models->snps);
+	for (int i = 0; i < 2; i++) {
+		khash_str2int_destroy(models->probe_set_id[i]);
+		for (int j = 0; j < models->n_snps[i]; j++)
+			free(models->snps[i][j].probe_set_id);
+		free(models->snps[i]);
+	}
+	free(models);
 }
 
 /****************************************
@@ -1438,6 +1414,7 @@ static void report_destroy(report_t *report)
  * READER ITERATORS                     *
  ****************************************/
 
+#define MAX_LENGTH_PROBE_SET_ID 17
 typedef struct {
 	int nsmpl;
 	int nrow;
@@ -2092,7 +2069,7 @@ static void process(faidx_t *fai, const annot_t *annot, models_t *models, varitr
 	float *baf_arr = (float *)malloc(nsmpl * sizeof(float));
 	float *lrr_arr = (float *)malloc(nsmpl * sizeof(float));
 
-	int i = 0, n_missing = 0, n_skipped = 0;
+	int i = 0, n_missing = 0, n_no_models = 0, n_skipped = 0;
 	for (i = 0; i < annot->n_records; i++) {
 		// identify variants to use for next VCF record
 		int idx;
@@ -2104,18 +2081,6 @@ static void process(faidx_t *fai, const annot_t *annot, models_t *models, varitr
 			if (ret < 0)
 				error("Probe Set %s not found in manifest file\n",
 				      varitr->probe_set_id);
-			if (models && models_loop(models) < 0)
-				error("Probe Set %s not found in models file\n",
-				      varitr->probe_set_id);
-		} else if (models) {
-			if (models_loop(models) < 0)
-				break;
-			int ret = khash_str2int_get(annot->probe_set_id,
-						    models->snps[models->curr].probe_set_id,
-						    &idx);
-			if (ret < 0)
-				error("Probe Set %s not found in SNP models file\n",
-				      models->snps[models->curr].probe_set_id);
 		} else {
 			idx = i;
 		}
@@ -2232,13 +2197,11 @@ static void process(faidx_t *fai, const annot_t *annot, models_t *models, varitr
 		}
 
 		if (models) {
-			if (flags & ADJUST_CLUSTERS)
-				adjust_clusters(varitr->gts,
-						models->is_birdseed ? varitr->norm_x_arr
-								    : varitr->delta_arr,
-						models->is_birdseed ? varitr->norm_y_arr
-								    : varitr->size_arr,
-						nsmpl, &models->snps[models->curr]);
+			int rets[2], idxs[2];
+			for (int i = 0; i < 2; i++) {
+				rets[i] = khash_str2int_get(models->probe_set_id[i],
+							    record->probe_set_id, &idxs[i]);
+			}
 			static const char *hap_info_str[] = {
 				"meanX_AA.1",	 "meanX_AB.1",	  "meanX_BB.1",
 				"varX_AA.1",	 "varX_AB.1",	  "varX_BB.1",
@@ -2254,28 +2217,51 @@ static void process(faidx_t *fai, const annot_t *annot, models_t *models, varitr
 				"meanY_AA",    "meanY_AB",   "meanY_BB",    "varY_AA",
 				"varY_AB",     "varY_BB",    "covarXY_AA",  "covarXY_AB",
 				"covarXY_BB"};
-			update_info_cluster(hdr, rec,
-					    models->snps[models->curr].copynumber == 1
-						    ? hap_info_str
-						    : dip_info_str,
-					    &models->snps[models->curr]);
-			if (models->curr_hap >= 0)
+			if (rets[0] >= 0)
 				update_info_cluster(hdr, rec, hap_info_str,
-						    &models->snps[models->curr_hap]);
-			if (flags & SUMMARY_LOADED) {
-				compute_baf_lrr(varitr->norm_x_arr, varitr->norm_y_arr, nsmpl,
-						&models->snps[models->curr],
-						models->is_birdseed, baf_arr, lrr_arr);
-				bcf_update_format_float(hdr, rec, "BAF", baf_arr, nsmpl);
-				bcf_update_format_float(hdr, rec, "LRR", lrr_arr, nsmpl);
+						    &models->snps[0][idxs[0]]);
+			if (rets[1] >= 0)
+				update_info_cluster(hdr, rec, dip_info_str,
+						    &models->snps[1][idxs[1]]);
+			snp_t *snp = rets[1] >= 0 ? &models->snps[1][idxs[1]]
+						  : (rets[0] >= 0 ? &models->snps[0][idxs[0]]
+								  : NULL);
+			if (!snp) {
+				n_no_models++;
+				if (flags & VERBOSE)
+					fprintf(stderr,
+						"Warning: SNP model for Probe Set ID %s was not found\n",
+						record->probe_set_id);
+			} else {
+				if (flags & ADJUST_CLUSTERS)
+					adjust_clusters(varitr->gts,
+							models->is_birdseed ? varitr->norm_x_arr
+									    : varitr->delta_arr,
+							models->is_birdseed ? varitr->norm_y_arr
+									    : varitr->size_arr,
+							nsmpl, snp);
+				if (flags & SUMMARY_LOADED) {
+					compute_baf_lrr(varitr->norm_x_arr, varitr->norm_y_arr,
+							nsmpl, snp, models->is_birdseed,
+							baf_arr, lrr_arr);
+					bcf_update_format_float(hdr, rec, "BAF", baf_arr,
+								nsmpl);
+					bcf_update_format_float(hdr, rec, "LRR", lrr_arr,
+								nsmpl);
+				}
 			}
 		}
 
 		if (bcf_write(out_fh, hdr, rec) < 0)
 			error("Unable to write to output VCF file\n");
 	}
-	fprintf(stderr, "Lines   total/missing-reference/skipped:\t%d/%d/%d\n", i, n_missing,
-		n_skipped);
+	if (models)
+		fprintf(stderr,
+			"Lines   total/missing-reference/missing-models/skipped:\t%d/%d/%d/%d\n",
+			i, n_missing, n_no_models, n_skipped);
+	else
+		fprintf(stderr, "Lines   total/missing-reference/skipped:\t%d/%d/%d\n", i,
+			n_missing, n_skipped);
 
 	free(gt_arr);
 	free(baf_arr);
@@ -2524,9 +2510,27 @@ int run(int argc, char *argv[])
 		setrlimit(RLIMIT_NOFILE, &lim);
 	}
 
+	if (sex_fname) {
+		fprintf(stderr, "Reading report file %s\n", report_fname);
+		report_t *report = report_init(report_fname);
+		FILE *sex_fh = fopen(sex_fname, "w");
+		if (!sex_fh)
+			error("Failed to open %s: %s\n", sex_fname, strerror(errno));
+		for (int i = 0; i < report->n_samples; i++) {
+			char *ptr = strrchr(report->cel_files[i], '.');
+			if (ptr && strcmp(ptr + 1, "CEL") == 0)
+				*ptr = '\0';
+			fprintf(sex_fh, "%s\t%d\n", report->cel_files[i], report->genders[i]);
+		}
+		fclose(sex_fh);
+		report_destroy(report);
+	}
+
 	annot_t *annot = NULL;
 	if (csv_fname) {
 		fprintf(stderr, "Reading CSV file %s\n", csv_fname);
+		if (sam_fname)
+			fprintf(stderr, "Reading SAM file %s\n", sam_fname);
 		annot = annot_init(csv_fname, sam_fname,
 				   ((sam_fname && !ref_fname) || fasta_flank) ? output_fname
 									      : NULL,
@@ -2605,18 +2609,6 @@ int run(int argc, char *argv[])
 		}
 		if (out_txt && out_txt != stdout && out_txt != stderr)
 			fclose(out_txt);
-	}
-
-	if (sex_fname) {
-		fprintf(stderr, "Reading apt-probeset-genotype report file %s\n", report_fname);
-		report_t *report = report_init(report_fname);
-		FILE *sex_fh = fopen(sex_fname, "w");
-		if (!sex_fh)
-			error("Failed to open %s: %s\n", sex_fname, strerror(errno));
-		for (int i = 0; i < report->n_samples; i++)
-			fprintf(sex_fh, "%s\t%d\n", report->cel_files[i], report->genders[i]);
-		fclose(sex_fh);
-		report_destroy(report);
 	}
 
 	if (pathname) {

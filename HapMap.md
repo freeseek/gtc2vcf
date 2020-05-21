@@ -149,9 +149,9 @@ declare -A egt=( ["HumanCNV370v1"]="HumanCNV370v1_C.egt"
 declare -A csv=( ["HumanCNV370v1"]="HumanCNV370v1_C.csv"
                  ["HumanOmni2.5-4v1"]="HumanOmni2.5-4v1_H.csv"
                  ["HumanOmni25M-8v1-1"]="humanomni25m-8v1-1_b.csv" )
-declare -A sam=( ["HumanCNV370v1"]="HumanCNV370v1_C.GRCh38.bam"
-                 ["HumanOmni2.5-4v1"]="HumanOmni2.5-4v1_H.GRCh38.bam"
-                 ["HumanOmni25M-8v1-1"]="humanomni25m-8v1-1_b.GRCh38.bam" )
+declare -A sam=( ["HumanCNV370v1"]="HumanCNV370v1_C.bam"
+                 ["HumanOmni2.5-4v1"]="HumanOmni2.5-4v1_H.bam"
+                 ["HumanOmni25M-8v1-1"]="humanomni25m-8v1-1_b.bam" )
 for chip in HumanCNV370v1 HumanOmni25M-8v1-1 HumanOmni2.5-4v1; do
   bcftools +gtc2vcf \
     --no-version -Ou \
@@ -174,9 +174,8 @@ Convert CELs to CHPs
 ====================
 
 ```
-(echo cel_files; find -iname *.CEL | grep _) > cels.GenomeWideEx_6.lst
-(echo cel_files; find cels/affy6 -iname *.CEL) > cels.GenomeWideSNP_6.lst
-
+(echo cel_files; ls cels/{,Broad_hapmap3_r2_Affy6_cels_excluded/}*.CEL) > cels.GenomeWideEx_6.lst
+(echo cel_files; ls cels/affy6/1000\ Genomes\ phase\ {1\ and\ 2,3}\ cel\ files/*.CEL) > cels.GenomeWideSNP_6.lst
 for chip in GenomeWideEx_6 GenomeWideSNP_6; do
   mkdir -p $chip
   apt-probeset-genotype \
