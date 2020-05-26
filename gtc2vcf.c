@@ -36,7 +36,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-05-20"
+#define GTC2VCF_VERSION "2020-05-26"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -3203,6 +3203,7 @@ static const char *usage_text(void)
 	       "    -i, --idat                      input IDAT files rather than GTC files\n"
 	       "        --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)\n"
 	       "    -x, --sex <file>                output GenCall gender estimate into file\n"
+	       "        --use-gtc-sample-names      use sample name in GTC files rather than GTC file name\n"
 	       "        --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name\n"
 	       "        --genome-studio <file>      input a GenomeStudio final report file (in matrix format)\n"
 	       "        --no-version                do not append version and command line to the header\n"
@@ -3297,6 +3298,7 @@ int run(int argc, char *argv[])
 	int flags = 0;
 	int output_type = FT_VCF;
 	int cache_size = 0;
+	int gtc_sample_names = 0;
 	int bpm_check = 1;
 	int n_threads = 0;
 	int record_cmd_line = 1;
@@ -3319,17 +3321,18 @@ int run(int argc, char *argv[])
 					   {"idat", no_argument, NULL, 'i'},
 					   {"adjust-clusters", no_argument, NULL, 2},
 					   {"sex", required_argument, NULL, 'x'},
-					   {"do-not-check-bpm", no_argument, NULL, 3},
-					   {"genome-studio", required_argument, NULL, 4},
+					   {"use-gtc-sample-names", no_argument, NULL, 3},
+					   {"do-not-check-bpm", no_argument, NULL, 4},
+					   {"genome-studio", required_argument, NULL, 5},
 					   {"no-version", no_argument, NULL, 8},
 					   {"output", required_argument, NULL, 'o'},
 					   {"output-type", required_argument, NULL, 'O'},
 					   {"threads", required_argument, NULL, 9},
 					   {"verbose", no_argument, NULL, 'v'},
-					   {"beadset-order", no_argument, NULL, 5},
-					   {"fasta-flank", no_argument, NULL, 6},
+					   {"beadset-order", no_argument, NULL, 6},
+					   {"fasta-flank", no_argument, NULL, 7},
 					   {"sam-flank", required_argument, NULL, 's'},
-					   {"genome-build", required_argument, NULL, 7},
+					   {"genome-build", required_argument, NULL, 10},
 					   {NULL, 0, NULL, 0}};
 	int c;
 	while ((c = getopt_long(argc, argv, "h?lt:b:c:e:f:g:ix:o:O:vs:", loptions, NULL))
@@ -3369,9 +3372,12 @@ int run(int argc, char *argv[])
 			sex_fname = optarg;
 			break;
 		case 3:
-			bpm_check = 0;
+			gtc_sample_names = 1;
 			break;
 		case 4:
+			bpm_check = 0;
+			break;
+		case 5:
 			gs_fname = optarg;
 			break;
 		case 8:
@@ -3407,16 +3413,16 @@ int run(int argc, char *argv[])
 		case 'v':
 			flags |= VERBOSE;
 			break;
-		case 5:
+		case 6:
 			beadset_order = 1;
 			break;
-		case 6:
+		case 7:
 			fasta_flank = 1;
 			break;
 		case 's':
 			sam_fname = optarg;
 			break;
-		case 7:
+		case 10:
 			genome_build = optarg;
 			break;
 		case 'h':
@@ -3672,7 +3678,11 @@ int run(int argc, char *argv[])
 			} else {
 				for (int i = 0; i < nfiles; i++) {
 					gtc_t *gtc = (gtc_t *)files[i];
-					if (bcf_hdr_add_sample(hdr, gtc->display_name) < 0)
+					const char *sample_name =
+						(gtc_sample_names && gtc->sample_name)
+							? gtc->sample_name
+							: gtc->display_name;
+					if (bcf_hdr_add_sample(hdr, sample_name) < 0)
 						error("GTC files must correspond to different samples\n");
 					if (out_sex)
 						fprintf(out_sex, "%s\t%c\n", gtc->display_name,
