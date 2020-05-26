@@ -9,12 +9,12 @@ A set of tools to convert Illumina and Affymetrix DNA microarray intensity data 
    * [Usage](#usage)
    * [Installation](#installation)
    * [Software Installation](#software-installation)
-   * [Identifying manifest files for Illumina IDAT files](#Identifying-manifest-files-for-illumina-idat-files)
+   * [Identifying chip type for IDAT and CEL files](#identifying-chip-type-for-idat-and-cel-files)
    * [Convert Illumina IDAT files to GTC files](#convert-illumina-idat-files-to-gtc-files)
    * [Convert Illumina GTC files to VCF](#convert-illumina-gtc-files-to-vcf)
-   * [Using a reference not provided by Illumina](#using-a-reference-not-provided-by-illumina)
    * [Convert Affymetrix CEL files to CHP files](#convert-affymetrix-cel-files-to-chp-files)
    * [Convert Affymetrix CHP files to VCF](#convert-affymetrix-chp-files-to-vcf)
+   * [Using an alternative genome reference](#using-an-alternative-genome-reference)
    * [Plot variants](#plot-variants)
    * [Acknowledgements](#acknowledgements)
 <!--te-->
@@ -38,6 +38,7 @@ Plugin options:
     -i, --idat                      input IDAT files rather than GTC files
         --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)
     -x, --sex <file>                output GenCall gender estimate into file
+        --use-gtc-sample-names      use sample name in GTC files rather than GTC file name
         --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name
         --genome-studio <file>      input a GenomeStudio final report file (in matrix format)
         --no-version                do not append version and command line to the header
@@ -84,7 +85,7 @@ Plugin options:
         --report <file>           apt-probeset-genotype report output
         --chps <dir|file>         input CHP files rather than tab delimited files
         --cel <file>              input CEL files rather CHP files
-        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --summary and --models)
+        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --models)
     -x, --sex <file>              output apt-probeset-genotype gender estimate into file (requires --report)
         --no-version              do not append version and command line to the header
     -o, --output <file>           write output to a file [standard output]
@@ -217,8 +218,8 @@ unzip -ojd $HOME/bin apt_2.11.0_linux_64_bit_x86_binaries.zip apt_2.11.0_linux_6
 chmod a+x $HOME/bin/apt-probeset-genotype
 ```
 
-Identifying manifest files for Illumina IDAT files
-==================================================
+Identifying chip type for IDAT and CEL files
+============================================
 
 To convert a pair of green and red IDAT files with raw Illumina intensities into a GTC file with genotype calls you need to provide both a BPM manifest file with the location of the probes and an EGT cluster file with the expected intensities of each genotype cluster. It is important to provide the correct BPM and EGT files otherwise the calling will fail possibly generating a GTC file with meaningless calls. Unfortunately newer IDAT files do not contain information about which BPM manifest file to use. The gtc2vcf bcftools plugin can be used to guess which files to use
 ```
@@ -227,6 +228,13 @@ bcftools +gtc2vcf \
   -i -g $path_to_idat_folder
 ```
 This will generate a spreadsheet table with information about each IDAT file including a guess for what manifest and cluster files you should use. If a guess is not provided, contact the <a href="mailto:giulio.genovese@gmail.com">author</a> for troubleshooting
+
+Similarly, you can use the affy2vcf bcftools plugin to extract chip type information from CEL files
+```
+path_to_cel_folder="..."
+bcftools +affy2vcf \
+  --cel --chps $path_to_cel_folder
+```
 
 Convert Illumina IDAT files to GTC files
 ========================================
@@ -314,48 +322,6 @@ bcftools +gtc2vcf \
 ```
 Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Normalized intensities cannot be computed without the BPM manifest file. Indel alleles cannot be inferred and will be skipped without the CSV manifest file. Information about genotype cluster centers will be included in the VCF if the EGT cluster file is provided. You can use gtc2vcf to convert one GTC file at a time, but we strongly advise to convert multiple files at once as single sample VCF files will consume a lot of storage space. If you convert hundreds of GTC files at once, you can use the `--adjust-clusters` option which will recenter the genotype clusters rather than using those provided in the EGT cluster file and will compute less noisy LRR values. If you use the `--adjust-clusters` option and you are using the output for calling <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>, then it is safe to turn the median BAF adjustment off during that step (i.e. use `--median-BAF-adjust -1`)
 
-Using a reference not provided by Illumina
-==========================================
-
-Illumina provides <a href="https://support.illumina.com/bulletins/2017/04/infinium-human-genotyping-manifests-and-support-files--with-anno.html">GRCh38/hg38</a> manifests for many of its genotyping arrays. However, if your genotyping array is not supported for the newer reference by Illumina, you can use the `--fasta-flank` and `--sam-flank` options to realign the source sequences from the manifest files you have and recompute the marker positions. This approach uses <a href="https://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html">source sequence</a> and <a href="https://support.illumina.com/bulletins/2017/06/how-to-interpret-dna-strand-and-allele-information-for-infinium-.html">strand</a> information to identify the marker <a href="https://support.illumina.com/bulletins/2016/06/-infinium-genotyping-array-manifest-files-what-does-chr-or-mapinfo---mean.html">coordinates</a>. It will need a sequence aligner such as `bwa` to realign the sequences and it seems to reproduce the coordinates provided from Illumina more than 99.9% of the times. Mapping information will follow the <a href="https://github.com/Illumina/GTCtoVCF#manifests">implicit dbSNP standard</a>. Occasionally the source sequence provided by Illumina is incorrect and it is impossible to recover the correct marker coordinate from the source sequence alone
-
-You first have to generate an alignment file for the source sequences from a CSV manifest file
-```
-csv_manifest_file="..."
-ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
-bam_alignment_file="..."
-bcftools +gtc2vcf \
-  -c $csv_manifest_file \
-  --fasta-flank | \
-  bwa mem -M $ref - | \
-  samtools view -bS \
-  -o $bam_alignment_file
-```
-Notice that you need to use the `-M` option to mark shorter split hits as secondary. Then you can use gtc2vcf to compute the coordinates according to the reference used to align the manifest source sequences
-```
-csv_manifest_file="..."
-bam_alignment_file="..."
-csv_realigned_file="..."
-bcftools +gtc2vcf \
-  -c $csv_manifest_file \
-  -s $bam_alignment_file \
-  -o $csv_realigned_file
-```
-You can also load the alignment file while converting your GTC files to VCF, without the need to create a realigned manifest file
-
-Some older manifest files from Illumina have thousands of markers with incorrect RefStrand annotations that will lead to incorrect genotypes. While Illumina has not explained why this is the case, it still distributes incorrect manifests. If you are using one of the following manifests
-```
-Human1M-Duov3_H
-Human610-Quadv1_H
-Human660W-Quad_v1_H
-HumanCytoSNP-12v2-1_Anova
-HumanOmni1-Quad_v1-0-Multi_H
-HumanOmni1-Quad_v1-0_H
-```
-We advise to either contact Illumina to demand a fixed version or to use gtc2vcf to realign the source sequences
-
-Also, Illumina assigns chromosomal positions to indels by first left aligning the source sequences in an incoherent way (see <a href="https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py">here</a>). Apparently this is incoherent enough that Illumina also cannot get the coordinates of homopolymer indels right. For example, chromosome 13 ClinVar indel <a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/37959">rs80359507</a> is assigned to position 32913838 in the manifest file for the GSA-24v2-0 array, but it is assigned to position 32913837 in the manifest file for GSA-24v3-0 array (GRCh37 coordinates). If you want to trust genotypes at homopolymer indels, we advise to use gtc2vcf to realign the source sequences
-
 Convert Affymetrix CEL files to CHP files
 =========================================
 
@@ -409,6 +375,50 @@ bcftools +affy2vcf \
   bcftools index -f $out_prefix.bcf
 ```
 The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. There is often no need to use the `--adjust-clusters` option for Affymetrix data as the cluster posteriors are already adjusted using the data processed by the genotype caller
+
+Using an alternative human genome reference
+===========================================
+
+Illumina provides <a href="https://support.illumina.com/bulletins/2017/04/infinium-human-genotyping-manifests-and-support-files--with-anno.html">GRCh38/hg38</a> manifests for many of its genotyping arrays. However, if your genotyping array is not supported for the newer reference by Illumina, you can use the `--fasta-flank` and `--sam-flank` options to realign the source sequences from the manifest files you have and recompute the marker positions. This approach uses <a href="https://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html">source sequence</a> and <a href="https://support.illumina.com/bulletins/2017/06/how-to-interpret-dna-strand-and-allele-information-for-infinium-.html">strand</a> information to identify the marker <a href="https://support.illumina.com/bulletins/2016/06/-infinium-genotyping-array-manifest-files-what-does-chr-or-mapinfo---mean.html">coordinates</a>. It will need a sequence aligner such as `bwa` to realign the sequences and it seems to reproduce the coordinates provided from Illumina more than 99.9% of the times. Mapping information will follow the <a href="https://github.com/Illumina/GTCtoVCF#manifests">implicit dbSNP standard</a>. Occasionally the source sequence provided by Illumina is incorrect and it is impossible to recover the correct marker coordinate from the source sequence alone
+
+You first have to generate an alignment file for the source sequences from a CSV manifest file
+```
+csv_manifest_file="..."
+ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
+bam_alignment_file="..."
+bcftools +gtc2vcf \
+  -c $csv_manifest_file \
+  --fasta-flank | \
+  bwa mem -M $ref - | \
+  samtools view -bS \
+  -o $bam_alignment_file
+```
+Notice that you need to use the `-M` option to mark shorter split hits as secondary. Then you can use gtc2vcf to compute the coordinates according to the reference used to align the manifest source sequences
+```
+csv_manifest_file="..."
+bam_alignment_file="..."
+csv_realigned_file="..."
+bcftools +gtc2vcf \
+  -c $csv_manifest_file \
+  -s $bam_alignment_file \
+  -o $csv_realigned_file
+```
+You can also load the alignment file while converting your GTC files to VCF, without the need to create a realigned manifest file
+
+Some older manifest files from Illumina have thousands of markers with incorrect RefStrand annotations that will lead to incorrect genotypes. While Illumina has not explained why this is the case, it still distributes incorrect manifests. If you are using one of the following manifests
+```
+Human1M-Duov3_H
+Human610-Quadv1_H
+Human660W-Quad_v1_H
+HumanCytoSNP-12v2-1_Anova
+HumanOmni1-Quad_v1-0-Multi_H
+HumanOmni1-Quad_v1-0_H
+```
+We advise to either contact Illumina to demand a fixed version or to use gtc2vcf to realign the source sequences
+
+Also, Illumina assigns chromosomal positions to indels by first left aligning the source sequences in an incoherent way (see <a href="https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py">here</a>). Apparently this is incoherent enough that Illumina also cannot get the coordinates of homopolymer indels right. For example, chromosome 13 ClinVar indel <a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/37959">rs80359507</a> is assigned to position 32913838 in the manifest file for the GSA-24v2-0 array, but it is assigned to position 32913837 in the manifest file for GSA-24v3-0 array (GRCh37 coordinates). If you want to trust genotypes at homopolymer indels, we advise to use gtc2vcf to realign the source sequences
+
+The same functionality exists for the affy2vcf tool to convert Affymetrix data
 
 Plot variants
 =============
