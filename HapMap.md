@@ -39,7 +39,7 @@ wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/productfiles/humano
 wget https://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL20nnn/GPL20641/suppl/GPL20641_HumanOmni25M-8v1-1_B.csv.gz
 gunzip GPL20641_HumanOmni2.5M-8v1-1_B.bpm.gz
 gunzip GPL20641_HumanOmni25M-8v1-1_B.csv.gz
-/bin/mv GPL20641_HumanOmni2.5M-8v1-1_B.bpm HumanOmni2.5M-8v1-1_B.bpm
+/bin/mv GPL20641_HumanOmni2.5M-8v1-1_B.bpm HumanOmni25M-8v1-1_B.bpm
 /bin/mv GPL20641_HumanOmni25M-8v1-1_B.csv HumanOmni25M-8v1-1_B.csv
 ```
 
