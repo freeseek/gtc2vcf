@@ -161,7 +161,6 @@ for chip in HumanCNV370v1 HumanOmni25M-8v1-1 HumanOmni2.5-4v1; do
     --csv ${csv[$chip]} \
     --sam ${sam[$chip]} \
     --gtcs $chip \
-    --adjust-clusters \
     --sex HapMap.$chip.sex \
     --do-not-check-bpm | \
     bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
