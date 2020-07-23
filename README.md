@@ -1,7 +1,7 @@
 gtc2vcf
 =======
 
-A set of tools to convert Illumina and Affymetrix DNA microarray intensity data files into VCF files <b>without</b> using Microsoft Windows. You can use the final output to run the pipeline to detect <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>. If you use this tool in your publication, please cite this website. For any feedback, send an email to giulio.genovese@gmail.com
+A set of tools to convert Illumina and Affymetrix DNA microarray intensity data files into VCF files <b>without</b> using Microsoft Windows. You can use the final output to run the pipeline to detect <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>. If you use this tool in your publication, please cite this website. For any feedback or questions, contact the <a href="mailto:giulio.genovese@gmail.com">author</a>
 
 ![](gtc2vcf.png)
 
@@ -27,17 +27,18 @@ Illumina tool:
 Usage: bcftools +gtc2vcf [options] [<A.gtc> ...]
 
 Plugin options:
-    -l, --list-tags                 list available tags with description for VCF output
-    -t, --tags LIST                 list of output tags [IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
+    -l, --list-tags                 list available FORMAT tags with description for VCF output
+    -t, --tags LIST                 list of output FORMAT tags [GT,GQ,IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
     -b, --bpm <file>                BPM manifest file
     -c, --csv <file>                CSV manifest file
     -e, --egt <file>                EGT cluster file
     -f, --fasta-ref <file>          reference sequence in fasta format
         --set-cache-size <int>      select fasta cache size in bytes
+        --gc-window-size <int>      window size in bp used to compute the GC content (-1 for no estimate) [200]
     -g, --gtcs <dir|file>           GTC genotype files from directory or list from file
     -i, --idat                      input IDAT files rather than GTC files
+        --capacity <int>            number of variants to read from intensity files per I/O operation [32768]
         --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)
-    -x, --sex <file>                output GenCall gender estimate into file
         --use-gtc-sample-names      use sample name in GTC files rather than GTC file name
         --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name
         --genome-studio <file>      input a GenomeStudio final report file (in matrix format)
@@ -46,6 +47,7 @@ Plugin options:
     -O, --output-type <b|u|z|v|t>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF
                                     v: uncompressed VCF, t: GenomeStudio tab-delimited text output [v]
         --threads <int>             number of extra output compression threads [0]
+    -x, --extra <file>              write GTC metadata to a file
     -v, --verbose                   print verbose information
 
 Manifest options:
@@ -75,22 +77,24 @@ Affymetrix tool:
 Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> [<A.chp> ...]
 
 Plugin options:
+    -l, --list-tags               list available FORMAT tags with description for VCF output
+    -t, --tags LIST               list of output FORMAT tags [GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE]
     -c, --csv <file>              CSV manifest file
     -f, --fasta-ref <file>        reference sequence in fasta format
         --set-cache-size <int>    select fasta cache size in bytes
+        --gc-window-size <int>    window size in bp used to compute the GC content (-1 for no estimate) [200]
         --calls <file>            apt-probeset-genotype calls output
         --confidences <file>      apt-probeset-genotype confidences output
         --summary <file>          apt-probeset-genotype summary output
-        --models <file>           apt-probeset-genotype SNP models output
-        --report <file>           apt-probeset-genotype report output
+        --snp <file>              apt-probeset-genotype SNP posteriors output
         --chps <dir|file>         input CHP files rather than tab delimited files
         --cel <file>              input CEL files rather CHP files
-        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --models)
-    -x, --sex <file>              output apt-probeset-genotype gender estimate into file (requires --report)
+        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --snp)
         --no-version              do not append version and command line to the header
     -o, --output <file>           write output to a file [standard output]
     -O, --output-type <b|u|z|v>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]
         --threads <int>           number of extra output compression threads [0]
+    -x, --extra <file>            write CHP metadata to a file (requires CHP files)
     -v, --verbose                 print verbose information
 
 Manifest options:
@@ -102,15 +106,16 @@ Examples:
         --csv GenomeWideSNP_6.na35.annot.csv \
         --fasta-ref human_g1k_v37.fasta \
         --chps cc-chp/ \
-        --models AxiomGT1.snp-posteriors.txt \
-        --output AxiomGT1.vcf
+        --snp AxiomGT1.snp-posteriors.txt \
+        --output AxiomGT1.vcf \
+        --extra report.tsv
     bcftools +affy2vcf \
         --csv GenomeWideSNP_6.na35.annot.csv \
         --fasta-ref human_g1k_v37.fasta \
         --calls AxiomGT1.calls.txt \
         --confidences AxiomGT1.confidences.txt \
         --summary AxiomGT1.summary.txt \
-        --models AxiomGT1.snp-posteriors.txt \
+        --snp AxiomGT1.snp-posteriors.txt \
         --output AxiomGT1.vcf
 
 Examples of manifest file options:
@@ -124,7 +129,7 @@ Installation
 
 Install basic tools (Debian/Ubuntu specific if you have admin privileges)
 ```
-sudo apt install wget autoconf zlib1g-dev bwa gzip unzip samtools msitools cabextract mono-devel libgdiplus bcftools
+sudo apt install wget git g++ zlib1g-dev bwa unzip samtools msitools cabextract mono-devel libgdiplus libicu66 bcftools
 ```
 
 Optionally, you can install these libraries to activate further HTSlib features:
@@ -200,8 +205,8 @@ msiextract AutoConvertInstaller.msi
 cp -R Illumina/AutoConvert\ 2.0 $HOME/bin/autoconvert
 
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/software/genomestudio/genomestudio-software-v2-0-4-5-installer.zip
-unzip -o genomestudio-software-v2-0-4-5-installer.zip
-cabextract GenomeStudio-software-v2-0-4-5-installer/GenomeStudioInstaller.exe
+unzip -oj genomestudio-software-v2-0-4-5-installer.zip
+cabextract GenomeStudioInstaller.exe
 msiextract a0
 cp Illumina/GenomeStudio\ 2.0/Heatmap.dll $HOME/bin/autoconvert/
 
@@ -213,8 +218,8 @@ If you fail to download the autoconvert software, contact the <a href="mailto:gi
 Affymetrix provides the <a href="https://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-analysis-partners-programs/affymetrix-developers-network/affymetrix-power-tools.html">Analysis Power Tools (APT)</a> for free which allow to call genotypes from raw intensity data using an algorithm derived from <a href="http://tools.thermofisher.com/content/sfs/brochures/brlmmp_whitepaper.pdf">BRLMM-P</a>
 ```
 mkdir -p $HOME/bin && cd /tmp
-wget https://downloads.thermofisher.com/APT/APT2.11.0/apt_2.11.0_linux_64_bit_x86_binaries.zip
-unzip -ojd $HOME/bin apt_2.11.0_linux_64_bit_x86_binaries.zip apt_2.11.0_linux_64_bitx86_binaries/bin/apt-probeset-genotype
+wget https://downloads.thermofisher.com/APT/2.11.3/apt_2.11.3_linux_64_bit_x86_binaries.zip
+unzip -ojd $HOME/bin apt_2.11.3_linux_64_bit_x86_binaries.zip apt_2.11.3_linux_64_bit_x86_binaries/bin/apt-probeset-genotype
 chmod a+x $HOME/bin/apt-probeset-genotype
 ```
 
@@ -305,22 +310,28 @@ Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumi
 bpm_manifest_file="..."
 csv_manifest_file="..."
 egt_cluster_file="..."
-path_to_output_folder="..."
+path_to_gtc_folder="..."
 ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
 out_prefix="..."
 bcftools +gtc2vcf \
   --no-version -Ou \
-  -b $bpm_manifest_file \
-  -c $csv_manifest_file \
-  -e $egt_cluster_file \
-  -g $path_to_output_folder \
-  -f $ref \
-  -x $out_prefix.sex | \
+  --bpm $bpm_manifest_file \
+  --csv $csv_manifest_file \
+  --egt $egt_cluster_file \
+  --gtcs $path_to_gtc_folder \
+  --fasta-ref $ref \
+  --extra $out_prefix.tsv | \
   bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
   bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
   bcftools index -f $out_prefix.bcf
 ```
-Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Normalized intensities cannot be computed without the BPM manifest file. Indel alleles cannot be inferred and will be skipped without the CSV manifest file. Information about genotype cluster centers will be included in the VCF if the EGT cluster file is provided. You can use gtc2vcf to convert one GTC file at a time, but we strongly advise to convert multiple files at once as single sample VCF files will consume a lot of storage space. If you convert hundreds of GTC files at once, you can use the `--adjust-clusters` option which will recenter the genotype clusters rather than using those provided in the EGT cluster file and will compute less noisy LRR values. If you use the `--adjust-clusters` option and you are using the output for calling <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>, then it is safe to turn the median BAF adjustment off during that step (i.e. use `--median-BAF-adjust -1`)
+Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Normalized intensities cannot be computed without the BPM manifest file. Indel alleles cannot be inferred and will be skipped without the CSV manifest file. Information about genotype cluster centers will be included in the VCF if the EGT cluster file is provided. You can use gtc2vcf to convert one GTC file at a time, but we strongly advise to convert multiple files at once as single sample VCF files will consume a lot of storage space. If you convert hundreds of GTC files at once, you can use the `--adjust-clusters` option which will recenter the genotype clusters rather than using those provided in the EGT cluster file and will compute less noisy LRR values. If you use the `--adjust-clusters` option and you are using the output for calling <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>, then it is safe to turn the median BAF/LRR adjustments off during that step (i.e. use `--adjust-BAF-LRR -1`)
+
+When running the conversion, the gtc2vcf plugin will double check that the SNP manifest metadata information in the GTC file matches the descriptor file name in the BPM file to make sure you are using the correct manifest file. Sometimes, due to discrepancies between the BPM file name provided by Illumina and the internal descriptor file name, this safety check fails. To turn off this feature in these cases, you can use `--do-not-check-bpm`
+```
+
+``` 
+exhibit discrepancies with their internal descriptor file name
 
 Convert Affymetrix CEL files to CHP files
 =========================================
@@ -330,28 +341,31 @@ Affymetrix provides a best practice workflow for genotyping data generated using
 path_to_output_folder="..."
 cel_list_file="..."
 apt-probeset-genotype \
-  --out-dir $path_to_output_folder \
-  --read-models-brlmmp GenomeWideSNP_6.generic_prior.txt \
   --analysis-files-path . \
   --xml-file GenomeWideSNP_6.apt-probeset-genotype.AxiomGT1.xml \
+  --out-dir $path_to_output_folder \
   --cel-files $cel_list_file \
+  --special-snps GenomeWideSNP_6.specialSNPs \
+  --chip-type GenomeWideEx_6 \
+  --chip-type GenomeWideSNP_6 \
   --table-output false \
   --cc-chp-output \
-  --write-models
+  --write-models \
+  --read-models-brlmmp GenomeWideSNP_6.generic_prior.txt
 ```
-Affymetrix provides Library and NetAffx Annotation files for their arrays <a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a>
+Affymetrix provides Library and NetAffx Annotation files for their arrays <a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a> and <a href="http://media.affymetrix.com/analysis/downloads/lf/genotyping">here</a>
 
 As an example, the following commands will obtain the files necessary to run the genotyping for the Affymetrix SNP6 array:
 ```
 wget http://www.affymetrix.com/Auth/support/downloads/library_files/genomewidesnp6_libraryfile.zip
 wget http://www.affymetrix.com/Auth/analysis/downloads/lf/genotyping/GenomeWideSNP_6/SNP6_supplemental_axiom_analysis_files.zip
 wget http://www.affymetrix.com/Auth/analysis/downloads/na35/genotyping/GenomeWideSNP_6.na35.annot.csv.zip
-unzip -oj genomewidesnp6_libraryfile.zip CD_GenomeWideSNP_6_rev3/Full/GenomeWideSNP_6/LibFiles/GenomeWideSNP_6.{cdf,chrXprobes,chrYprobes}
+unzip -oj genomewidesnp6_libraryfile.zip CD_GenomeWideSNP_6_rev3/Full/GenomeWideSNP_6/LibFiles/GenomeWideSNP_6.{cdf,chrXprobes,chrYprobes,specialSNPs}
 unzip -o SNP6_supplemental_axiom_analysis_files.zip GenomeWideSNP_6.{generic_prior.txt,apt-probeset-genotype.AxiomGT1.xml,AxiomGT1.sketch}
 unzip -o GenomeWideSNP_6.na35.annot.csv.zip GenomeWideSNP_6.na35.annot.csv
 ```
 
-Note: If the program exits due to different chip types or probe counts with error message such as `Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWideEx_6'` then add the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem
+Note: If the program exits due to different chip types or probe counts with error message such as `Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWideEx_6'` then make sure you included the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem
 
 Convert Affymetrix CHP files to VCF
 ===================================
@@ -360,21 +374,21 @@ The affy2vcf bcftools plugin can be used to convert Affymetrix CHP files to VCF
 ```
 csv_manifest_file="..." # for example csv_manifest_file="GenomeWideSNP_6.na35.annot.csv"
 ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
-path_to_output_folder="..."
+path_to_chp_folder="cc-chp"
+path_to_txt_folder="..."
 out_prefix="..."
 bcftools +affy2vcf \
   --no-version -Ou \
   --csv $csv_manifest_file \
   --fasta-ref $ref \
-  --chps cc-chp/ \
-  --models $path_to_output_folder/AxiomGT1.snp-posteriors.txt \
-  --report $path_to_output_folder/AxiomGT1.report.txt \
-  --sex $out_prefix.sex | \
+  --chps $path_to_chp_folder \
+  --snp $path_to_txt_folder/AxiomGT1.snp-posteriors.txt \
+  --extra $out_prefix.tsv | \
   bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
   bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
   bcftools index -f $out_prefix.bcf
 ```
-The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. There is often no need to use the `--adjust-clusters` option for Affymetrix data as the cluster posteriors are already adjusted using the data processed by the genotype caller
+Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. There is often no need to use the `--adjust-clusters` option for Affymetrix data as the cluster posteriors are already adjusted using the data processed by the genotype caller
 
 Using an alternative genome reference
 =====================================
@@ -393,17 +407,7 @@ bcftools +gtc2vcf \
   samtools view -bS \
   -o $bam_alignment_file
 ```
-Notice that you need to use the `-M` option to mark shorter split hits as secondary. Then you can use gtc2vcf to compute the coordinates according to the reference used to align the manifest source sequences
-```
-csv_manifest_file="..."
-bam_alignment_file="..."
-csv_realigned_file="..."
-bcftools +gtc2vcf \
-  -c $csv_manifest_file \
-  -s $bam_alignment_file \
-  -o $csv_realigned_file
-```
-You can also load the alignment file while converting your GTC files to VCF, without the need to create a realigned manifest file
+Notice that you need to use the `-M` option to mark shorter split hits as secondary. Then you load the alignment file while converting your GTC files to VCF including the `-s $bam_alignment_file` option
 
 Some older manifest files from Illumina have thousands of markers with incorrect RefStrand annotations that will lead to incorrect genotypes. While Illumina has not explained why this is the case, it still distributes incorrect manifests. If you are using one of the following manifests
 ```
@@ -462,4 +466,4 @@ gtc2vcf_plot.R \
 Acknowledgements
 ================
 
-This work is supported by NIH grant <a href="https://projectreporter.nih.gov/project_info_description.cfm?aid=8852155">R01 HG006855</a> and the Stanley Center for Psychiatric Research and by US Department of Defense Breast Cancer Research Breakthrough Award W81XWH-16-1-0316 (project BC151244)
+This work is supported by NIH grant <a href="http://grantome.com/grant/NIH/R01-HG006855">R01 HG006855</a>, NIH grant <a href="http://grantome.com/grant/NIH/R01-MH104964">R01 MH104964</a>, US Department of Defense Breast Cancer Research Breakthrough Award W81XWH-16-1-0316 (project BC151244), and the Stanley Center for Psychiatric Research
