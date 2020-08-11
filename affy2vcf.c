@@ -29,16 +29,13 @@
 #include <wchar.h>
 #include <sys/resource.h>
 #include <arpa/inet.h>
-#include <htslib/hfile.h>
-#include <htslib/faidx.h>
 #include <htslib/vcf.h>
 #include <htslib/kseq.h>
-#include <htslib/sam.h>
 #include "bcftools.h"
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2020-07-20"
+#define AFFY2VCF_VERSION "2020-08-11"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -66,59 +63,34 @@
 #define FORMAT_SIZE (1 << 15)
 
 /****************************************
- * READING ROUTINES                     *
+ * hFILE READING FUNCTIONS              *
  ****************************************/
 
-// tests the end-of-file indicator for an hFILE
-static inline int heof(hFILE *fp) {
-    if (hgetc(fp) == EOF) return 1;
-    fp->begin--;
-    return 0;
-}
-
-// read or skip a fixed number of bytes
-static inline void read_bytes(hFILE *fp, void *buffer, size_t nbytes) {
-    if (buffer) {
-        if (hread(fp, buffer, nbytes) < nbytes) {
-            error("Failed to read %ld bytes from stream\n", nbytes);
-        }
-    } else {
-        int c = 0;
-        for (int i = 0; i < nbytes; i++) c = hgetc(fp);
-        if (c == EOF) error("Failed to reposition stream forward %ld bytes\n", nbytes);
-    }
-}
-
-static inline int is_gzip(hFILE *fp) {
-    uint8_t buffer[2];
-    if (hpeek(fp, (void *)buffer, 2) < 2) {
-        error("Failed to read 2 bytes from stream\n");
-    }
-    return (buffer[0] == 0x1f && buffer[1] == 0x8b);
-}
-
-static inline uint32_t read_long(hFILE *fp) {
+// read long in network order
+static inline uint32_t read_long(hFILE *hfile) {
     uint32_t value;
-    read_bytes(fp, (void *)&value, sizeof(uint32_t));
+    read_bytes(hfile, (void *)&value, sizeof(uint32_t));
     value = ntohl(value);
     return value;
 }
 
-static inline float read_float(hFILE *fp) {
+// read float in network order
+static inline float read_float(hFILE *hfile) {
     union {
         uint32_t u;
         float f;
     } convert;
-    read_bytes(fp, (void *)&convert.u, sizeof(uint32_t));
+    read_bytes(hfile, (void *)&convert.u, sizeof(uint32_t));
     convert.u = ntohl(convert.u);
     return convert.f;
 }
 
-static inline int32_t read_string8(hFILE *fp, char **buffer) {
-    int32_t len = (int32_t)read_long(fp);
+// read string in network order
+static inline int32_t read_string8(hFILE *hfile, char **buffer) {
+    int32_t len = (int32_t)read_long(hfile);
     if (len) {
         *buffer = (char *)malloc((1 + len) * sizeof(char));
-        read_bytes(fp, (void *)*buffer, len * sizeof(char));
+        read_bytes(hfile, (void *)*buffer, len * sizeof(char));
         (*buffer)[len] = '\0';
     } else {
         *buffer = NULL;
@@ -126,13 +98,14 @@ static inline int32_t read_string8(hFILE *fp, char **buffer) {
     return len;
 }
 
-static inline int32_t read_string16(hFILE *fp, wchar_t **buffer) {
-    int32_t len = (int32_t)read_long(fp);
+// read wide-character string in network order
+static inline int32_t read_string16(hFILE *hfile, wchar_t **buffer) {
+    int32_t len = (int32_t)read_long(hfile);
     if (len) {
         *buffer = (wchar_t *)malloc((1 + len) * sizeof(wchar_t));
         for (int i = 0; i < len; i++) {
             uint16_t cvalue;
-            read_bytes(fp, (void *)&cvalue, sizeof(unsigned short));
+            read_bytes(hfile, (void *)&cvalue, sizeof(unsigned short));
             (*buffer)[i] = (wchar_t)ntohs(cvalue);
         }
         (*buffer)[len] = L'\0';
@@ -178,7 +151,7 @@ typedef struct {
 
 typedef struct {
     char *fn;
-    hFILE *fp;
+    hFILE *hfile;
     int32_t version;
     int32_t num_rows;
     int32_t num_cols;
@@ -199,60 +172,60 @@ typedef struct {
     SubGrid *sub_grids;
 } xda_cel_t;
 
-static xda_cel_t *xda_cel_init(const char *fn, hFILE *fp, int flags) {
+static xda_cel_t *xda_cel_init(const char *fn, hFILE *hfile, int flags) {
     xda_cel_t *xda_cel = (xda_cel_t *)calloc(1, sizeof(xda_cel_t));
     xda_cel->fn = strdup(fn);
-    xda_cel->fp = fp;
+    xda_cel->hfile = hfile;
 
     int32_t magic;
-    read_bytes(xda_cel->fp, (void *)&magic, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&magic, sizeof(int32_t));
     if (magic != 64) error("XDA CEL file %s magic number is %d while it should be 64\n", xda_cel->fn, magic);
 
-    read_bytes(xda_cel->fp, (void *)&xda_cel->version, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->version, sizeof(int32_t));
     if (xda_cel->version != 4)
         error("Cannot read XDA CEL file %s. Unsupported XDA CEL file format version: %d\n", xda_cel->fn,
               xda_cel->version);
 
-    read_bytes(xda_cel->fp, (void *)&xda_cel->num_rows, sizeof(int32_t));
-    read_bytes(xda_cel->fp, (void *)&xda_cel->num_cols, sizeof(int32_t));
-    read_bytes(xda_cel->fp, (void *)&xda_cel->num_cells, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->num_rows, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->num_cols, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->num_cells, sizeof(int32_t));
 
-    read_bytes(xda_cel->fp, (void *)&xda_cel->n_header, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->n_header, sizeof(int32_t));
     xda_cel->header = (char *)malloc((1 + xda_cel->n_header) * sizeof(char));
-    read_bytes(xda_cel->fp, (void *)xda_cel->header, xda_cel->n_header * sizeof(char));
+    read_bytes(xda_cel->hfile, (void *)xda_cel->header, xda_cel->n_header * sizeof(char));
     xda_cel->header[xda_cel->n_header] = '\0';
 
-    read_bytes(xda_cel->fp, (void *)&xda_cel->n_algorithm, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->n_algorithm, sizeof(int32_t));
     xda_cel->algorithm = (char *)malloc((1 + xda_cel->n_algorithm) * sizeof(char));
-    read_bytes(xda_cel->fp, (void *)xda_cel->algorithm, xda_cel->n_algorithm * sizeof(char));
+    read_bytes(xda_cel->hfile, (void *)xda_cel->algorithm, xda_cel->n_algorithm * sizeof(char));
     xda_cel->algorithm[xda_cel->n_algorithm] = '\0';
 
-    read_bytes(xda_cel->fp, (void *)&xda_cel->n_parameters, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->n_parameters, sizeof(int32_t));
     xda_cel->parameters = (char *)malloc((1 + xda_cel->n_parameters) * sizeof(char));
-    read_bytes(xda_cel->fp, (void *)xda_cel->parameters, xda_cel->n_parameters * sizeof(char));
+    read_bytes(xda_cel->hfile, (void *)xda_cel->parameters, xda_cel->n_parameters * sizeof(char));
     xda_cel->parameters[xda_cel->n_parameters] = '\0';
 
-    read_bytes(xda_cel->fp, (void *)&xda_cel->cell_margin, sizeof(int32_t));
-    read_bytes(xda_cel->fp, (void *)&xda_cel->num_outlier_cells, sizeof(uint32_t));
-    read_bytes(xda_cel->fp, (void *)&xda_cel->num_masked_cells, sizeof(uint32_t));
-    read_bytes(xda_cel->fp, (void *)&xda_cel->num_sub_grids, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->cell_margin, sizeof(int32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->num_outlier_cells, sizeof(uint32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->num_masked_cells, sizeof(uint32_t));
+    read_bytes(xda_cel->hfile, (void *)&xda_cel->num_sub_grids, sizeof(int32_t));
 
     if (flags) return xda_cel;
 
     xda_cel->cells = (Cell *)malloc(xda_cel->num_cells * sizeof(Cell));
-    read_bytes(xda_cel->fp, (void *)xda_cel->cells, xda_cel->num_cells * sizeof(Cell));
+    read_bytes(xda_cel->hfile, (void *)xda_cel->cells, xda_cel->num_cells * sizeof(Cell));
 
     xda_cel->masked_entries = (Entry *)malloc(xda_cel->num_masked_cells * sizeof(Entry));
-    read_bytes(xda_cel->fp, (void *)xda_cel->masked_entries, xda_cel->num_masked_cells * sizeof(Entry));
+    read_bytes(xda_cel->hfile, (void *)xda_cel->masked_entries, xda_cel->num_masked_cells * sizeof(Entry));
 
     xda_cel->outlier_entries = (Entry *)malloc(xda_cel->num_outlier_cells * sizeof(Entry));
-    read_bytes(xda_cel->fp, (void *)xda_cel->outlier_entries, xda_cel->num_outlier_cells * sizeof(Entry));
+    read_bytes(xda_cel->hfile, (void *)xda_cel->outlier_entries, xda_cel->num_outlier_cells * sizeof(Entry));
 
     xda_cel->sub_grids = (SubGrid *)malloc(xda_cel->num_sub_grids * sizeof(SubGrid));
-    read_bytes(xda_cel->fp, (void *)xda_cel->sub_grids, xda_cel->num_sub_grids * sizeof(SubGrid));
+    read_bytes(xda_cel->hfile, (void *)xda_cel->sub_grids, xda_cel->num_sub_grids * sizeof(SubGrid));
 
-    if (!heof(xda_cel->fp))
-        error("XDA CEL reader did not reach the end of file %s at position %ld\n", xda_cel->fn, htell(xda_cel->fp));
+    if (!heof(xda_cel->hfile))
+        error("XDA CEL reader did not reach the end of file %s at position %ld\n", xda_cel->fn, htell(xda_cel->hfile));
 
     return xda_cel;
 }
@@ -260,7 +233,7 @@ static xda_cel_t *xda_cel_init(const char *fn, hFILE *fp, int flags) {
 static void xda_cel_destroy(xda_cel_t *xda_cel) {
     if (!xda_cel) return;
     free(xda_cel->fn);
-    if (hclose(xda_cel->fp) < 0) error("Error closing XDA CEL file\n");
+    if (hclose(xda_cel->hfile) < 0) error("Error closing XDA CEL file\n");
     free(xda_cel->header);
     free(xda_cel->algorithm);
     free(xda_cel->parameters);
@@ -358,7 +331,7 @@ typedef struct {
     uint32_t n_cols;
     ColHeader *col_headers;
     uint32_t n_rows;
-    hFILE *fp; // this should not be destroyed
+    hFILE *hfile; // this should not be destroyed
     uint32_t n_buffer;
     uint32_t *col_offsets;
     char *buffer;
@@ -380,7 +353,7 @@ typedef struct {
 
 typedef struct {
     char *fn;
-    hFILE *fp;
+    hFILE *hfile;
     uint8_t magic;
     uint8_t version;
     int32_t num_data_groups;
@@ -391,10 +364,10 @@ typedef struct {
     char *display_name;
 } agcc_t;
 
-static void agcc_read_parameters(Parameter *parameter, hFILE *fp, int flags) {
-    read_string16(fp, &parameter->name);
-    parameter->n_value = read_string8(fp, &parameter->value);
-    read_string16(fp, &parameter->mime_type);
+static void agcc_read_parameters(Parameter *parameter, hFILE *hfile, int flags) {
+    read_string16(hfile, &parameter->name);
+    parameter->n_value = read_string8(hfile, &parameter->value);
+    read_string16(hfile, &parameter->mime_type);
     if (wcscmp(parameter->mime_type, L"text/x-calvin-integer-8") == 0)
         parameter->type = BYTE;
     else if (wcscmp(parameter->mime_type, L"text/x-calvin-unsigned-integer-8") == 0)
@@ -428,40 +401,40 @@ static void agcc_read_parameters(Parameter *parameter, hFILE *fp, int flags) {
     }
 }
 
-static void agcc_read_data_header(DataHeader *data_header, hFILE *fp, int flags) {
-    read_string8(fp, &data_header->data_type_identifier);
-    read_string8(fp, &data_header->guid);
-    read_string16(fp, &data_header->datetime);
-    read_string16(fp, &data_header->locale);
+static void agcc_read_data_header(DataHeader *data_header, hFILE *hfile, int flags) {
+    read_string8(hfile, &data_header->data_type_identifier);
+    read_string8(hfile, &data_header->guid);
+    read_string16(hfile, &data_header->datetime);
+    read_string16(hfile, &data_header->locale);
 
-    data_header->n_parameters = (int32_t)read_long(fp);
+    data_header->n_parameters = (int32_t)read_long(hfile);
     data_header->parameters = (Parameter *)malloc(data_header->n_parameters * sizeof(Parameter));
-    for (int i = 0; i < data_header->n_parameters; i++) agcc_read_parameters(&data_header->parameters[i], fp, flags);
+    for (int i = 0; i < data_header->n_parameters; i++) agcc_read_parameters(&data_header->parameters[i], hfile, flags);
 
-    data_header->n_parents = (int32_t)read_long(fp);
+    data_header->n_parents = (int32_t)read_long(hfile);
     data_header->parents = (DataHeader *)malloc(data_header->n_parents * sizeof(DataHeader));
-    for (int i = 0; i < data_header->n_parents; i++) agcc_read_data_header(&data_header->parents[i], fp, flags);
+    for (int i = 0; i < data_header->n_parents; i++) agcc_read_data_header(&data_header->parents[i], hfile, flags);
 }
 
-static void agcc_read_data_set(DataSet *data_set, hFILE *fp, int flags) {
-    data_set->pos_first_element = read_long(fp);
-    data_set->pos_next_data_set = read_long(fp);
-    read_string16(fp, &data_set->name);
+static void agcc_read_data_set(DataSet *data_set, hFILE *hfile, int flags) {
+    data_set->pos_first_element = read_long(hfile);
+    data_set->pos_next_data_set = read_long(hfile);
+    read_string16(hfile, &data_set->name);
 
-    data_set->n_parameters = (int32_t)read_long(fp);
+    data_set->n_parameters = (int32_t)read_long(hfile);
     data_set->parameters = (Parameter *)malloc(data_set->n_parameters * sizeof(Parameter));
-    for (int i = 0; i < data_set->n_parameters; i++) agcc_read_parameters(&data_set->parameters[i], fp, flags);
+    for (int i = 0; i < data_set->n_parameters; i++) agcc_read_parameters(&data_set->parameters[i], hfile, flags);
 
-    data_set->n_cols = read_long(fp);
+    data_set->n_cols = read_long(hfile);
     data_set->col_headers = (ColHeader *)malloc(data_set->n_cols * sizeof(ColHeader));
     for (int i = 0; i < data_set->n_cols; i++) {
-        read_string16(fp, &data_set->col_headers[i].name);
-        read_bytes(fp, (void *)&data_set->col_headers[i].type, sizeof(int8_t));
-        data_set->col_headers[i].size = read_long(fp);
+        read_string16(hfile, &data_set->col_headers[i].name);
+        read_bytes(hfile, (void *)&data_set->col_headers[i].type, sizeof(int8_t));
+        data_set->col_headers[i].size = read_long(hfile);
     }
-    data_set->n_rows = read_long(fp);
+    data_set->n_rows = read_long(hfile);
 
-    data_set->fp = fp;
+    data_set->hfile = hfile;
     data_set->col_offsets = (uint32_t *)malloc(data_set->n_cols * sizeof(uint32_t *));
     data_set->n_buffer = 0;
     for (int i = 0; i < data_set->n_cols; i++) {
@@ -471,52 +444,52 @@ static void agcc_read_data_set(DataSet *data_set, hFILE *fp, int flags) {
     data_set->buffer = (char *)malloc(data_set->n_buffer * sizeof(char));
 
     if (data_set->pos_next_data_set)
-        if (hseek(fp, data_set->pos_next_data_set, SEEK_SET) < 0)
+        if (hseek(hfile, data_set->pos_next_data_set, SEEK_SET) < 0)
             error("Fail to seek to position %d in AGCC CHP file\n", data_set->pos_next_data_set);
 }
 
-static void agcc_read_data_group(DataGroup *data_group, hFILE *fp, int flags) {
-    data_group->pos_next_data_group = read_long(fp);
-    data_group->pos_first_data_set = read_long(fp);
-    data_group->num_data_sets = read_long(fp);
-    read_string16(fp, &data_group->name);
-    if (hseek(fp, data_group->pos_first_data_set, SEEK_SET) < 0)
+static void agcc_read_data_group(DataGroup *data_group, hFILE *hfile, int flags) {
+    data_group->pos_next_data_group = read_long(hfile);
+    data_group->pos_first_data_set = read_long(hfile);
+    data_group->num_data_sets = read_long(hfile);
+    read_string16(hfile, &data_group->name);
+    if (hseek(hfile, data_group->pos_first_data_set, SEEK_SET) < 0)
         error("Fail to seek to position %d in AGCC CHP file\n", data_group->pos_first_data_set);
     data_group->data_sets = (DataSet *)malloc(data_group->num_data_sets * sizeof(DataSet));
-    for (int i = 0; i < data_group->num_data_sets; i++) agcc_read_data_set(&data_group->data_sets[i], fp, flags);
+    for (int i = 0; i < data_group->num_data_sets; i++) agcc_read_data_set(&data_group->data_sets[i], hfile, flags);
     if (data_group->pos_next_data_group)
-        if (hseek(fp, data_group->pos_next_data_group, SEEK_SET) < 0)
+        if (hseek(hfile, data_group->pos_next_data_group, SEEK_SET) < 0)
             error("Fail to seek to position %d in AGCC CHP file\n", data_group->pos_next_data_group);
 }
 
-static agcc_t *agcc_init(const char *fn, hFILE *fp, int flags) {
+static agcc_t *agcc_init(const char *fn, hFILE *hfile, int flags) {
     agcc_t *agcc = (agcc_t *)calloc(1, sizeof(agcc_t));
     agcc->fn = strdup(fn);
-    agcc->fp = fp;
+    agcc->hfile = hfile;
 
     // read File Header
-    read_bytes(agcc->fp, (void *)&agcc->magic, sizeof(uint8_t));
+    read_bytes(agcc->hfile, (void *)&agcc->magic, sizeof(uint8_t));
     if (agcc->magic != 59) error("AGCC CHP file %s magic number is %d while it should be 59\n", agcc->fn, agcc->magic);
-    read_bytes(agcc->fp, (void *)&agcc->version, sizeof(uint8_t));
+    read_bytes(agcc->hfile, (void *)&agcc->version, sizeof(uint8_t));
     if (agcc->version != 1)
         error("Cannot read AGCC CHP file %s. Unsupported AGCC CHP file format version: %d\n", agcc->fn, agcc->version);
-    agcc->num_data_groups = (int32_t)read_long(agcc->fp);
-    agcc->pos_first_data_group = read_long(agcc->fp);
+    agcc->num_data_groups = (int32_t)read_long(agcc->hfile);
+    agcc->pos_first_data_group = read_long(agcc->hfile);
 
     // read Generic Data Header
-    agcc_read_data_header(&agcc->data_header, agcc->fp, flags);
+    agcc_read_data_header(&agcc->data_header, agcc->hfile, flags);
 
     // read Data Groups
-    if (hseek(agcc->fp, agcc->pos_first_data_group, SEEK_SET) < 0)
+    if (hseek(agcc->hfile, agcc->pos_first_data_group, SEEK_SET) < 0)
         error("Fail to seek to position %d in AGCC CHP %s file\n", agcc->pos_first_data_group, agcc->fn);
     agcc->data_groups = (DataGroup *)malloc(agcc->num_data_groups * sizeof(DataGroup));
-    for (int i = 0; i < agcc->num_data_groups; i++) agcc_read_data_group(&agcc->data_groups[i], agcc->fp, flags);
+    for (int i = 0; i < agcc->num_data_groups; i++) agcc_read_data_group(&agcc->data_groups[i], agcc->hfile, flags);
 
-    if (!heof(agcc->fp))
-        error("AGCC CHP reader did not reach the end of file %s at position %ld\n", agcc->fn, htell(agcc->fp));
+    if (!heof(agcc->hfile))
+        error("AGCC CHP reader did not reach the end of file %s at position %ld\n", agcc->fn, htell(agcc->hfile));
 
-    if (hseek(agcc->fp, 0L, SEEK_END) < 0) error("Fail to seek to end of AGCC CHP %s file\n", agcc->fn);
-    agcc->size = htell(agcc->fp);
+    if (hseek(agcc->hfile, 0L, SEEK_END) < 0) error("Fail to seek to end of AGCC CHP %s file\n", agcc->fn);
+    agcc->size = htell(agcc->hfile);
 
     char *ptr = strrchr(agcc->fn, '/') ? strrchr(agcc->fn, '/') + 1 : agcc->fn;
     agcc->display_name = strdup(ptr);
@@ -567,7 +540,7 @@ static void agcc_destroy_data_group(DataGroup *data_group) {
 static void agcc_destroy(agcc_t *agcc) {
     if (!agcc) return;
     free(agcc->fn);
-    if (hclose(agcc->fp) < 0) error("Error closing AGCC CHP file\n");
+    if (hclose(agcc->hfile) < 0) error("Error closing AGCC CHP file\n");
     agcc_destroy_data_header(&agcc->data_header);
     for (int i = 0; i < agcc->num_data_groups; i++) agcc_destroy_data_group(&agcc->data_groups[i]);
     free(agcc->data_groups);
@@ -700,10 +673,10 @@ static void agcc_print_data_set(const DataSet *data_set, FILE *stream, int verbo
             error("Unknown column type %ls in AGCC CHP file with type %d\n", data_set->col_headers[i].name,
                   data_set->col_headers[i].type);
     }
-    if (hseek(data_set->fp, data_set->pos_first_element, SEEK_SET) < 0)
+    if (hseek(data_set->hfile, data_set->pos_first_element, SEEK_SET) < 0)
         error("Fail to seek to position %d in AGCC CHP file\n", data_set->pos_first_element);
     for (int i = 0; i < data_set->n_rows; i++) {
-        read_bytes(data_set->fp, (void *)data_set->buffer, data_set->n_buffer);
+        read_bytes(data_set->hfile, (void *)data_set->buffer, data_set->n_buffer);
         for (int j = 0; j < data_set->n_cols; j++) {
             col_prints[j](data_set->buffer + data_set->col_offsets[j], stream);
             fputc(col_ends[j], stream);
@@ -1012,7 +985,7 @@ static snp_models_t *snp_models_init(const char *fn) {
     htsFile *fp = unheader(fn, &str);
 
     int sep1, sep2, sep3, exp_cols;
-    if (strcmp(str.s, "id\tBB\tAB\tAA\tCV") == 0) {
+    if (strcmp(str.s, "id\tBB\tAB\tAA\tCV") == 0 || strcmp(str.s, "id\tBB\tAB\tAA\tCV\tOTV") == 0) {
         if (hts_getline(fp, KS_SEP_LINE, &str) <= 0) error("Missing information in SNP posteriors file: %s\n", fn);
         sep1 = '\t';
         sep2 = ',';
@@ -1025,7 +998,7 @@ static snp_models_t *snp_models_init(const char *fn) {
         sep3 = '-';
         exp_cols = 6;
     } else {
-        error("Malformed SNP model file: %s\n", fn);
+        error("Malformed header line in SNP model file %s:\n%s\n", fn, str.s);
     }
 
     snp_t *snp;
@@ -1436,7 +1409,7 @@ static varitr_t *varitr_init_cc(bcf_hdr_t *hdr, agcc_t **agcc, int n) {
                                        // / Signal B / Forced Call
         else
             error("AGCC CHP file %s does not contain intensities data in the expected format\n", agcc[i]->fn);
-        if (hseek(data_set->fp, data_set->pos_first_element, SEEK_SET) < 0)
+        if (hseek(data_set->hfile, data_set->pos_first_element, SEEK_SET) < 0)
             error("Fail to seek to position %d in AGCC CHP file\n", data_set->pos_first_element);
         bcf_hdr_add_sample(hdr, agcc[i]->display_name);
         varitr->data_sets[i] = data_set;
@@ -1522,6 +1495,7 @@ static inline void check_probe_set_id(char *dest, const char *src) {
 }
 
 static int varitr_loop(varitr_t *varitr) {
+    int ret = 0;
     varitr->probe_set_id[0] = '\0';
     if (varitr->data_sets) {
         varitr->nrow++;
@@ -1530,7 +1504,7 @@ static int varitr_loop(varitr_t *varitr) {
         for (int i = 0; i < varitr->nsmpl; i++) {
             DataSet *data_set = varitr->data_sets[i];
             if (varitr->nrow > data_set->n_rows) return -1;
-            read_bytes(data_set->fp, (void *)data_set->buffer, data_set->n_buffer);
+            read_bytes(data_set->hfile, (void *)data_set->buffer, data_set->n_buffer);
             uint32_t n = ntohl(*(uint32_t *)&data_set->buffer[data_set->col_offsets[0]]);
             check_n_probe_set_id(varitr->probe_set_id, &data_set->buffer[data_set->col_offsets[0] + 4], (size_t)n);
             varitr->gts[i] = gt[data_set->buffer[data_set->col_offsets[1]] & 0x0F];
@@ -1560,12 +1534,14 @@ static int varitr_loop(varitr_t *varitr) {
         }
     } else {
         kstring_t str = {0, 0, NULL};
-        int moff = 0, *off = NULL, ncols;
-        char *tmp, buf[MAX_LENGTH_PROBE_SET_ID];
+        int moff = 0, *off = NULL, ncols, len;
+        kstring_t str_b = {0, 0, NULL};
+        int moff_b = 0, *off_b = NULL, ncols_b, len_b;
+        char *tmp;
 
         // read genotypes
         if (varitr->calls_fp) {
-            if (hts_getline(varitr->calls_fp, KS_SEP_LINE, &str) < 0) return -1;
+            if ((ret = hts_getline(varitr->calls_fp, KS_SEP_LINE, &str)) < 0) goto exit;
             ncols = ksplit_core(str.s, '\t', &moff, &off);
             if (ncols != 1 + varitr->nsmpl)
                 error("Expected %d columns but %d columns found in the calls file\n", 1 + varitr->nsmpl, ncols);
@@ -1578,7 +1554,7 @@ static int varitr_loop(varitr_t *varitr) {
 
         // read confidences
         if (varitr->confidences_fp) {
-            if (hts_getline(varitr->confidences_fp, KS_SEP_LINE, &str) < 0) return -1;
+            if ((ret = hts_getline(varitr->confidences_fp, KS_SEP_LINE, &str)) < 0) goto exit;
             ncols = ksplit_core(str.s, '\t', &moff, &off);
             if (ncols != 1 + varitr->nsmpl)
                 error("Expected %d columns but %d columns found in the confidences file\n", 1 + varitr->nsmpl, ncols);
@@ -1588,64 +1564,66 @@ static int varitr_loop(varitr_t *varitr) {
 
         // read intensities
         if (varitr->summary_fp) {
-            int ret, len;
-            do {
-                if ((ret = hts_getline(varitr->summary_fp, KS_SEP_LINE, &str)) < 0) return -1;
-                ncols = ksplit_core(str.s, '\t', &moff, &off);
-                if (ncols != 1 + varitr->nsmpl)
-                    error("Expected %d columns but %d columns found in the summary file\n", 1 + varitr->nsmpl, ncols);
-                len = strlen(&str.s[off[0]]);
-                if (str.s[off[0] + len - 2] != '-' || str.s[off[0] + len - 1] != 'A')
-                    error("Found Probe Set ID %s while a -A was expected\n", &str.s[off[0]]);
-                str.s[off[0] + len - 2] = '\0';
-                // check whether the next line contains the expected -B
-                // probeset_id
-                if (len - 2 > MAX_LENGTH_PROBE_SET_ID) error("Cannot read Probe Set %s intensities\n", &str.s[off[0]]);
-                ret = hpeek(varitr->summary_fp->fp.hfile, buf, len);
-            } while (ret < len || strncmp(&str.s[off[0]], buf, len - 2) != 0 || buf[len - 2] != '-'
-                     || buf[len - 1] != 'B');
-            if (ret < 0) return -1;
-
-            for (int i = 1; i < 1 + varitr->nsmpl; i++) varitr->norm_x_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
-            if (hts_getline(varitr->summary_fp, KS_SEP_LINE, &str) <= 0) error("Summary file ended prematurely\n");
+            if ((ret = hts_getline(varitr->summary_fp, KS_SEP_LINE, &str)) < 0) goto exit;
             ncols = ksplit_core(str.s, '\t', &moff, &off);
             if (ncols != 1 + varitr->nsmpl)
                 error("Expected %d columns but %d columns found in the summary file\n", 1 + varitr->nsmpl, ncols);
             len = strlen(&str.s[off[0]]);
-            str.s[off[0] + len - 2] = '\0';
+            do {
+                if (str.s[off[0] + len - 2] != '-' || str.s[off[0] + len - 1] != 'A')
+                    error("Found Probe Set ID %s while a -A Probe Set ID was expected\n", &str.s[off[0]]);
+                // check whether the next line contains the expected -B probeset_id
+                if ((ret = hts_getline(varitr->summary_fp, KS_SEP_LINE, &str_b)) < 0) goto exit;
+                ncols_b = ksplit_core(str_b.s, '\t', &moff_b, &off_b);
+                if (ncols_b != 1 + varitr->nsmpl)
+                    error("Expected %d columns but %d columns found in the summary file\n", 1 + varitr->nsmpl, ncols_b);
+                len_b = strlen(&str_b.s[off_b[0]]);
+                if (str_b.s[off_b[0] + len - 2] == '-' && str_b.s[off_b[0] + len_b - 1] == 'B') break;
+
+                kstring_t str_tmp = str;
+                str = str_b;
+                str_b = str_tmp;
+                int moff_tmp = moff;
+                moff = moff_b;
+                moff_b = moff_tmp;
+                int *off_tmp = off;
+                off = off_b;
+                off_b = off_tmp;
+                int ncols_tmp = ncols;
+                ncols = ncols_b;
+                ncols_b = ncols_tmp;
+            } while (1);
+
+            if (len != len_b || strncmp(&str.s[off[0]], &str_b.s[off_b[0]], len - 2) != 0)
+                error("Mismatching %s and %s Probe Set IDs found in the summary file\n", &str.s[off[0]],
+                      &str_b.s[off_b[0]]);
             for (int i = 1; i < 1 + varitr->nsmpl; i++) {
-                varitr->norm_y_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
+                varitr->norm_x_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
+                if (*tmp) error("Could not parse intensity value %s found in the summary file\n", &str.s[off[i]]);
+                varitr->norm_y_arr[i - 1] = strtof(&str_b.s[off_b[i]], &tmp);
+                if (*tmp) error("Could not parse intensity value %s found in the summary file\n", &str_b.s[off_b[i]]);
                 float log2x = logf(varitr->norm_x_arr[i - 1]) * (float)M_LOG2E;
                 float log2y = logf(varitr->norm_y_arr[i - 1]) * (float)M_LOG2E;
                 varitr->delta_arr[i - 1] = log2x - log2y;
                 varitr->size_arr[i - 1] = (log2x + log2y) * 0.5f;
             }
+            str.s[off[0] + len - 2] = '\0';
             check_probe_set_id(varitr->probe_set_id, &str.s[off[0]]);
         }
-
+    exit:
+        free(str_b.s);
+        free(off_b);
         free(str.s);
         free(off);
     }
-    return 0;
+    return ret;
 }
 
 static void varitr_destroy(varitr_t *varitr) {
     free(varitr->is_brlmm_p);
-    if (varitr->calls_fp) {
-        if (hgetc(varitr->calls_fp->fp.hfile) != EOF) fprintf(stderr, "Warning: End of calls file was not reached\n");
-        hts_close(varitr->calls_fp);
-    }
-    if (varitr->confidences_fp) {
-        if (hgetc(varitr->confidences_fp->fp.hfile) != EOF)
-            fprintf(stderr, "Warning: End of confidences file was not reached\n");
-        hts_close(varitr->confidences_fp);
-    }
-    if (varitr->summary_fp) {
-        if (hgetc(varitr->summary_fp->fp.hfile) != EOF)
-            fprintf(stderr, "Warning: End of summary file was not reached\n");
-        hts_close(varitr->summary_fp);
-    }
-
+    if (varitr->calls_fp) hts_close(varitr->calls_fp);
+    if (varitr->confidences_fp) hts_close(varitr->confidences_fp);
+    if (varitr->summary_fp) hts_close(varitr->summary_fp);
     free(varitr->gts);
     free(varitr->conf_arr);
     free(varitr->norm_x_arr);
@@ -2144,16 +2122,16 @@ static const char *usage_text(void) {
            "    -l, --list-tags               list available FORMAT tags with description for  VCF output\n"
            "    -t, --tags LIST               list of output FORMAT tags [" TAG_LIST_DFLT
            "]\n"
-           "    -c, --csv <file>              CSV manifest file\n"
+           "    -c, --csv <file>              CSV manifest file (can be gzip compressed)\n"
            "    -f, --fasta-ref <file>        reference sequence in fasta format\n"
            "        --set-cache-size <int>    select fasta cache size in bytes\n"
            "        --gc-window-size <int>    window size in bp used to compute the GC content "
            "(-1 for no estimate) [" GC_WIN_DFLT
            "]\n"
-           "        --calls <file>            apt-probeset-genotype calls output\n"
-           "        --confidences <file>      apt-probeset-genotype confidences output\n"
-           "        --summary <file>          apt-probeset-genotype summary output\n"
-           "        --snp <file>              apt-probeset-genotype SNP posteriors output\n"
+           "        --calls <file>            apt-probeset-genotype calls output (can be gzip compressed)\n"
+           "        --confidences <file>      apt-probeset-genotype confidences output (can be gzip compressed)\n"
+           "        --summary <file>          apt-probeset-genotype summary output (can be gzip compressed)\n"
+           "        --snp <file>              apt-probeset-genotype SNP posteriors output (can be gzip compressed)\n"
            "        --chps <dir|file>         input CHP files rather than tab delimited files\n"
            "        --cel <file>              input CEL files rather CHP files\n"
            "        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --snp)\n"
@@ -2430,19 +2408,19 @@ int run(int argc, char *argv[]) {
     }
 
     for (int i = 0; i < nfiles; i++) {
-        hFILE *fp = hopen(filenames[i], "rb");
-        if (fp == NULL) error("Could not open %s: %s\n", filenames[i], strerror(errno));
-        if (hpeek(fp, (void *)&magic[i], 1) < 1) {
+        hFILE *hfile = hopen(filenames[i], "rb");
+        if (hfile == NULL) error("Could not open %s: %s\n", filenames[i], strerror(errno));
+        if (hpeek(hfile, (void *)&magic[i], 1) < 1) {
             error("Failed to read from file %s\n", filenames[i]);
         }
         switch (magic[i]) {
         case 59:
             fprintf(stderr, "Reading AGCC file %s\n", filenames[i]);
-            files[i] = (void *)agcc_init(filenames[i], fp, nfiles > 1);
+            files[i] = (void *)agcc_init(filenames[i], hfile, nfiles > 1);
             break;
         case 64:
             fprintf(stderr, "Reading XDA CEL file %s\n", filenames[i]);
-            files[i] = (void *)xda_cel_init(filenames[i], fp, nfiles > 1);
+            files[i] = (void *)xda_cel_init(filenames[i], hfile, nfiles > 1);
             break;
         case 65:
             error("Currently unable to read XDA CHP format for file %s\n", filenames[i]);

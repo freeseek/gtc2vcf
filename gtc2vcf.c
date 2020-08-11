@@ -27,16 +27,13 @@
 #include <getopt.h>
 #include <errno.h>
 #include <sys/resource.h>
-#include <htslib/hfile.h>
-#include <htslib/faidx.h>
 #include <htslib/vcf.h>
 #include <htslib/kseq.h>
-#include <htslib/sam.h>
 #include "bcftools.h"
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-07-20"
+#define GTC2VCF_VERSION "2020-08-11"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -73,28 +70,8 @@
  * hFILE READING FUNCTIONS              *
  ****************************************/
 
-// tests the end-of-file indicator for an hFILE
-static inline int heof(hFILE *fp) {
-    if (hgetc(fp) == EOF) return 1;
-    fp->begin--;
-    return 0;
-}
-
-// read or skip a fixed number of bytes
-static inline void read_bytes(hFILE *fp, void *buffer, size_t nbytes) {
-    if (buffer) {
-        if (hread(fp, buffer, nbytes) < nbytes) {
-            error("Failed to read %ld bytes from stream\n", nbytes);
-        }
-    } else {
-        int c = 0;
-        for (int i = 0; i < nbytes; i++) c = hgetc(fp);
-        if (c == EOF) error("Failed to reposition stream forward %ld bytes\n", nbytes);
-    }
-}
-
 // read or skip a fixed length array
-static inline void read_array(hFILE *fp, void **arr, size_t *m_arr, size_t nmemb, size_t size, size_t term) {
+static inline void read_array(hFILE *hfile, void **arr, size_t *m_arr, size_t nmemb, size_t size, size_t term) {
     if (arr) {
         if (!m_arr) {
             *arr = malloc((nmemb + term) * size);
@@ -105,32 +82,32 @@ static inline void read_array(hFILE *fp, void **arr, size_t *m_arr, size_t nmemb
             *arr = tmp;
             *m_arr = nmemb + term;
         }
-        if (hread(fp, *arr, nmemb * size) < nmemb * size) {
+        if (hread(hfile, *arr, nmemb * size) < nmemb * size) {
             error("Failed to read %ld bytes from stream\n", nmemb * size);
         }
     } else {
         int c = 0;
-        for (int i = 0; i < nmemb * size; i++) c = hgetc(fp);
+        for (int i = 0; i < nmemb * size; i++) c = hgetc(hfile);
         if (c == EOF) error("Failed to reposition stream forward %ld bytes\n", nmemb * size);
     }
 }
 
 // read or skip a length-prefixed array
-static inline void read_pfx_array(hFILE *fp, void **arr, size_t *m_arr, size_t item_size) {
+static inline void read_pfx_array(hFILE *hfile, void **arr, size_t *m_arr, size_t item_size) {
     int32_t n;
-    if (hread(fp, (void *)&n, 4) < 4) {
+    if (hread(hfile, (void *)&n, 4) < 4) {
         error("Failed to read 4 bytes from stream\n");
     }
-    read_array(fp, arr, m_arr, n, item_size, 0);
+    read_array(hfile, arr, m_arr, n, item_size, 0);
 }
 
 // read or skip a length-prefixed string
 // http://en.wikipedia.org/wiki/LEB128#Decode_unsigned_integer
-static inline void read_pfx_string(hFILE *fp, char **str, size_t *m_str) {
+static inline void read_pfx_string(hFILE *hfile, char **str, size_t *m_str) {
     uint8_t byte;
     size_t n = 0, shift = 0;
     while (1) {
-        if (hread(fp, (void *)&byte, 1) < 1) {
+        if (hread(hfile, (void *)&byte, 1) < 1) {
             error("Failed to read 1 byte from stream\n");
         }
         n |= (size_t)(byte & 0x7F) << shift;
@@ -138,14 +115,15 @@ static inline void read_pfx_string(hFILE *fp, char **str, size_t *m_str) {
         shift += 7;
     }
     if (n || m_str) {
-        read_array(fp, (void **)str, m_str, n, 1, 1);
+        read_array(hfile, (void **)str, m_str, n, 1, 1);
         if (str) (*str)[n] = '\0';
     }
 }
 
-static inline int is_gzip(hFILE *fp) {
+// check whether file is compressed with gzip
+static inline int is_gzip(hFILE *hfile) {
     uint8_t buffer[2];
-    if (hpeek(fp, (void *)buffer, 2) < 2) error("Failed to read 2 bytes from stream\n");
+    if (hpeek(hfile, (void *)buffer, 2) < 2) error("Failed to read 2 bytes from stream\n");
     return (buffer[0] == 0x1f && buffer[1] == 0x8b);
 }
 
@@ -154,7 +132,7 @@ static inline int is_gzip(hFILE *fp) {
  ****************************************/
 
 typedef struct {
-    hFILE *fp;
+    hFILE *hfile;
     off_t offset;
     int32_t item_num;
     int32_t item_offset;
@@ -163,16 +141,16 @@ typedef struct {
     char *buffer;
 } buffer_array_t;
 
-static buffer_array_t *buffer_array_init(hFILE *fp, size_t capacity, size_t item_size) {
+static buffer_array_t *buffer_array_init(hFILE *hfile, size_t capacity, size_t item_size) {
     buffer_array_t *arr = (buffer_array_t *)malloc(1 * sizeof(buffer_array_t));
-    arr->fp = fp;
-    read_bytes(fp, (void *)&arr->item_num, sizeof(int32_t));
-    arr->offset = htell(arr->fp);
+    arr->hfile = hfile;
+    read_bytes(hfile, (void *)&arr->item_num, sizeof(int32_t));
+    arr->offset = htell(arr->hfile);
     arr->item_offset = 0;
     arr->item_capacity = (capacity <= 0) ? (size_t)strtol(CAPACITY_DFLT, NULL, 0) : capacity;
     arr->item_size = item_size;
     arr->buffer = (char *)malloc(arr->item_capacity * item_size);
-    read_bytes(fp, (void *)arr->buffer,
+    read_bytes(hfile, (void *)arr->buffer,
                (arr->item_num < arr->item_capacity ? arr->item_num : arr->item_capacity) * item_size);
     return arr;
 }
@@ -185,10 +163,10 @@ static inline int get_element(buffer_array_t *arr, void *dst, size_t item_idx) {
         return 0;
     }
     arr->item_offset = item_idx;
-    if (hseek(arr->fp, arr->offset + item_idx * arr->item_size, SEEK_SET) < 0) {
+    if (hseek(arr->hfile, arr->offset + item_idx * arr->item_size, SEEK_SET) < 0) {
         error("Fail to seek to position %ld in file\n", arr->offset + item_idx * arr->item_size);
     }
-    read_bytes(arr->fp, (void *)arr->buffer,
+    read_bytes(arr->hfile, (void *)arr->buffer,
                ((arr->item_num - arr->item_offset) < arr->item_capacity ? (arr->item_num - arr->item_offset)
                                                                         : arr->item_capacity)
                    * arr->item_size);
@@ -270,35 +248,35 @@ static uint8_t get_assay_type(const char *allele_a_probe_seq, const char *allele
     error("Unable to retrieve assay type: %s %s\n", allele_a_probe_seq, source_seq);
 }
 
-static void locusentry_read(LocusEntry *locus_entry, hFILE *fp) {
+static void locusentry_read(LocusEntry *locus_entry, hFILE *hfile) {
     locus_entry->norm_id = 0xFF;
-    read_bytes(fp, (void *)&locus_entry->version, sizeof(int32_t));
+    read_bytes(hfile, (void *)&locus_entry->version, sizeof(int32_t));
     if (locus_entry->version < 4 || locus_entry->version == 5 || locus_entry->version > 8)
         error("Locus version %d in manifest file not supported\n", locus_entry->version);
-    read_pfx_string(fp, &locus_entry->ilmn_id, NULL);
-    read_pfx_string(fp, &locus_entry->name, NULL);
-    read_pfx_string(fp, NULL, NULL);
-    read_pfx_string(fp, NULL, NULL);
-    read_pfx_string(fp, NULL, NULL);
-    read_bytes(fp, (void *)&locus_entry->index, sizeof(int32_t));
-    read_pfx_string(fp, NULL, NULL);
-    read_pfx_string(fp, &locus_entry->ilmn_strand, NULL);
-    read_pfx_string(fp, &locus_entry->snp, NULL);
-    read_pfx_string(fp, &locus_entry->chrom, NULL);
-    read_pfx_string(fp, &locus_entry->ploidy, NULL);
-    read_pfx_string(fp, &locus_entry->species, NULL);
-    read_pfx_string(fp, &locus_entry->map_info, NULL);
-    read_pfx_string(fp, &locus_entry->top_genomic_seq, NULL); // only version 4
-    read_pfx_string(fp, &locus_entry->customer_strand, NULL);
-    read_bytes(fp, (void *)&locus_entry->address_a, sizeof(int32_t));
-    read_bytes(fp, (void *)&locus_entry->address_b, sizeof(int32_t));
-    read_pfx_string(fp, &locus_entry->allele_a_probe_seq, NULL); // only version 4
-    read_pfx_string(fp, &locus_entry->allele_b_probe_seq, NULL); // only version 4
-    read_pfx_string(fp, &locus_entry->genome_build, NULL);
-    read_pfx_string(fp, &locus_entry->source, NULL);
-    read_pfx_string(fp, &locus_entry->source_version, NULL);
-    read_pfx_string(fp, &locus_entry->source_strand, NULL);
-    read_pfx_string(fp, &locus_entry->source_seq, NULL); // only version 4
+    read_pfx_string(hfile, &locus_entry->ilmn_id, NULL);
+    read_pfx_string(hfile, &locus_entry->name, NULL);
+    read_pfx_string(hfile, NULL, NULL);
+    read_pfx_string(hfile, NULL, NULL);
+    read_pfx_string(hfile, NULL, NULL);
+    read_bytes(hfile, (void *)&locus_entry->index, sizeof(int32_t));
+    read_pfx_string(hfile, NULL, NULL);
+    read_pfx_string(hfile, &locus_entry->ilmn_strand, NULL);
+    read_pfx_string(hfile, &locus_entry->snp, NULL);
+    read_pfx_string(hfile, &locus_entry->chrom, NULL);
+    read_pfx_string(hfile, &locus_entry->ploidy, NULL);
+    read_pfx_string(hfile, &locus_entry->species, NULL);
+    read_pfx_string(hfile, &locus_entry->map_info, NULL);
+    read_pfx_string(hfile, &locus_entry->top_genomic_seq, NULL); // only version 4
+    read_pfx_string(hfile, &locus_entry->customer_strand, NULL);
+    read_bytes(hfile, (void *)&locus_entry->address_a, sizeof(int32_t));
+    read_bytes(hfile, (void *)&locus_entry->address_b, sizeof(int32_t));
+    read_pfx_string(hfile, &locus_entry->allele_a_probe_seq, NULL); // only version 4
+    read_pfx_string(hfile, &locus_entry->allele_b_probe_seq, NULL); // only version 4
+    read_pfx_string(hfile, &locus_entry->genome_build, NULL);
+    read_pfx_string(hfile, &locus_entry->source, NULL);
+    read_pfx_string(hfile, &locus_entry->source_version, NULL);
+    read_pfx_string(hfile, &locus_entry->source_strand, NULL);
+    read_pfx_string(hfile, &locus_entry->source_seq, NULL); // only version 4
     if (locus_entry->source_seq) {
         char *ptr = strchr(locus_entry->source_seq, '-');
         if (ptr && *(ptr - 1) == '/') {
@@ -308,10 +286,10 @@ static void locusentry_read(LocusEntry *locus_entry, hFILE *fp) {
     }
 
     if (locus_entry->version >= 6) {
-        read_bytes(fp, NULL, 1);
-        read_bytes(fp, (void *)&locus_entry->exp_clusters, sizeof(int8_t));
-        read_bytes(fp, (void *)&locus_entry->intensity_only, sizeof(int8_t));
-        read_bytes(fp, (void *)&locus_entry->assay_type, sizeof(uint8_t));
+        read_bytes(hfile, NULL, 1);
+        read_bytes(hfile, (void *)&locus_entry->exp_clusters, sizeof(int8_t));
+        read_bytes(hfile, (void *)&locus_entry->intensity_only, sizeof(int8_t));
+        read_bytes(hfile, (void *)&locus_entry->assay_type, sizeof(uint8_t));
 
         if (locus_entry->assay_type < 0 || locus_entry->assay_type > 2)
             error("Format error in reading assay type from locus entry\n");
@@ -325,17 +303,18 @@ static void locusentry_read(LocusEntry *locus_entry, hFILE *fp) {
     }
 
     if (locus_entry->version >= 7) {
-        read_bytes(fp, &locus_entry->frac_a, sizeof(float));
-        read_bytes(fp, &locus_entry->frac_c, sizeof(float));
-        read_bytes(fp, &locus_entry->frac_t, sizeof(float));
-        read_bytes(fp, &locus_entry->frac_g, sizeof(float));
+        read_bytes(hfile, &locus_entry->frac_a, sizeof(float));
+        read_bytes(hfile, &locus_entry->frac_c, sizeof(float));
+        read_bytes(hfile, &locus_entry->frac_t, sizeof(float));
+        read_bytes(hfile, &locus_entry->frac_g, sizeof(float));
     }
-    if (locus_entry->version >= 8) read_pfx_string(fp, &locus_entry->ref_strand, NULL);
+    if (locus_entry->version >= 8) read_pfx_string(hfile, &locus_entry->ref_strand, NULL);
 }
 
 typedef struct {
     char *fn;
-    hFILE *fp;
+    hFILE *hfile; // bpm file
+    htsFile *fp;  // csv file
     int32_t version;
     char *manifest_name;  // Name of manifest
     char *control_config; // Control description from manifest
@@ -368,33 +347,33 @@ static uint8_t *bpm_norm_lookups(bpm_t *bpm) {
 static bpm_t *bpm_init(const char *fn) {
     bpm_t *bpm = (bpm_t *)calloc(1, sizeof(bpm_t));
     bpm->fn = strdup(fn);
-    bpm->fp = hopen(bpm->fn, "rb");
-    if (bpm->fp == NULL) error("Could not open %s: %s\n", bpm->fn, strerror(errno));
-    if (is_gzip(bpm->fp)) error("File %s is gzip compressed and currently cannot be sought\n", bpm->fn);
+    bpm->hfile = hopen(bpm->fn, "rb");
+    if (bpm->hfile == NULL) error("Could not open %s: %s\n", bpm->fn, strerror(errno));
+    if (is_gzip(bpm->hfile)) error("File %s is gzip compressed and currently cannot be sought\n", bpm->fn);
 
     uint8_t buffer[4];
-    if (hread(bpm->fp, (void *)buffer, 4) < 4) error("Failed to read magic number from %s file\n", bpm->fn);
+    if (hread(bpm->hfile, (void *)buffer, 4) < 4) error("Failed to read magic number from %s file\n", bpm->fn);
     if (memcmp(buffer, "BPM", 3) != 0) error("BPM file %s format identifier is bad\n", bpm->fn);
     if (buffer[3] != 1) error("BPM file %s version is unknown\n", bpm->fn);
 
-    read_bytes(bpm->fp, (void *)&bpm->version, sizeof(int32_t));
+    read_bytes(bpm->hfile, (void *)&bpm->version, sizeof(int32_t));
     if (bpm->version & 0x1000) bpm->version ^= 0x1000;
     if (bpm->version > 5 || bpm->version < 3) error("BPM file %s version %d is unsupported\n", bpm->fn, bpm->version);
-    read_pfx_string(bpm->fp, &bpm->manifest_name, NULL);
+    read_pfx_string(bpm->hfile, &bpm->manifest_name, NULL);
 
-    if (bpm->version > 1) read_pfx_string(bpm->fp, &bpm->control_config, NULL);
+    if (bpm->version > 1) read_pfx_string(bpm->hfile, &bpm->control_config, NULL);
 
-    read_bytes(bpm->fp, (void *)&bpm->num_loci, sizeof(int32_t));
-    read_array(bpm->fp, (void **)&bpm->indexes, NULL, bpm->num_loci, sizeof(int32_t), 0);
+    read_bytes(bpm->hfile, (void *)&bpm->num_loci, sizeof(int32_t));
+    read_array(bpm->hfile, (void **)&bpm->indexes, NULL, bpm->num_loci, sizeof(int32_t), 0);
     bpm->names = (char **)malloc(bpm->num_loci * sizeof(char *));
-    for (int i = 0; i < bpm->num_loci; i++) read_pfx_string(bpm->fp, &bpm->names[i], NULL);
-    read_array(bpm->fp, (void **)&bpm->norm_ids, NULL, bpm->num_loci, sizeof(uint8_t), 0);
+    for (int i = 0; i < bpm->num_loci; i++) read_pfx_string(bpm->hfile, &bpm->names[i], NULL);
+    read_array(bpm->hfile, (void **)&bpm->norm_ids, NULL, bpm->num_loci, sizeof(uint8_t), 0);
 
     bpm->locus_entries = (LocusEntry *)malloc(bpm->num_loci * sizeof(LocusEntry));
     LocusEntry locus_entry;
     for (int i = 0; i < bpm->num_loci; i++) {
         memset(&locus_entry, 0, sizeof(LocusEntry));
-        locusentry_read(&locus_entry, bpm->fp);
+        locusentry_read(&locus_entry, bpm->hfile);
         int idx = locus_entry.index - 1;
         if (idx < 0 || idx >= bpm->num_loci) error("Locus entry index %d is out of boundaries\n", locus_entry.index);
         if (bpm->norm_ids[idx] > 100)
@@ -413,19 +392,21 @@ static bpm_t *bpm_init(const char *fn) {
     if (bpm->locus_entries[0].version < 8)
         fprintf(stderr, "Warning: RefStrand annotation missing from manifest file %s\n", bpm->fn);
 
-    read_bytes(bpm->fp, (void *)&bpm->m_header, sizeof(int32_t));
+    read_bytes(bpm->hfile, (void *)&bpm->m_header, sizeof(int32_t));
     bpm->header = (char **)malloc(bpm->m_header * sizeof(char *));
-    for (int i = 0; i < bpm->m_header; i++) read_pfx_string(bpm->fp, &bpm->header[i], NULL);
+    for (int i = 0; i < bpm->m_header; i++) read_pfx_string(bpm->hfile, &bpm->header[i], NULL);
 
-    if (!heof(bpm->fp)) error("BPM reader did not reach the end of file %s at position %ld\n", bpm->fn, htell(bpm->fp));
+    if (!heof(bpm->hfile))
+        error("BPM reader did not reach the end of file %s at position %ld\n", bpm->fn, htell(bpm->hfile));
 
     return bpm;
 }
 
 static void bpm_destroy(bpm_t *bpm) {
     if (!bpm) return;
+    if (bpm->hfile && hclose(bpm->hfile) < 0) error("Error closing BPM file %s\n", bpm->fn);
     free(bpm->fn);
-    if (hclose(bpm->fp) < 0) error("Error closing BPM file\n");
+    if (bpm->fp && hts_close(bpm->fp) < 0) error("Error closing CSV file %s\n", bpm->fp->fn);
     free(bpm->manifest_name);
     free(bpm->control_config);
     free(bpm->indexes);
@@ -685,17 +666,17 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm) {
     if (!bpm_available) bpm = (bpm_t *)calloc(1, sizeof(bpm_t));
     int bpm_prev_num_loci = bpm->num_loci;
 
-    free(bpm->fn);
-    bpm->fn = strdup(fn);
-    if (bpm->fp && hclose(bpm->fp) < 0) error("Error closing BPM file\n");
-    bpm->fp = hopen(bpm->fn, "r");
-    if (bpm->fp == NULL) error("Could not open %s: %s\n", bpm->fn, strerror(errno));
-    if (is_gzip(bpm->fp)) error("File %s is gzip compressed and currently cannot be sought\n", bpm->fn);
+    bpm->fp = hts_open(fn, "r");
+    if (bpm->fp == NULL) error("Could not open %s: %s\n", fn, strerror(errno));
 
     kstring_t str = {0, 0, NULL};
-    if (kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0) error("Empty file: %s\n", bpm->fn);
+    kstring_t hdr = {0, 0, NULL};
+    if (hts_getline(bpm->fp, KS_SEP_LINE, &str) <= 0) error("Empty file: %s\n", fn);
     if (strncmp(str.s, "Illumina", 8) && strncmp(str.s, "\"Illumina", 9))
-        error("Header of file %s is incorrect: %s\n", bpm->fn, str.s);
+        error("Header of file %s is incorrect: %s\n", fn, str.s);
+    kputs(str.s, &hdr);
+    kputc('\n', &hdr);
+
     char *tmp = NULL;
     size_t prev = 0;
     while (strncmp(str.s + prev, "[Assay]", 7)) {
@@ -709,25 +690,26 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm) {
         } else if (strncmp(str.s + prev, "Loci Count,", 11) == 0) {
             bpm->num_loci = (int)strtol(str.s + prev + 11, &tmp, 0);
         }
-        kputc('\n', &str);
-        prev = str.l;
-        if (kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0) error("Error reading from file: %s\n", bpm->fn);
+        if (hts_getline(bpm->fp, KS_SEP_LINE, &str) <= 0) error("Error reading from file: %s\n", fn);
+        kputs(str.s, &hdr);
+        kputc('\n', &hdr);
     }
     if (bpm->num_loci == 0)
-        error("Could not understand number of loci from header of manifest file %s\n", bpm->fn);
+        error("Could not understand number of loci from header of manifest file %s\n", fn);
     else if (bpm_available && bpm_prev_num_loci != bpm->num_loci)
-        error("BPM manifest file has %d loci while CSV manifest file %s has %d loci\n", bpm_prev_num_loci, bpm->fn,
+        error("BPM manifest file has %d loci while CSV manifest file %s has %d loci\n", bpm_prev_num_loci, fn,
               bpm->num_loci);
+
     int moff = 0, *off = NULL;
     for (int i = 0; i < bpm->m_header; i++) free(bpm->header[i]);
-    bpm->m_header = ksplit_core(str.s, '\n', &moff, &off);
+    bpm->m_header = ksplit_core(hdr.s, '\n', &moff, &off);
     free(bpm->header);
     bpm->header = (char **)malloc(bpm->m_header * sizeof(char *));
-    for (int i = 0; i < bpm->m_header; i++) bpm->header[i] = strdup(&str.s[off[i]]);
+    for (int i = 0; i < bpm->m_header; i++) bpm->header[i] = strdup(&hdr.s[off[i]]);
     free(off);
+    free(hdr.s);
 
-    str.l = 0;
-    if (kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0) error("Error reading from file: %s\n", bpm->fn);
+    if (hts_getline(bpm->fp, KS_SEP_LINE, &str) <= 0) error("Error reading from file: %s\n", fn);
 
     LocusEntry locus_entry;
     tsv_t *tsv = tsv_init(str.s);
@@ -759,14 +741,13 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm) {
     tsv_register(tsv, "Frac G", tsv_read_float, &locus_entry.frac_g);
     tsv_register(tsv, "Frac T", tsv_read_float, &locus_entry.frac_t);
     int ref_strand = tsv_register(tsv, "RefStrand", tsv_read_string, &locus_entry.ref_strand);
-    if (ref_strand < 0) fprintf(stderr, "Warning: RefStrand annotation missing from manifest file %s\n", bpm->fn);
+    if (ref_strand < 0) fprintf(stderr, "Warning: RefStrand annotation missing from manifest file %s\n", fn);
 
     if (!bpm_available) bpm->locus_entries = (LocusEntry *)malloc(bpm->num_loci * sizeof(LocusEntry));
     for (int i = 0; i < bpm->num_loci; i++) {
         memset(&locus_entry, 0, sizeof(LocusEntry));
         locus_entry.norm_id = 0xFF;
-        str.l = 0;
-        if (kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0) error("Error reading from file: %s\n", bpm->fn);
+        if (hts_getline(bpm->fp, KS_SEP_LINE, &str) <= 0) error("Error reading from file: %s\n", fn);
         if (csv_parse(tsv, NULL, str.s) < 0) error("Could not parse the manifest file: %s\n", str.s);
         if (locus_entry.source_seq) {
             char *ptr = strchr(locus_entry.source_seq, '-');
@@ -787,15 +768,13 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm) {
     }
     tsv_destroy(tsv);
 
-    str.l = 0;
-    if (kgetline(&str, (kgets_func *)hgets, bpm->fp) < 0) error("Error reading from file: %s\n", bpm->fn);
+    if (hts_getline(bpm->fp, KS_SEP_LINE, &str) <= 0) error("Error reading from file: %s\n", fn);
     if (strncmp(str.s, "[Controls]", 10) != 0)
         error(
             "Missing [Controls] section from manifest file: %s\n"
             "Found the following line instead: %s\n",
-            bpm->fn, str.s);
-    str.l = 0;
-    while (kgetline(&str, (kgets_func *)hgets, bpm->fp) >= 0) kputc('\n', &str);
+            fn, str.s);
+    while (hts_getline(bpm->fp, KS_SEP_LINE, &str) > 0) kputc('\n', &str);
     free(bpm->control_config);
     bpm->control_config = str.s;
 
@@ -840,7 +819,7 @@ typedef struct {
 
 typedef struct {
     char *fn;
-    hFILE *fp;
+    hFILE *hfile;
     int32_t version;
     char *gencall_version;       // The GenCall version
     char *cluster_version;       // The clustering algorithm version
@@ -856,97 +835,98 @@ typedef struct {
     char **loci_names;
 } egt_t;
 
-static void clusterscore_read(ClusterScore *clusterscore, hFILE *fp) {
-    read_bytes(fp, (void *)&clusterscore->cluster_separation, sizeof(float));
-    read_bytes(fp, (void *)&clusterscore->total_score, sizeof(float));
-    read_bytes(fp, (void *)&clusterscore->original_score, sizeof(float));
-    read_bytes(fp, (void *)&clusterscore->edited, sizeof(uint8_t));
+static void clusterscore_read(ClusterScore *clusterscore, hFILE *hfile) {
+    read_bytes(hfile, (void *)&clusterscore->cluster_separation, sizeof(float));
+    read_bytes(hfile, (void *)&clusterscore->total_score, sizeof(float));
+    read_bytes(hfile, (void *)&clusterscore->original_score, sizeof(float));
+    read_bytes(hfile, (void *)&clusterscore->edited, sizeof(uint8_t));
 }
 
-static void clusterrecord_read(ClusterRecord *clusterrecord, hFILE *fp, int32_t data_block_version) {
-    read_bytes(fp, (void *)&clusterrecord->aa_cluster_stats.N, sizeof(int32_t));
-    read_bytes(fp, (void *)&clusterrecord->ab_cluster_stats.N, sizeof(int32_t));
-    read_bytes(fp, (void *)&clusterrecord->bb_cluster_stats.N, sizeof(int32_t));
-    read_bytes(fp, (void *)&clusterrecord->aa_cluster_stats.r_dev, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->ab_cluster_stats.r_dev, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->bb_cluster_stats.r_dev, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->aa_cluster_stats.r_mean, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->ab_cluster_stats.r_mean, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->bb_cluster_stats.r_mean, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->aa_cluster_stats.theta_dev, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->ab_cluster_stats.theta_dev, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->bb_cluster_stats.theta_dev, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->aa_cluster_stats.theta_mean, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->ab_cluster_stats.theta_mean, sizeof(float));
-    read_bytes(fp, (void *)&clusterrecord->bb_cluster_stats.theta_mean, sizeof(float));
+static void clusterrecord_read(ClusterRecord *clusterrecord, hFILE *hfile, int32_t data_block_version) {
+    read_bytes(hfile, (void *)&clusterrecord->aa_cluster_stats.N, sizeof(int32_t));
+    read_bytes(hfile, (void *)&clusterrecord->ab_cluster_stats.N, sizeof(int32_t));
+    read_bytes(hfile, (void *)&clusterrecord->bb_cluster_stats.N, sizeof(int32_t));
+    read_bytes(hfile, (void *)&clusterrecord->aa_cluster_stats.r_dev, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->ab_cluster_stats.r_dev, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->bb_cluster_stats.r_dev, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->aa_cluster_stats.r_mean, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->ab_cluster_stats.r_mean, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->bb_cluster_stats.r_mean, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->aa_cluster_stats.theta_dev, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->ab_cluster_stats.theta_dev, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->bb_cluster_stats.theta_dev, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->aa_cluster_stats.theta_mean, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->ab_cluster_stats.theta_mean, sizeof(float));
+    read_bytes(hfile, (void *)&clusterrecord->bb_cluster_stats.theta_mean, sizeof(float));
     if (data_block_version >= 7) {
-        read_bytes(fp, (void *)&clusterrecord->intensity_threshold, sizeof(float));
-        read_bytes(fp, NULL, 14 * sizeof(float));
+        read_bytes(hfile, (void *)&clusterrecord->intensity_threshold, sizeof(float));
+        read_bytes(hfile, NULL, 14 * sizeof(float));
     }
 }
 
 static egt_t *egt_init(const char *fn) {
     egt_t *egt = (egt_t *)calloc(1, sizeof(egt_t));
     egt->fn = strdup(fn);
-    egt->fp = hopen(egt->fn, "rb");
-    if (egt->fp == NULL) error("Could not open %s: %s\n", egt->fn, strerror(errno));
-    if (is_gzip(egt->fp)) error("File %s is gzip compressed and currently cannot be sought\n", egt->fn);
+    egt->hfile = hopen(egt->fn, "rb");
+    if (egt->hfile == NULL) error("Could not open %s: %s\n", egt->fn, strerror(errno));
+    if (is_gzip(egt->hfile)) error("File %s is gzip compressed and currently cannot be sought\n", egt->fn);
 
-    read_bytes(egt->fp, (void *)&egt->version, sizeof(int32_t));
+    read_bytes(egt->hfile, (void *)&egt->version, sizeof(int32_t));
     if (egt->version != 3) error("EGT cluster file version %d not supported\n", egt->version);
 
-    read_pfx_string(egt->fp, &egt->gencall_version, NULL);
-    read_pfx_string(egt->fp, &egt->cluster_version, NULL);
-    read_pfx_string(egt->fp, &egt->call_version, NULL);
-    read_pfx_string(egt->fp, &egt->normalization_version, NULL);
-    read_pfx_string(egt->fp, &egt->date_created, NULL);
+    read_pfx_string(egt->hfile, &egt->gencall_version, NULL);
+    read_pfx_string(egt->hfile, &egt->cluster_version, NULL);
+    read_pfx_string(egt->hfile, &egt->call_version, NULL);
+    read_pfx_string(egt->hfile, &egt->normalization_version, NULL);
+    read_pfx_string(egt->hfile, &egt->date_created, NULL);
 
-    read_bytes(egt->fp, (void *)&egt->is_wgt, sizeof(uint8_t));
+    read_bytes(egt->hfile, (void *)&egt->is_wgt, sizeof(uint8_t));
     if (egt->is_wgt != 1) error("Only WGT cluster file version supported\n");
 
-    read_pfx_string(egt->fp, &egt->manifest_name, NULL);
+    read_pfx_string(egt->hfile, &egt->manifest_name, NULL);
 
-    read_bytes(egt->fp, (void *)&egt->data_block_version, sizeof(int32_t));
+    read_bytes(egt->hfile, (void *)&egt->data_block_version, sizeof(int32_t));
     if (egt->data_block_version < 5 || egt->data_block_version == 6 || egt->data_block_version > 9)
         error("Data block version %d in cluster file not supported\n", egt->data_block_version);
-    read_pfx_string(egt->fp, &egt->opa, NULL);
+    read_pfx_string(egt->hfile, &egt->opa, NULL);
 
-    read_bytes(egt->fp, (void *)&egt->num_records, sizeof(int32_t));
+    read_bytes(egt->hfile, (void *)&egt->num_records, sizeof(int32_t));
     egt->cluster_records = (ClusterRecord *)malloc(egt->num_records * sizeof(ClusterRecord));
     for (int i = 0; i < egt->num_records; i++)
-        clusterrecord_read(&egt->cluster_records[i], egt->fp, egt->data_block_version);
-    for (int i = 0; i < egt->num_records; i++) clusterscore_read(&egt->cluster_records[i].cluster_score, egt->fp);
+        clusterrecord_read(&egt->cluster_records[i], egt->hfile, egt->data_block_version);
+    for (int i = 0; i < egt->num_records; i++) clusterscore_read(&egt->cluster_records[i].cluster_score, egt->hfile);
 
     // toss useless strings such as aa_ab_bb/aa_ab/aa_bb/ab_bb
-    for (int i = 0; i < egt->num_records; i++) read_pfx_string(egt->fp, NULL, NULL);
+    for (int i = 0; i < egt->num_records; i++) read_pfx_string(egt->hfile, NULL, NULL);
 
     egt->loci_names = (char **)malloc(egt->num_records * sizeof(char *));
     for (int i = 0; i < egt->num_records; i++) {
-        read_pfx_string(egt->fp, &egt->loci_names[i], NULL);
+        read_pfx_string(egt->hfile, &egt->loci_names[i], NULL);
     }
     for (int i = 0; i < egt->num_records; i++)
-        read_bytes(egt->fp, (void *)&egt->cluster_records[i].address, sizeof(int32_t));
+        read_bytes(egt->hfile, (void *)&egt->cluster_records[i].address, sizeof(int32_t));
 
     int32_t aa_n, ab_n, bb_n;
     for (int i = 0; i < egt->num_records; i++) {
-        read_bytes(egt->fp, (void *)&aa_n, sizeof(int32_t));
-        read_bytes(egt->fp, (void *)&ab_n, sizeof(int32_t));
-        read_bytes(egt->fp, (void *)&bb_n, sizeof(int32_t));
+        read_bytes(egt->hfile, (void *)&aa_n, sizeof(int32_t));
+        read_bytes(egt->hfile, (void *)&ab_n, sizeof(int32_t));
+        read_bytes(egt->hfile, (void *)&bb_n, sizeof(int32_t));
         if (egt->cluster_records[i].aa_cluster_stats.N != aa_n || egt->cluster_records[i].ab_cluster_stats.N != ab_n
             || egt->cluster_records[i].bb_cluster_stats.N != bb_n)
             error("Cluster counts don't match with EGT cluster file %s\n", egt->fn);
     }
 
-    if (egt->data_block_version == 9) read_bytes(egt->fp, NULL, egt->num_records * sizeof(float));
-    if (!heof(egt->fp)) error("EGT reader did not reach the end of file %s at position %ld\n", egt->fn, htell(egt->fp));
+    if (egt->data_block_version == 9) read_bytes(egt->hfile, NULL, egt->num_records * sizeof(float));
+    if (!heof(egt->hfile))
+        error("EGT reader did not reach the end of file %s at position %ld\n", egt->fn, htell(egt->hfile));
 
     return egt;
 }
 
 static void egt_destroy(egt_t *egt) {
     if (!egt) return;
+    if (hclose(egt->hfile) < 0) error("Error closing EGT file %s\n", egt->fn);
     free(egt->fn);
-    if (hclose(egt->fp) < 0) error("Error closing EGT file\n");
     free(egt->gencall_version);
     free(egt->cluster_version);
     free(egt->call_version);
@@ -1043,6 +1023,7 @@ static chip_type_t chip_types[] = {
     {"1-95um_multi-swath_for_8x2-5M", 2315574, 2315574, "Multi-EthnicGlobal"},
     {"1-95um_multi-swath_for_8x2-5M", 2389000, 2389000, "CCPMBiobankMEGA2_20002558X345183"},
     {"1-95um_multi-swath_for_8x2-5M", 2550870, 2550870, "HumanOmni2.5-8v1"},
+    {"1-95um_multi-swath_for_8x2-5M", 2575219, 2575219, "HumanOmni2.5-8v1"},
     {"1-95um_multi-swath_for_8x2-5M", 2563064, 2563064, "HumanOmni25M-8v1-1"},
     {"BeadChip 12x1", 55300, 55300, "humanmethylation27_270596_v1-2 ???"},
     {"BeadChip 12x8", 301084, 301084, "HumanCore-12v1-0"},
@@ -1105,7 +1086,7 @@ typedef struct {
 
 typedef struct {
     char *fn;
-    hFILE *fp;
+    hFILE *hfile;
     int64_t version;
     int32_t number_toc_entries;
     uint16_t *id;
@@ -1141,73 +1122,73 @@ static int idat_read(idat_t *idat, uint16_t id) {
     for (i = 0; i < idat->number_toc_entries && id != idat->id[i]; i++)
         ;
     if (i == idat->number_toc_entries) return -1;
-    if (hseek(idat->fp, idat->toc[i], SEEK_SET) < 0)
+    if (hseek(idat->hfile, idat->toc[i], SEEK_SET) < 0)
         error("Fail to seek to position %ld in IDAT %s file\n", idat->toc[i], idat->fn);
 
     switch (id) {
     case NUM_SNPS_READ:
-        read_bytes(idat->fp, (void *)&idat->num_snps, sizeof(int32_t));
+        read_bytes(idat->hfile, (void *)&idat->num_snps, sizeof(int32_t));
         break;
     case ILLUMINA_ID:
-        idat->ilmn_id = buffer_array_init(idat->fp, idat->capacity, sizeof(int32_t));
+        idat->ilmn_id = buffer_array_init(idat->hfile, idat->capacity, sizeof(int32_t));
         break;
     case SD:
-        idat->sd = buffer_array_init(idat->fp, idat->capacity, sizeof(uint16_t));
+        idat->sd = buffer_array_init(idat->hfile, idat->capacity, sizeof(uint16_t));
         break;
     case MEAN:
-        idat->mean = buffer_array_init(idat->fp, idat->capacity, sizeof(uint16_t));
+        idat->mean = buffer_array_init(idat->hfile, idat->capacity, sizeof(uint16_t));
         break;
     case NBEADS:
-        idat->nbeads = buffer_array_init(idat->fp, idat->capacity, sizeof(uint8_t));
+        idat->nbeads = buffer_array_init(idat->hfile, idat->capacity, sizeof(uint8_t));
         break;
     case MID_BLOCK:
-        idat->mid_block = buffer_array_init(idat->fp, idat->capacity, sizeof(uint8_t));
+        idat->mid_block = buffer_array_init(idat->hfile, idat->capacity, sizeof(uint8_t));
         break;
     case RED_GREEN:
-        read_bytes(idat->fp, (void *)&idat->red_green, 4 * sizeof(uint8_t));
+        read_bytes(idat->hfile, (void *)&idat->red_green, 4 * sizeof(uint8_t));
         break;
     case IDAT_SNP_MANIFEST:
-        read_pfx_string(idat->fp, &idat->snp_manifest, NULL);
+        read_pfx_string(idat->hfile, &idat->snp_manifest, NULL);
         break;
     case SENTRIX_BARCODE:
-        read_pfx_string(idat->fp, &idat->sentrix_barcode, NULL);
+        read_pfx_string(idat->hfile, &idat->sentrix_barcode, NULL);
         break;
     case CHIP_TYPE:
-        read_pfx_string(idat->fp, &idat->chip_type, NULL);
+        read_pfx_string(idat->hfile, &idat->chip_type, NULL);
         break;
     case SENTRIX_POSITION:
-        read_pfx_string(idat->fp, &idat->sentrix_position, NULL);
+        read_pfx_string(idat->hfile, &idat->sentrix_position, NULL);
         break;
     case OPA:
-        read_pfx_string(idat->fp, &idat->opa, NULL);
+        read_pfx_string(idat->hfile, &idat->opa, NULL);
         break;
     case IDAT_SAMPLE_NAME:
-        read_pfx_string(idat->fp, &idat->sample_name, NULL);
+        read_pfx_string(idat->hfile, &idat->sample_name, NULL);
         break;
     case DESCRIPTION:
-        read_pfx_string(idat->fp, &idat->description, NULL);
+        read_pfx_string(idat->hfile, &idat->description, NULL);
         break;
     case IDAT_SAMPLE_PLATE:
-        read_pfx_string(idat->fp, &idat->sample_plate, NULL);
+        read_pfx_string(idat->hfile, &idat->sample_plate, NULL);
         break;
     case IDAT_SAMPLE_WELL:
-        read_pfx_string(idat->fp, &idat->sample_well, NULL);
+        read_pfx_string(idat->hfile, &idat->sample_well, NULL);
         break;
     case UNKNOWN_1:
-        read_pfx_string(idat->fp, &idat->unknown1, NULL);
+        read_pfx_string(idat->hfile, &idat->unknown1, NULL);
         break;
     case UNKNOWN_2:
-        read_pfx_string(idat->fp, &idat->unknown2, NULL);
+        read_pfx_string(idat->hfile, &idat->unknown2, NULL);
         break;
     case RUN_INFO:
-        read_bytes(idat->fp, (void *)&idat->m_run_infos, sizeof(int32_t));
+        read_bytes(idat->hfile, (void *)&idat->m_run_infos, sizeof(int32_t));
         idat->run_infos = (RunInfo *)malloc(idat->m_run_infos * sizeof(RunInfo));
         for (int i = 0; i < idat->m_run_infos; i++) {
-            read_pfx_string(idat->fp, &idat->run_infos[i].run_time, NULL);
-            read_pfx_string(idat->fp, &idat->run_infos[i].block_type, NULL);
-            read_pfx_string(idat->fp, &idat->run_infos[i].block_pars, NULL);
-            read_pfx_string(idat->fp, &idat->run_infos[i].block_code, NULL);
-            read_pfx_string(idat->fp, &idat->run_infos[i].code_version, NULL);
+            read_pfx_string(idat->hfile, &idat->run_infos[i].run_time, NULL);
+            read_pfx_string(idat->hfile, &idat->run_infos[i].block_type, NULL);
+            read_pfx_string(idat->hfile, &idat->run_infos[i].block_pars, NULL);
+            read_pfx_string(idat->hfile, &idat->run_infos[i].block_code, NULL);
+            read_pfx_string(idat->hfile, &idat->run_infos[i].code_version, NULL);
         }
         break;
     default:
@@ -1220,24 +1201,24 @@ static int idat_read(idat_t *idat, uint16_t id) {
 static idat_t *idat_init(const char *fn, size_t capacity) {
     idat_t *idat = (idat_t *)calloc(1, sizeof(idat_t));
     idat->fn = strdup(fn);
-    idat->fp = hopen(idat->fn, "rb");
-    if (idat->fp == NULL) error("Could not open %s: %s\n", idat->fn, strerror(errno));
-    if (is_gzip(idat->fp)) error("File %s is gzip compressed and currently cannot be sought\n", idat->fn);
+    idat->hfile = hopen(idat->fn, "rb");
+    if (idat->hfile == NULL) error("Could not open %s: %s\n", idat->fn, strerror(errno));
+    if (is_gzip(idat->hfile)) error("File %s is gzip compressed and currently cannot be sought\n", idat->fn);
 
     uint8_t buffer[4];
-    if (hread(idat->fp, (void *)buffer, 4) < 4) error("Failed to read magic number from %s file\n", idat->fn);
+    if (hread(idat->hfile, (void *)buffer, 4) < 4) error("Failed to read magic number from %s file\n", idat->fn);
     if (memcmp(buffer, "IDAT", 4) != 0) error("IDAT file %s format identifier is bad\n", idat->fn);
 
-    read_bytes(idat->fp, (void *)&idat->version, sizeof(int64_t));
+    read_bytes(idat->hfile, (void *)&idat->version, sizeof(int64_t));
     if (idat->version < 3)
         error("Cannot read IDAT file %s. Unsupported IDAT file format version: %ld\n", idat->fn, idat->version);
 
-    read_bytes(idat->fp, (void *)&idat->number_toc_entries, sizeof(int32_t));
+    read_bytes(idat->hfile, (void *)&idat->number_toc_entries, sizeof(int32_t));
     idat->id = (uint16_t *)malloc(idat->number_toc_entries * sizeof(uint16_t));
     idat->toc = (int64_t *)malloc(idat->number_toc_entries * sizeof(int64_t));
     for (int i = 0; i < idat->number_toc_entries; i++) {
-        read_bytes(idat->fp, (void *)&idat->id[i], sizeof(uint16_t));
-        read_bytes(idat->fp, (void *)&idat->toc[i], sizeof(int64_t));
+        read_bytes(idat->hfile, (void *)&idat->id[i], sizeof(uint16_t));
+        read_bytes(idat->hfile, (void *)&idat->toc[i], sizeof(int64_t));
     }
 
     idat->capacity = capacity;
@@ -1260,8 +1241,8 @@ static idat_t *idat_init(const char *fn, size_t capacity) {
 
 static void idat_destroy(idat_t *idat) {
     if (!idat) return;
+    if (hclose(idat->hfile) < 0) error("Error closing IDAT file %s\n", idat->fn);
     free(idat->fn);
-    if (hclose(idat->fp) < 0) error("Error closing IDAT file\n");
     free(idat->id);
     free(idat->toc);
     free(idat->snp_manifest);
@@ -1461,7 +1442,7 @@ typedef uint16_t Percentiles[3];
 
 typedef struct {
     char *fn;
-    hFILE *fp;
+    hFILE *hfile;
     int32_t version;
     int32_t number_toc_entries;
     uint16_t *id;
@@ -1514,7 +1495,7 @@ static int gtc_read(gtc_t *gtc, uint16_t id) {
         ;
     if (i == gtc->number_toc_entries) return -1;
     if (id != NUM_SNPS && id != PLOIDY && id != PLOIDY_TYPE) {
-        if (hseek(gtc->fp, gtc->toc[i], SEEK_SET) < 0)
+        if (hseek(gtc->hfile, gtc->toc[i], SEEK_SET) < 0)
             error("Fail to seek to position %d in GTC %s file \n", gtc->toc[i], gtc->fn);
     }
 
@@ -1529,93 +1510,93 @@ static int gtc_read(gtc_t *gtc, uint16_t id) {
         gtc->ploidy = gtc->toc[i];
         break;
     case GTC_SAMPLE_NAME:
-        read_pfx_string(gtc->fp, &gtc->sample_name, NULL);
+        read_pfx_string(gtc->hfile, &gtc->sample_name, NULL);
         break;
     case GTC_SAMPLE_PLATE:
-        read_pfx_string(gtc->fp, &gtc->sample_plate, NULL);
+        read_pfx_string(gtc->hfile, &gtc->sample_plate, NULL);
         break;
     case GTC_SAMPLE_WELL:
-        read_pfx_string(gtc->fp, &gtc->sample_well, NULL);
+        read_pfx_string(gtc->hfile, &gtc->sample_well, NULL);
         break;
     case CLUSTER_FILE:
-        read_pfx_string(gtc->fp, &gtc->cluster_file, NULL);
+        read_pfx_string(gtc->hfile, &gtc->cluster_file, NULL);
         break;
     case GTC_SNP_MANIFEST:
-        read_pfx_string(gtc->fp, &gtc->snp_manifest, NULL);
+        read_pfx_string(gtc->hfile, &gtc->snp_manifest, NULL);
         break;
     case IMAGING_DATE:
-        read_pfx_string(gtc->fp, &gtc->imaging_date, NULL);
+        read_pfx_string(gtc->hfile, &gtc->imaging_date, NULL);
         break;
     case AUTOCALL_DATE:
-        read_pfx_string(gtc->fp, &gtc->autocall_date, NULL);
+        read_pfx_string(gtc->hfile, &gtc->autocall_date, NULL);
         break;
     case AUTOCALL_VERSION:
-        read_pfx_string(gtc->fp, &gtc->autocall_version, NULL);
+        read_pfx_string(gtc->hfile, &gtc->autocall_version, NULL);
         break;
     case NORMALIZATION_TRANSFORMS:
-        read_pfx_array(gtc->fp, (void **)&gtc->normalization_transforms, &gtc->m_normalization_transforms,
+        read_pfx_array(gtc->hfile, (void **)&gtc->normalization_transforms, &gtc->m_normalization_transforms,
                        sizeof(XForm));
         break;
     case CONTROLS_X:
-        read_pfx_array(gtc->fp, (void **)&gtc->controls_x, &gtc->m_controls_x, sizeof(uint16_t));
+        read_pfx_array(gtc->hfile, (void **)&gtc->controls_x, &gtc->m_controls_x, sizeof(uint16_t));
         break;
     case CONTROLS_Y:
-        read_pfx_array(gtc->fp, (void **)&gtc->controls_y, &gtc->m_controls_y, sizeof(uint16_t));
+        read_pfx_array(gtc->hfile, (void **)&gtc->controls_y, &gtc->m_controls_y, sizeof(uint16_t));
         break;
     case RAW_X:
-        gtc->raw_x = buffer_array_init(gtc->fp, gtc->capacity, sizeof(uint16_t));
+        gtc->raw_x = buffer_array_init(gtc->hfile, gtc->capacity, sizeof(uint16_t));
         break;
     case RAW_Y:
-        gtc->raw_y = buffer_array_init(gtc->fp, gtc->capacity, sizeof(uint16_t));
+        gtc->raw_y = buffer_array_init(gtc->hfile, gtc->capacity, sizeof(uint16_t));
         break;
     case GENOTYPES:
-        gtc->genotypes = buffer_array_init(gtc->fp, gtc->capacity, sizeof(uint8_t));
+        gtc->genotypes = buffer_array_init(gtc->hfile, gtc->capacity, sizeof(uint8_t));
         break;
     case BASE_CALLS:
-        gtc->base_calls = buffer_array_init(gtc->fp, gtc->capacity, sizeof(BaseCall));
+        gtc->base_calls = buffer_array_init(gtc->hfile, gtc->capacity, sizeof(BaseCall));
         break;
     case GENOTYPE_SCORES:
-        gtc->genotype_scores = buffer_array_init(gtc->fp, gtc->capacity, sizeof(float));
+        gtc->genotype_scores = buffer_array_init(gtc->hfile, gtc->capacity, sizeof(float));
         break;
     case SCANNER_DATA:
-        read_pfx_string(gtc->fp, &gtc->scanner_data.scanner_name, NULL);
-        read_bytes(gtc->fp, (void *)&gtc->scanner_data.pmt_green, sizeof(float));
-        read_bytes(gtc->fp, (void *)&gtc->scanner_data.pmt_red, sizeof(float));
-        read_pfx_string(gtc->fp, &gtc->scanner_data.scanner_version, NULL);
-        read_pfx_string(gtc->fp, &gtc->scanner_data.imaging_user, NULL);
+        read_pfx_string(gtc->hfile, &gtc->scanner_data.scanner_name, NULL);
+        read_bytes(gtc->hfile, (void *)&gtc->scanner_data.pmt_green, sizeof(float));
+        read_bytes(gtc->hfile, (void *)&gtc->scanner_data.pmt_red, sizeof(float));
+        read_pfx_string(gtc->hfile, &gtc->scanner_data.scanner_version, NULL);
+        read_pfx_string(gtc->hfile, &gtc->scanner_data.imaging_user, NULL);
         break;
     case CALL_RATE:
-        read_bytes(gtc->fp, (void *)&gtc->call_rate, sizeof(float));
+        read_bytes(gtc->hfile, (void *)&gtc->call_rate, sizeof(float));
         break;
     case GENDER:
-        read_bytes(gtc->fp, (void *)&gtc->gender, sizeof(char));
+        read_bytes(gtc->hfile, (void *)&gtc->gender, sizeof(char));
         break;
     case LOGR_DEV:
-        read_bytes(gtc->fp, (void *)&gtc->logr_dev, sizeof(float));
+        read_bytes(gtc->hfile, (void *)&gtc->logr_dev, sizeof(float));
         break;
     case GC10:
-        read_bytes(gtc->fp, (void *)&gtc->p10gc, sizeof(float));
+        read_bytes(gtc->hfile, (void *)&gtc->p10gc, sizeof(float));
         break;
     case DX:
-        read_bytes(gtc->fp, (void *)&gtc->dx, sizeof(int32_t));
+        read_bytes(gtc->hfile, (void *)&gtc->dx, sizeof(int32_t));
         break;
     case SAMPLE_DATA:
-        read_bytes(gtc->fp, (void *)&gtc->sample_data, sizeof(SampleData));
+        read_bytes(gtc->hfile, (void *)&gtc->sample_data, sizeof(SampleData));
         break;
     case B_ALLELE_FREQS:
-        gtc->b_allele_freqs = buffer_array_init(gtc->fp, gtc->capacity, sizeof(float));
+        gtc->b_allele_freqs = buffer_array_init(gtc->hfile, gtc->capacity, sizeof(float));
         break;
     case LOGR_RATIOS:
-        gtc->logr_ratios = buffer_array_init(gtc->fp, gtc->capacity, sizeof(float));
+        gtc->logr_ratios = buffer_array_init(gtc->hfile, gtc->capacity, sizeof(float));
         break;
     case PERCENTILES_X:
-        read_bytes(gtc->fp, (void *)&gtc->percentiles_x, sizeof(Percentiles));
+        read_bytes(gtc->hfile, (void *)&gtc->percentiles_x, sizeof(Percentiles));
         break;
     case PERCENTILES_Y:
-        read_bytes(gtc->fp, (void *)&gtc->percentiles_y, sizeof(Percentiles));
+        read_bytes(gtc->hfile, (void *)&gtc->percentiles_y, sizeof(Percentiles));
         break;
     case SLIDE_IDENTIFIER:
-        read_pfx_string(gtc->fp, &gtc->sentrix_id, NULL);
+        read_pfx_string(gtc->hfile, &gtc->sentrix_id, NULL);
         break;
     default:
         error("GTC file format does not support TOC entry %d\n", id);
@@ -1627,22 +1608,22 @@ static int gtc_read(gtc_t *gtc, uint16_t id) {
 static gtc_t *gtc_init(const char *fn, size_t capacity) {
     gtc_t *gtc = (gtc_t *)calloc(1, sizeof(gtc_t));
     gtc->fn = strdup(fn);
-    gtc->fp = hopen(gtc->fn, "rb");
-    if (gtc->fp == NULL) error("Could not open %s: %s\n", gtc->fn, strerror(errno));
-    if (is_gzip(gtc->fp)) error("File %s is gzip compressed and currently cannot be sought\n", gtc->fn);
+    gtc->hfile = hopen(gtc->fn, "rb");
+    if (gtc->hfile == NULL) error("Could not open %s: %s\n", gtc->fn, strerror(errno));
+    if (is_gzip(gtc->hfile)) error("File %s is gzip compressed and currently cannot be sought\n", gtc->fn);
 
     uint8_t buffer[4];
-    if (hread(gtc->fp, (void *)buffer, 4) < 4) error("Failed to read magic number from %s file\n", gtc->fn);
+    if (hread(gtc->hfile, (void *)buffer, 4) < 4) error("Failed to read magic number from %s file\n", gtc->fn);
     if (memcmp(buffer, "gtc", 3) != 0) error("GTC file %s format identifier is bad\n", gtc->fn);
     if (buffer[3] > 5 && buffer[3] < 3) error("GTC file %s version %d is unsupported\n", gtc->fn, buffer[3]);
     gtc->version = (int32_t)buffer[3];
 
-    read_bytes(gtc->fp, (void *)&gtc->number_toc_entries, sizeof(int32_t));
+    read_bytes(gtc->hfile, (void *)&gtc->number_toc_entries, sizeof(int32_t));
     gtc->id = (uint16_t *)malloc(gtc->number_toc_entries * sizeof(uint16_t));
     gtc->toc = (int32_t *)malloc(gtc->number_toc_entries * sizeof(int32_t));
     for (int i = 0; i < gtc->number_toc_entries; i++) {
-        read_bytes(gtc->fp, (void *)&gtc->id[i], sizeof(uint16_t));
-        read_bytes(gtc->fp, (void *)&gtc->toc[i], sizeof(int32_t));
+        read_bytes(gtc->hfile, (void *)&gtc->id[i], sizeof(uint16_t));
+        read_bytes(gtc->hfile, (void *)&gtc->toc[i], sizeof(int32_t));
     }
 
     gtc->capacity = capacity;
@@ -1663,8 +1644,8 @@ static gtc_t *gtc_init(const char *fn, size_t capacity) {
 
 static void gtc_destroy(gtc_t *gtc) {
     if (!gtc) return;
+    if (hclose(gtc->hfile) < 0) error("Error closing GTC file %s\n", gtc->fn);
     free(gtc->fn);
-    if (hclose(gtc->fp) < 0) error("Error closing GTC file\n");
     free(gtc->id);
     free(gtc->toc);
     free(gtc->sample_name);
@@ -2757,10 +2738,10 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
             int nals = alleles_ab_to_vcf(alleles, ref_base, allele_a, allele_b, allele_b_idx);
             if (nals < 0) error("Unable to process marker %s\n", rec->d.id);
             bcf_update_alleles(hdr, rec, alleles, nals);
+            bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
+            bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
 
             if (allele_a_idx >= 0 && allele_b_idx >= 0) {
-                bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
-                bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
                 gts_to_gt_arr(gt_arr, gts, nsamples, allele_a_idx, allele_b_idx);
             } else {
                 for (int i = 0; i < nsamples; i++) {
@@ -2844,7 +2825,7 @@ static const char *usage_text(void) {
            "    -t, --tags LIST                 list of output FORMAT tags [" TAG_LIST_DFLT
            "]\n"
            "    -b, --bpm <file>                BPM manifest file\n"
-           "    -c, --csv <file>                CSV manifest file\n"
+           "    -c, --csv <file>                CSV manifest file (can be gzip compressed)\n"
            "    -e, --egt <file>                EGT cluster file\n"
            "    -f, --fasta-ref <file>          reference sequence in fasta format\n"
            "        --set-cache-size <int>      select fasta cache size in bytes\n"

@@ -26,6 +26,7 @@
 
 #include <dirent.h>
 #include <sys/stat.h>
+#include <htslib/hfile.h>
 #include <htslib/faidx.h>
 #include <htslib/sam.h>
 
@@ -42,6 +43,26 @@
         __typeof__(b) _b = (b);                                                                                        \
         _a > _b ? _a : _b;                                                                                             \
     })
+
+// tests the end-of-file indicator for an hFILE
+static inline int heof(hFILE *hfile) {
+    if (hgetc(hfile) == EOF) return 1;
+    hfile->begin--;
+    return 0;
+}
+
+// read or skip a fixed number of bytes
+static inline void read_bytes(hFILE *hfile, void *buffer, size_t nbytes) {
+    if (buffer) {
+        if (hread(hfile, buffer, nbytes) < nbytes) {
+            error("Failed to read %ld bytes from stream\n", nbytes);
+        }
+    } else {
+        int c = 0;
+        for (int i = 0; i < nbytes; i++) c = hgetc(hfile);
+        if (c == EOF) error("Failed to reposition stream forward %ld bytes\n", nbytes);
+    }
+}
 
 static inline char **get_file_list(const char *pathname, const char *extension, int *nfiles) {
     char **filenames = NULL;

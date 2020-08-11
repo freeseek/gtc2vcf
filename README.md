@@ -30,7 +30,7 @@ Plugin options:
     -l, --list-tags                 list available FORMAT tags with description for VCF output
     -t, --tags LIST                 list of output FORMAT tags [GT,GQ,IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
     -b, --bpm <file>                BPM manifest file
-    -c, --csv <file>                CSV manifest file
+    -c, --csv <file>                CSV manifest file (can be gzip compressed)
     -e, --egt <file>                EGT cluster file
     -f, --fasta-ref <file>          reference sequence in fasta format
         --set-cache-size <int>      select fasta cache size in bytes
@@ -77,16 +77,16 @@ Affymetrix tool:
 Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> [<A.chp> ...]
 
 Plugin options:
-    -l, --list-tags               list available FORMAT tags with description for VCF output
+    -l, --list-tags               list available FORMAT tags with description for  VCF output
     -t, --tags LIST               list of output FORMAT tags [GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE]
-    -c, --csv <file>              CSV manifest file
+    -c, --csv <file>              CSV manifest file (can be gzip compressed)
     -f, --fasta-ref <file>        reference sequence in fasta format
         --set-cache-size <int>    select fasta cache size in bytes
         --gc-window-size <int>    window size in bp used to compute the GC content (-1 for no estimate) [200]
-        --calls <file>            apt-probeset-genotype calls output
-        --confidences <file>      apt-probeset-genotype confidences output
-        --summary <file>          apt-probeset-genotype summary output
-        --snp <file>              apt-probeset-genotype SNP posteriors output
+        --calls <file>            apt-probeset-genotype calls output (can be gzip compressed)
+        --confidences <file>      apt-probeset-genotype confidences output (can be gzip compressed)
+        --summary <file>          apt-probeset-genotype summary output (can be gzip compressed)
+        --snp <file>              apt-probeset-genotype SNP posteriors output (can be gzip compressed)
         --chps <dir|file>         input CHP files rather than tab delimited files
         --cel <file>              input CEL files rather CHP files
         --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --snp)
@@ -119,7 +119,7 @@ Examples:
         --output AxiomGT1.vcf
 
 Examples of manifest file options:
-    bcftools +affy2vcf -c GenomeWideSNP_6.na35.annot.csv --fasta-flank -o GenomeWideSNP_6.fasta
+    bcftools +affy2vcf -c GenomeWideSNP_6.na35.annot.csv --fasta-flank -o  GenomeWideSNP_6.fasta
     bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GenomeWideSNP_6.fasta -o GenomeWideSNP_6.sam
     bcftools +affy2vcf -c GenomeWideSNP_6.na35.annot.csv -s GenomeWideSNP_6.sam -o GenomeWideSNP_6.na35.annot.GRCh38.csv
 ```

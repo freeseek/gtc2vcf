@@ -25,6 +25,8 @@
 #  THE SOFTWARE.
 ###
 
+gtc2vcf_plot_version <- '2020-08-11'
+
 library(optparse)
 library(data.table)
 library(ggplot2)
@@ -50,6 +52,8 @@ parser <- add_option(parser, c('--samples-file'), type = 'character', help = 'fi
 parser <- add_option(parser, c('--minimal'), action = 'store_true', default = FALSE, help = 'only plot NORMX/NORMY and BAF/LRR plots')
 parser <- add_option(parser, c('--zcall'), action = 'store_true', default = FALSE, help = 'plot ZCall thresholds')
 args <- parse_args(parser, commandArgs(trailingOnly = TRUE))
+
+write(paste('gtc2vcf_plot.R', gtc2vcf_plot_version, 'https://github.com/freeseek/gtc2vcf'), stderr())
 
 # make sure VCF is passed
 if (is.null(args$vcf)) {print_help(parser); stop('option --vcf is required')}
