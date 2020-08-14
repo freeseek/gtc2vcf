@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2020-08-11"
+#define AFFY2VCF_VERSION "2020-08-13"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -1578,11 +1578,14 @@ static int varitr_loop(varitr_t *varitr) {
                 if (ncols_b != 1 + varitr->nsmpl)
                     error("Expected %d columns but %d columns found in the summary file\n", 1 + varitr->nsmpl, ncols_b);
                 len_b = strlen(&str_b.s[off_b[0]]);
-                if (str_b.s[off_b[0] + len - 2] == '-' && str_b.s[off_b[0] + len_b - 1] == 'B') break;
+                if (str_b.s[off_b[0] + len_b - 2] == '-' && str_b.s[off_b[0] + len_b - 1] == 'B') break;
 
                 kstring_t str_tmp = str;
                 str = str_b;
                 str_b = str_tmp;
+                int len_tmp = len;
+                len = len_b;
+                len_b = len_tmp;
                 int moff_tmp = moff;
                 moff = moff_b;
                 moff_b = moff_tmp;
