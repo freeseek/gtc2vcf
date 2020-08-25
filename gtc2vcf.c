@@ -33,7 +33,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-08-13"
+#define GTC2VCF_VERSION "2020-08-25"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -1037,6 +1037,8 @@ static chip_type_t chip_types[] = {
     {"BeadChip 12x8", 734889, 734889, "HumanOmniExpress-12-v1-0"},
     {"BeadChip 12x8", 736136, 736136, "HumanOmniExpress-12-v1-0"},
     {"BeadChip 1x12", 661182, 49163, "HumanHap650Yv3"},
+    {"BeadChip 1x40", 1129736, 57373, "Human1Mv1"},
+    {"BeadChip 1x40 66", 1078890, 52497, "Human1Mv1"},
     {"BeadChip 24x1x4", 306776, 306776, "InfiniumCore-24v1-2"},
     {"BeadChip 24x1x4", 527136, 527136, "OncoArray-500K"},
     {"BeadChip 24x1x4", 577781, 577781, "HumanCoreExome-24v1-0"},
@@ -2254,6 +2256,12 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
                         allele_b.s[0] = rev_nt(allele_b.s[0]);
                     }
                     strand = get_strand_from_top_alleles(allele_a.s, allele_b.s, ref, win, len);
+                    if (strand < 0) {
+                        if (flags & VERBOSE)
+                            fprintf(stderr, "Unable to determine reference strand for SNP %s\n", locus_entry->ilmn_id);
+                        allele_a.s[0] = '.';
+                        allele_b.s[0] = '.';
+                    }
                 }
                 if (strand == 1) {
                     allele_a.s[0] = rev_nt(allele_a.s[0]);
@@ -2724,7 +2732,13 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
                     allele_a[0] = '.';
                     allele_b[0] = '.';
                 } else {
-                    if (get_strand_from_top_alleles(allele_a, allele_b, ref, win, len)) {
+                    int strand = get_strand_from_top_alleles(allele_a, allele_b, ref, win, len);
+                    if (strand < 0) {
+                        if (flags & VERBOSE)
+                            fprintf(stderr, "Unable to determine reference strand for SNP %s\n", rec->d.id);
+                        allele_a[0] = '.';
+                        allele_b[0] = '.';
+                    } else if (strand == 1) {
                         allele_a[0] = rev_nt(allele_a[0]);
                         allele_b[0] = rev_nt(allele_b[0]);
                     }

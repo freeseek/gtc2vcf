@@ -83,6 +83,7 @@ Plugin options:
     -f, --fasta-ref <file>        reference sequence in fasta format
         --set-cache-size <int>    select fasta cache size in bytes
         --gc-window-size <int>    window size in bp used to compute the GC content (-1 for no estimate) [200]
+        --probeset-ids            tab delimited file with column 'probeset_id' specifying probesets to convert
         --calls <file>            apt-probeset-genotype calls output (can be gzip compressed)
         --confidences <file>      apt-probeset-genotype confidences output (can be gzip compressed)
         --summary <file>          apt-probeset-genotype summary output (can be gzip compressed)

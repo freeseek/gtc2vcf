@@ -35,32 +35,63 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2020-08-13"
+#define AFFY2VCF_VERSION "2020-08-25"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
 
+#define VERBOSE (1 << 0)
+#define LOAD_CEL (1 << 1)
+#define PROBESET_IDS_LOADED (1 << 2)
+#define CALLS_LOADED (1 << 3)
+#define CONFIDENCES_LOADED (1 << 4)
+#define SUMMARY_LOADED (1 << 5)
+#define SNP_LOADED (1 << 6)
+#define ADJUST_CLUSTERS (1 << 7)
+#define NO_INFO_GC (1 << 8)
+#define FORMAT_GT (1 << 9)
+#define FORMAT_CONF (1 << 10)
+#define FORMAT_BAF (1 << 11)
+#define FORMAT_LRR (1 << 12)
+#define FORMAT_NORMX (1 << 13)
+#define FORMAT_NORMY (1 << 14)
+#define FORMAT_DELTA (1 << 15)
+#define FORMAT_SIZE (1 << 16)
+
+// #%affymetrix—algorithm—param—apt—opt—use—copynumber—call—codes=0
+// #%call—code-1=NoCall:-1:2
+// #%call—code-2=AA:0:2
+// #%call—code-3=AB:1:2
+// #%call—code-4=BB:2:2
 #define GT_NC -1
 #define GT_AA 0
 #define GT_AB 1
 #define GT_BB 2
 
-#define VERBOSE (1 << 0)
-#define LOAD_CEL (1 << 1)
-#define CALLS_LOADED (1 << 2)
-#define CONFIDENCES_LOADED (1 << 3)
-#define SUMMARY_LOADED (1 << 4)
-#define SNP_LOADED (1 << 5)
-#define ADJUST_CLUSTERS (1 << 6)
-#define NO_INFO_GC (1 << 7)
-#define FORMAT_GT (1 << 8)
-#define FORMAT_CONF (1 << 9)
-#define FORMAT_BAF (1 << 10)
-#define FORMAT_LRR (1 << 11)
-#define FORMAT_NORMX (1 << 12)
-#define FORMAT_NORMY (1 << 13)
-#define FORMAT_DELTA (1 << 14)
-#define FORMAT_SIZE (1 << 15)
+// #%max—alleles=4
+// #%max—cn—states=2
+// #%call—code-1=OTV_1:-4:1
+// #%call—code-2=NoCall_1:-3:1
+// #%call—code-3=OTV:-2:2
+// #%call—code-4=NoCall:-1:2
+// #%call—code-5=AA:0:2
+// #%call—code-6=AB:1:2
+// #%call—code-7=BB:2:2
+// #%call—code-8=ZeroCN:3:0
+// #%call—code-9=A:4:1
+// #%call—code-10=B:5:1
+// #%call—code-11=C:6:1
+// #%call—code-12=AC:7:2
+// #%call—code-13=BC:8:2
+// #%call—code-14=CC:9:2
+// #%call—code-15=D:10:1
+// #%call—code-16=AD:11:2
+// #%call—code-17=BD:12:2
+// #%call—code-18=CD:13:2
+// #%call—code-19=DD:14:2
+static const int txt_gt[19] = {GT_NC, GT_NC, GT_NC, GT_NC, GT_AA, GT_AB, GT_BB, GT_NC, GT_AA, GT_BB,
+                               GT_NC, GT_NC, GT_NC, GT_NC, GT_NC, GT_NC, GT_NC, GT_NC, GT_NC};
+static const int chp_gt[16] = {-1, -1, -1, -1, -1, -1, GT_AA, GT_BB, GT_AB, -1, -1, GT_NC, -1, -1, -1, -1};
 
 /****************************************
  * hFILE READING FUNCTIONS              *
@@ -445,7 +476,7 @@ static void agcc_read_data_set(DataSet *data_set, hFILE *hfile, int flags) {
 
     if (data_set->pos_next_data_set)
         if (hseek(hfile, data_set->pos_next_data_set, SEEK_SET) < 0)
-            error("Fail to seek to position %d in AGCC CHP file\n", data_set->pos_next_data_set);
+            error("Fail to seek to position %d in AGCC file\n", data_set->pos_next_data_set);
 }
 
 static void agcc_read_data_group(DataGroup *data_group, hFILE *hfile, int flags) {
@@ -454,12 +485,12 @@ static void agcc_read_data_group(DataGroup *data_group, hFILE *hfile, int flags)
     data_group->num_data_sets = read_long(hfile);
     read_string16(hfile, &data_group->name);
     if (hseek(hfile, data_group->pos_first_data_set, SEEK_SET) < 0)
-        error("Fail to seek to position %d in AGCC CHP file\n", data_group->pos_first_data_set);
+        error("Fail to seek to position %d in AGCC file\n", data_group->pos_first_data_set);
     data_group->data_sets = (DataSet *)malloc(data_group->num_data_sets * sizeof(DataSet));
     for (int i = 0; i < data_group->num_data_sets; i++) agcc_read_data_set(&data_group->data_sets[i], hfile, flags);
     if (data_group->pos_next_data_group)
         if (hseek(hfile, data_group->pos_next_data_group, SEEK_SET) < 0)
-            error("Fail to seek to position %d in AGCC CHP file\n", data_group->pos_next_data_group);
+            error("Fail to seek to position %d in AGCC file\n", data_group->pos_next_data_group);
 }
 
 static agcc_t *agcc_init(const char *fn, hFILE *hfile, int flags) {
@@ -469,10 +500,10 @@ static agcc_t *agcc_init(const char *fn, hFILE *hfile, int flags) {
 
     // read File Header
     read_bytes(agcc->hfile, (void *)&agcc->magic, sizeof(uint8_t));
-    if (agcc->magic != 59) error("AGCC CHP file %s magic number is %d while it should be 59\n", agcc->fn, agcc->magic);
+    if (agcc->magic != 59) error("AGCC file %s magic number is %d while it should be 59\n", agcc->fn, agcc->magic);
     read_bytes(agcc->hfile, (void *)&agcc->version, sizeof(uint8_t));
     if (agcc->version != 1)
-        error("Cannot read AGCC CHP file %s. Unsupported AGCC CHP file format version: %d\n", agcc->fn, agcc->version);
+        error("Cannot read AGCC file %s. Unsupported AGCC file format version: %d\n", agcc->fn, agcc->version);
     agcc->num_data_groups = (int32_t)read_long(agcc->hfile);
     agcc->pos_first_data_group = read_long(agcc->hfile);
 
@@ -481,14 +512,14 @@ static agcc_t *agcc_init(const char *fn, hFILE *hfile, int flags) {
 
     // read Data Groups
     if (hseek(agcc->hfile, agcc->pos_first_data_group, SEEK_SET) < 0)
-        error("Fail to seek to position %d in AGCC CHP %s file\n", agcc->pos_first_data_group, agcc->fn);
+        error("Fail to seek to position %d in AGCC %s file\n", agcc->pos_first_data_group, agcc->fn);
     agcc->data_groups = (DataGroup *)malloc(agcc->num_data_groups * sizeof(DataGroup));
     for (int i = 0; i < agcc->num_data_groups; i++) agcc_read_data_group(&agcc->data_groups[i], agcc->hfile, flags);
 
     if (!heof(agcc->hfile))
-        error("AGCC CHP reader did not reach the end of file %s at position %ld\n", agcc->fn, htell(agcc->hfile));
+        error("AGCC reader did not reach the end of file %s at position %ld\n", agcc->fn, htell(agcc->hfile));
 
-    if (hseek(agcc->hfile, 0L, SEEK_END) < 0) error("Fail to seek to end of AGCC CHP %s file\n", agcc->fn);
+    if (hseek(agcc->hfile, 0L, SEEK_END) < 0) error("Fail to seek to end of AGCC %s file\n", agcc->fn);
     agcc->size = htell(agcc->hfile);
 
     char *ptr = strrchr(agcc->fn, '/') ? strrchr(agcc->fn, '/') + 1 : agcc->fn;
@@ -540,12 +571,18 @@ static void agcc_destroy_data_group(DataGroup *data_group) {
 static void agcc_destroy(agcc_t *agcc) {
     if (!agcc) return;
     free(agcc->fn);
-    if (hclose(agcc->hfile) < 0) error("Error closing AGCC CHP file\n");
+    if (hclose(agcc->hfile) < 0) error("Error closing AGCC file\n");
     agcc_destroy_data_header(&agcc->data_header);
     for (int i = 0; i < agcc->num_data_groups; i++) agcc_destroy_data_group(&agcc->data_groups[i]);
     free(agcc->data_groups);
     free(agcc->display_name);
     free(agcc);
+}
+
+static void buffer_string16(const uint16_t *value, int32_t n_value, size_t *m_buffer, wchar_t **buffer) {
+    hts_expand(wchar_t, n_value / 2 + 1, *m_buffer, *buffer);
+    for (int i = 0; i < n_value / 2; i++) (*buffer)[i] = (wchar_t)ntohs(value[i]);
+    (*buffer)[n_value / 2] = L'\0';
 }
 
 static void agcc_print_parameters(const Parameter *parameters, int32_t n_parameters, FILE *stream) {
@@ -584,10 +621,7 @@ static void agcc_print_parameters(const Parameter *parameters, int32_t n_paramet
             fprintf(stream, "%s\n", parameters[i].value);
             break;
         case WSTRING:
-            hts_expand0(wchar_t, parameters[i].n_value / 2 + 1, m_buffer, buffer);
-            for (int j = 0; j < parameters[i].n_value / 2; j++)
-                buffer[j] = (wchar_t)ntohs(((uint16_t *)parameters[i].value)[j]);
-            buffer[parameters[i].n_value / 2] = L'\0';
+            buffer_string16((uint16_t *)parameters[i].value, parameters[i].n_value, &m_buffer, &buffer);
             fprintf(stream, "%ls\n", buffer);
             break;
         default:
@@ -670,11 +704,11 @@ static void agcc_print_data_set(const DataSet *data_set, FILE *stream, int verbo
         else if (wcscmp(data_set->col_headers[i].name, L"Forced Call") == 0)
             col_prints[i] = agcc_print_call;
         else
-            error("Unknown column type %ls in AGCC CHP file with type %d\n", data_set->col_headers[i].name,
+            error("Unknown column type %ls in AGCC file with type %d\n", data_set->col_headers[i].name,
                   data_set->col_headers[i].type);
     }
     if (hseek(data_set->hfile, data_set->pos_first_element, SEEK_SET) < 0)
-        error("Fail to seek to position %d in AGCC CHP file\n", data_set->pos_first_element);
+        error("Fail to seek to position %d in AGCC file\n", data_set->pos_first_element);
     for (int i = 0; i < data_set->n_rows; i++) {
         read_bytes(data_set->hfile, (void *)data_set->buffer, data_set->n_buffer);
         for (int j = 0; j < data_set->n_cols; j++) {
@@ -700,10 +734,10 @@ static void agcc_print(const agcc_t *agcc, FILE *stream, int verbose) {
     for (int i = 0; i < agcc->num_data_groups; i++) agcc_print_data_group(&agcc->data_groups[i], stream, verbose);
 }
 
-static void agccs_to_tsv(agcc_t **agcc, int n, FILE *stream) {
+static void chps_to_tsv(uint8_t *magic, agcc_t **agcc, int n, FILE *stream) {
     // AxiomGT1 analysis has also cn-probe-chrXY-ratio_gender_meanX,
     // cn-probe-chrXY-ratio_gender_meanY, cn-probe-chrXY-ratio_gender_ratio,
-    // cn-probe-chrXY-ratio_gender BRLMM-P analysis has also em-cluster-chrX-het-contrast_gender
+    // cn-probe-chrXY-ratio_gender while BRLMM-P analysis has also em-cluster-chrX-het-contrast_gender
     // em-cluster-chrX-het-contrast_gender_chrX_het_rate
     static const wchar_t *chipsummary[] = {L"computed_gender",
                                            L"call_rate",
@@ -725,6 +759,18 @@ static void agccs_to_tsv(agcc_t **agcc, int n, FILE *stream) {
     for (int j = 0; j < 16; j++) fprintf(stream, "\t%ls", chipsummary[j]);
     fputc('\n', stream);
     for (int i = 0; i < n; i++) {
+        if (magic[i] != 59) continue;
+        if (strcmp(agcc[i]->data_header.data_type_identifier, "affymetrix-multi-data-type-analysis") != 0) {
+            if (strcmp(agcc[i]->data_header.data_type_identifier, "affymetrix-calvin-intensity") == 0
+                || strcmp(agcc[i]->data_header.data_type_identifier, "affymetrix-calvin-multi-intensity") == 0)
+                error(
+                    "AGCC file %s contains calvin intensities rather multi data type analysis (use --cel to extract "
+                    "metadata)\n",
+                    agcc[i]->fn);
+            else
+                error("AGCC file %s does not contain multi data type analysis as data type identifier is %s\n",
+                      agcc[i]->fn, agcc[i]->data_header.data_type_identifier);
+        }
         fputs(strrchr(agcc[i]->fn, '/') ? strrchr(agcc[i]->fn, '/') + 1 : agcc[i]->fn, stream);
         DataHeader *data_header = &agcc[i]->data_header;
         for (int j = 0, k = 0; j < 16; j++) {
@@ -748,7 +794,7 @@ static void agccs_to_tsv(agcc_t **agcc, int n, FILE *stream) {
                 fputs(data_header->parameters[k].value, stream);
                 break;
             default:
-                error("Unable to print parameter of type %d from %s AGCC CHP file\n", data_header->parameters[k].type,
+                error("Unable to print parameter of type %d from %s AGCC file\n", data_header->parameters[k].type,
                       agcc[i]->fn);
                 break;
             }
@@ -761,6 +807,19 @@ static void agccs_to_tsv(agcc_t **agcc, int n, FILE *stream) {
  * PRINT CEL SUMMARY                    *
  ****************************************/
 
+// this function returns
+// fusion-experiment-name
+// pixel-cols
+// pixel-rows
+// XIN
+// YIN
+// VE
+// temp
+// power
+// scan-date
+// scanner-id
+// scanner-type
+// array-type
 static void parse_dat_header(char *dat_header, char *str[12], int n_str[12]) {
     char *ss = strchr(dat_header, ' ') + 2;
     char *se = strchr(dat_header, '\0');
@@ -852,11 +911,20 @@ fail:
 
 // https://github.com/HenrikBengtsson/affxparser/blob/master/R/parseDatHeaderString.R
 static void cels_to_tsv(uint8_t *magic, void **files, int n, FILE *stream) {
+    wchar_t *array_type = NULL;             // affymetrix-array-type
+    wchar_t *scanner_type = NULL;           // affymetrix-scanner-type
+    wchar_t *scanner_id = NULL;             // affymetrix-scanner-id
+    wchar_t *scan_date = NULL;              // affymetrix-scan-date
+    wchar_t *fusion_experiment_name = NULL; // affymetrix-fusion-experiment-name
+    size_t m_array_type = 0, m_scanner_type = 0, m_scanner_id = 0, m_scan_date = 0, m_fusion_experiment_name = 0;
+    int32_t pixel_rows = 0; // affymetrix-pixel-rows
+    int32_t pixel_cols = 0; // affymetrix-pixel-cols
+
     char *str[12];
     int n_str[12];
-    char *buffer = NULL;
-    size_t m_buffer = 0;
-    fprintf(stream, "cel\tdat\tcls\trws\txin\tyin\tve\ttemp\tpower\tdate\tscanner\tnum\tchip_type\n");
+
+    fprintf(stream,
+            "cel\tarray_type\tscanner_type\tscanner_id\tscan_date\tfusion_experiment_name\tpixel_rows\tpixel_cols\n");
     for (int i = 0; i < n; i++) {
         int j;
         char *ss, *se;
@@ -864,23 +932,75 @@ static void cels_to_tsv(uint8_t *magic, void **files, int n, FILE *stream) {
         xda_cel_t *xda_cel = (xda_cel_t *)files[i];
         switch (magic[i]) {
         case 59:
-            if (strcmp(agcc->data_header.data_type_identifier, "affymetrix-calvin-intensity") != 0)
-                error("AGCC CEL file %s does not contain calvin intensities\n", agcc->fn);
+            if (strcmp(agcc->data_header.data_type_identifier, "affymetrix-calvin-intensity") != 0
+                && strcmp(agcc->data_header.data_type_identifier, "affymetrix-calvin-multi-intensity") != 0)
+                error("AGCC file %s does not contain calvin intensities as data type identifier is %s\n", agcc->fn,
+                      agcc->data_header.data_type_identifier);
             if (agcc->data_header.n_parents == 0
-                || strcmp(agcc->data_header.parents[0].data_type_identifier, "affymetrix-calvin-scan-acquisition") != 0)
-                error("AGCC CEL file %s is missing scan acquisition information\n", agcc->fn);
-            DataHeader *data_header = &agcc->data_header.parents[0];
-            for (j = 0; j < data_header->n_parameters; j++)
-                if (wcscmp(data_header->parameters[j].name, L"affymetrix-partial-dat-header") == 0
-                    || wcscmp(data_header->parameters[j].name, L"affymetrix-dat-header") == 0)
-                    break;
-            if (j == data_header->n_parameters) error("AGCC CEL file %s is missing DAT header\n", agcc->fn);
-            hts_expand0(char, data_header->parameters[j].n_value / 2 + 1, m_buffer, buffer);
-            for (int k = 0; k < data_header->parameters[j].n_value / 2; k++)
-                buffer[k] = (char)ntohs(((uint16_t *)data_header->parameters[j].value)[k]);
-            buffer[data_header->parameters[j].n_value / 2] = '\0';
-            parse_dat_header(buffer, str, n_str);
+                || (strcmp(agcc->data_header.parents[0].data_type_identifier, "affymetrix-calvin-scan-acquisition") != 0
+                    && strcmp(agcc->data_header.parents[0].data_type_identifier,
+                              "affymetrix-calvin-multi-scan-acquisition")
+                           != 0))
+                error("AGCC file %s is missing scan acquisition information as data type identifier is %s\n", agcc->fn,
+                      agcc->data_header.parents[0].data_type_identifier);
+
+            const Parameter *parameter;
+            for (j = 0; j < agcc->data_header.parents[0].n_parameters; j++) {
+                parameter = &agcc->data_header.parents[0].parameters[j];
+                if (wcscmp(parameter->name, L"affymetrix-array-type") == 0 && parameter->type == WSTRING)
+                    buffer_string16((uint16_t *)parameter->value, parameter->n_value, &m_array_type, &array_type);
+                else if (wcscmp(parameter->name, L"affymetrix-scanner-type") == 0 && parameter->type == WSTRING)
+                    buffer_string16((uint16_t *)parameter->value, parameter->n_value, &m_scanner_type, &scanner_type);
+                else if (wcscmp(parameter->name, L"affymetrix-scanner-id") == 0 && parameter->type == WSTRING)
+                    buffer_string16((uint16_t *)parameter->value, parameter->n_value, &m_scanner_id, &scanner_id);
+                else if (wcscmp(parameter->name, L"affymetrix-scan-date") == 0 && parameter->type == WSTRING)
+                    buffer_string16((uint16_t *)parameter->value, parameter->n_value, &m_scan_date, &scan_date);
+                else if (wcscmp(parameter->name, L"affymetrix-fusion-experiment-name") == 0
+                         && parameter->type == WSTRING)
+                    buffer_string16((uint16_t *)parameter->value, parameter->n_value, &m_fusion_experiment_name,
+                                    &fusion_experiment_name);
+                if (wcscmp(parameter->name, L"affymetrix-pixel-rows") == 0 && parameter->type == INT)
+                    pixel_rows = (int32_t)ntohl(*(uint32_t *)parameter->value);
+                if (wcscmp(parameter->name, L"affymetrix-pixel-cols") == 0 && parameter->type == INT)
+                    pixel_cols = (int32_t)ntohl(*(uint32_t *)parameter->value);
+            }
             fputs(strrchr(agcc->fn, '/') ? strrchr(agcc->fn, '/') + 1 : agcc->fn, stream);
+            fputc('\t', stream);
+            if (array_type) {
+                fprintf(stream, "%ls", array_type);
+                array_type[0] = L'\0';
+            }
+            fputc('\t', stream);
+            if (scanner_type) {
+                fprintf(stream, "%ls", scanner_type);
+                scanner_type[0] = L'\0';
+            }
+            fputc('\t', stream);
+            if (scanner_id) {
+                fprintf(stream, "%ls", scanner_id);
+                scanner_id[0] = L'\0';
+            }
+            fputc('\t', stream);
+            if (scan_date) {
+                fprintf(stream, "%ls", scan_date);
+                scan_date[0] = L'\0';
+            }
+            fputc('\t', stream);
+            if (fusion_experiment_name) {
+                fprintf(stream, "%ls", fusion_experiment_name);
+                fusion_experiment_name[0] = L'\0';
+            }
+            fputc('\t', stream);
+            if (pixel_rows) {
+                fprintf(stream, "%d", pixel_rows);
+                pixel_rows = 0;
+            }
+            fputc('\t', stream);
+            if (pixel_cols) {
+                fprintf(stream, "%d", pixel_cols);
+                pixel_cols = 0;
+            }
+            fputc('\n', stream);
             break;
         case 64:
             ss = strstr(xda_cel->header, "\nDatHeader=[");
@@ -893,18 +1013,20 @@ static void cels_to_tsv(uint8_t *magic, void **files, int n, FILE *stream) {
             *se = '\0';
             parse_dat_header(ss, str, n_str);
             *se = '\n';
-            fputs(strrchr(xda_cel->fn, '/') ? strrchr(xda_cel->fn, '/') + 1 : xda_cel->fn, stream);
+            fprintf(stream, "%s\t%.*s\t%.*s\t%.*s\t%.*s\t%.*s\t%.*s\t%.*s\n",
+                    strrchr(xda_cel->fn, '/') ? strrchr(xda_cel->fn, '/') + 1 : xda_cel->fn, n_str[11], str[11],
+                    n_str[10], str[10], n_str[9], str[9], n_str[8], str[8], n_str[0], str[0], n_str[1], str[1],
+                    n_str[2], str[2]);
             break;
         default:
             break;
         }
-        for (j = 0; j < 12; j++) {
-            fputc('\t', stream);
-            fwrite(str[j], 1, n_str[j], stream);
-        }
-        fputc('\n', stream);
     }
-    free(buffer);
+    free(array_type);
+    free(scanner_type);
+    free(scanner_id);
+    free(scan_date);
+    free(fusion_experiment_name);
 }
 
 /****************************************
@@ -924,6 +1046,28 @@ static htsFile *unheader(const char *fn, kstring_t *str) {
 }
 
 /************************************************
+ * PROBEST IDS FILE IMPLEMENTATION              *
+ ************************************************/
+
+static void *probeset_ids_init(const char *fn) {
+    void *probeset_ids = khash_str2int_init();
+    kstring_t str = {0, 0, NULL};
+    htsFile *fp = unheader(fn, &str);
+    int moff = 0, *off = NULL, ncols;
+    ncols = ksplit_core(str.s, '\t', &moff, &off);
+    if (ncols < 1 || strcmp(&str.s[off[0]], "probeset_id"))
+        error("Malformed first line from probeset IDs file: %s\n%s\n", fn, str.s);
+    while (hts_getline(fp, KS_SEP_LINE, &str) > 0) {
+        ncols = ksplit_core(str.s, '\t', &moff, &off);
+        khash_str2int_inc(probeset_ids, strdup(&str.s[off[0]]));
+    }
+    free(off);
+    free(str.s);
+    hts_close(fp);
+    return probeset_ids;
+}
+
+/************************************************
  * SNP CLUSTER POSTERIORS FILE IMPLEMENTATION   *
  ************************************************/
 
@@ -940,7 +1084,7 @@ typedef struct {
 } cluster_t;
 
 typedef struct {
-    char *probe_set_id;
+    char *probeset_id;
     int copynumber;
     cluster_t aa;
     cluster_t ab;
@@ -949,7 +1093,7 @@ typedef struct {
 
 typedef struct {
     int is_birdseed;
-    void *probe_set_id[2];
+    void *probeset_id[2];
     snp_t *snps[2];
     int n_snps[2];
     int m_snps[2];
@@ -978,7 +1122,7 @@ static inline void birdseed_cluster_init(const char *s, const int *off, cluster_
 static snp_models_t *snp_models_init(const char *fn) {
     snp_models_t *snp_models = (snp_models_t *)calloc(1, sizeof(snp_models_t));
     for (int i = 0; i < 2; i++) {
-        snp_models->probe_set_id[i] = khash_str2int_init();
+        snp_models->probeset_id[i] = khash_str2int_init();
     }
 
     kstring_t str = {0, 0, NULL};
@@ -1023,9 +1167,9 @@ static snp_models_t *snp_models_init(const char *fn) {
         int idx = copynumber == 2;
         hts_expand(snp_t, snp_models->n_snps[idx] + 1, snp_models->m_snps[idx], snp_models->snps[idx]);
         snp = &snp_models->snps[idx][snp_models->n_snps[idx]];
-        snp->probe_set_id = strdup(&str.s[off1[0]]);
+        snp->probeset_id = strdup(&str.s[off1[0]]);
         snp->copynumber = copynumber;
-        khash_str2int_inc(snp_models->probe_set_id[idx], snp->probe_set_id);
+        khash_str2int_inc(snp_models->probeset_id[idx], snp->probeset_id);
 
         if (ncols1 < 4 - (2 - copynumber) * snp_models->is_birdseed)
             error("Missing information for probeset %s in SNP posteriors file: %s\n", str.s, fn);
@@ -1076,8 +1220,8 @@ static snp_models_t *snp_models_init(const char *fn) {
 
 static void snp_models_destroy(snp_models_t *snp_models) {
     for (int i = 0; i < 2; i++) {
-        khash_str2int_destroy(snp_models->probe_set_id[i]);
-        for (int j = 0; j < snp_models->n_snps[i]; j++) free(snp_models->snps[i][j].probe_set_id);
+        khash_str2int_destroy(snp_models->probeset_id[i]);
+        for (int j = 0; j < snp_models->n_snps[i]; j++) free(snp_models->snps[i][j].probeset_id);
         free(snp_models->snps[i]);
     }
     free(snp_models);
@@ -1088,7 +1232,7 @@ static void snp_models_destroy(snp_models_t *snp_models) {
  ****************************************/
 
 typedef struct {
-    char *probe_set_id;
+    char *probeset_id;
     char *affy_snp_id;
     char *dbsnp_rs_id;
     char *chromosome;
@@ -1098,7 +1242,7 @@ typedef struct {
 } record_t;
 
 typedef struct {
-    void *probe_set_id;
+    void *probeset_id;
     record_t *records;
     int n_records, m_records;
 } annot_t;
@@ -1179,15 +1323,15 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
     if (flank_idx == -1) error("Flank missing from file: %s\n", fn);
     if (allele_a_idx == -1) error("Allele A missing from file: %s\n", fn);
     if (allele_b_idx == -1) error("Allele B missing from file: %s\n", fn);
-    const char *probe_set_id, *flank, *allele_a, *allele_b;
+    const char *probeset_id, *flank, *allele_a, *allele_b;
 
     if (!hts && out_txt) {
 
         while (hts_getline(fp, KS_SEP_LINE, &str) > 0) {
             ncols = ksplit_core(str.s, ',', &moff, &off);
-            probe_set_id = unquote(&str.s[off[probe_set_id_idx]]);
+            probeset_id = unquote(&str.s[off[probe_set_id_idx]]);
             flank = unquote(&str.s[off[flank_idx]]);
-            if (flank) flank2fasta(probe_set_id, flank, out_txt);
+            if (flank) flank2fasta(probeset_id, flank, out_txt);
         }
     } else {
         if (dbsnp_rs_id_idx == -1) error("dbSNP RS ID missing from file: %s\n", fn);
@@ -1197,13 +1341,13 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
 
         if (!out_txt) {
             annot = (annot_t *)calloc(1, sizeof(annot_t));
-            annot->probe_set_id = khash_str2int_init();
+            annot->probeset_id = khash_str2int_init();
         }
 
         int n_total = 0, n_unmapped = 0;
         while (hts_getline(fp, KS_SEP_LINE, &str) > 0) {
             ncols = ksplit_core(str.s, ',', &moff, &off);
-            probe_set_id = unquote(&str.s[off[probe_set_id_idx]]);
+            probeset_id = unquote(&str.s[off[probe_set_id_idx]]);
             flank = unquote(&str.s[off[flank_idx]]);
             allele_a = unquote(&str.s[off[allele_a_idx]]);
             allele_b = unquote(&str.s[off[allele_b_idx]]);
@@ -1211,15 +1355,15 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
             int strand = -1, position = 0, idx = -1;
             if (hts) {
                 if (!flank) {
-                    if (flags & VERBOSE) fprintf(stderr, "Missing flank sequence for marker %s\n", probe_set_id);
+                    if (flags & VERBOSE) fprintf(stderr, "Missing flank sequence for marker %s\n", probeset_id);
                     n_unmapped++;
                 } else {
-                    idx = get_position(hts, sam_hdr, b, probe_set_id, flank, 0, &chromosome, &position, &strand);
+                    idx = get_position(hts, sam_hdr, b, probeset_id, flank, 0, &chromosome, &position, &strand);
                     if (idx < 0)
                         error("Reading from %s failed", sam_fn);
                     else if (idx == 0) {
                         if (flags & VERBOSE)
-                            fprintf(stderr, "Unable to determine position for marker %s\n", probe_set_id);
+                            fprintf(stderr, "Unable to determine position for marker %s\n", probeset_id);
                         n_unmapped++;
                     }
                 }
@@ -1247,7 +1391,7 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
 
             if (out_txt) {
                 // "Ref Allele" and "Alt Allele" will not be updated
-                fprintf(out_txt, "\"%s\"", probe_set_id);
+                fprintf(out_txt, "\"%s\"", probeset_id);
                 for (int i = 1; i < ncols; i++) {
                     if (i == flank_idx) fprintf(out_txt, ",\"%s\"", flank);
                     if (i == allele_a_idx) fprintf(out_txt, ",\"%s\"", allele_a);
@@ -1285,8 +1429,8 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
                 fprintf(out_txt, "\n");
             } else {
                 hts_expand0(record_t, annot->n_records + 1, annot->m_records, annot->records);
-                annot->records[annot->n_records].probe_set_id = strdup(probe_set_id);
-                khash_str2int_inc(annot->probe_set_id, annot->records[annot->n_records].probe_set_id);
+                annot->records[annot->n_records].probeset_id = strdup(probeset_id);
+                khash_str2int_inc(annot->probeset_id, annot->records[annot->n_records].probeset_id);
                 const char *dbsnp_rs_id = unquote(&str.s[off[dbsnp_rs_id_idx]]);
                 if (dbsnp_rs_id) annot->records[annot->n_records].dbsnp_rs_id = strdup(dbsnp_rs_id);
                 if (affy_snp_id_idx >= 0) {
@@ -1330,9 +1474,9 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
 }
 
 static void annot_destroy(annot_t *annot) {
-    khash_str2int_destroy(annot->probe_set_id);
+    khash_str2int_destroy(annot->probeset_id);
     for (int i = 0; i < annot->n_records; i++) {
-        free(annot->records[i].probe_set_id);
+        free(annot->records[i].probeset_id);
         free(annot->records[i].affy_snp_id);
         free(annot->records[i].dbsnp_rs_id);
         free(annot->records[i].chromosome);
@@ -1349,14 +1493,14 @@ static void annot_destroy(annot_t *annot) {
 #define MAX_LENGTH_PROBE_SET_ID 17
 typedef struct {
     int nsmpl;
-    int nrow;
 
     DataSet **data_sets;
+    int *nrows;
     int *is_brlmm_p;
     htsFile *calls_fp;
     htsFile *confidences_fp;
     htsFile *summary_fp;
-    char probe_set_id[MAX_LENGTH_PROBE_SET_ID + 1];
+    char probeset_id[MAX_LENGTH_PROBE_SET_ID + 1];
 
     int *gts;
     float *conf_arr;
@@ -1383,21 +1527,22 @@ static varitr_t *varitr_init_cc(bcf_hdr_t *hdr, agcc_t **agcc, int n) {
     varitr_t *varitr = (varitr_t *)calloc(1, sizeof(varitr_t));
     varitr->nsmpl = n;
     varitr->data_sets = (DataSet **)malloc(n * sizeof(DataSet *));
+    varitr->nrows = (int *)calloc(n, sizeof(int));
     varitr->is_brlmm_p = (int *)malloc(n * sizeof(int));
     for (int i = 0; i < n; i++) {
         if (strcmp(agcc[i]->data_header.data_type_identifier, "affymetrix-multi-data-type-analysis") != 0)
-            error("AGCC CHP file %s does not contain multi data type analysis\n", agcc[i]->fn);
+            error("AGCC file %s does not contain multi data type analysis as \n", agcc[i]->fn);
         if (agcc[i]->num_data_groups == 0 || wcscmp(agcc[i]->data_groups[0].name, L"MultiData") != 0)
-            error("AGCC CHP file %s does not contain multi data\n", agcc[i]->fn);
+            error("AGCC file %s does not contain multi data\n", agcc[i]->fn);
         if (agcc[i]->data_groups[0].num_data_sets == 0
             || wcscmp(agcc[i]->data_groups[0].data_sets[0].name, L"Genotype") != 0)
-            error("AGCC CHP file %s does not contain genotype data\n", agcc[i]->fn);
+            error("AGCC file %s does not contain genotype data\n", agcc[i]->fn);
         DataSet *data_set = &agcc[i]->data_groups[0].data_sets[0];
         if (wcscmp(data_set->col_headers[0].name, L"ProbeSetName") != 0
             || wcscmp(data_set->col_headers[1].name, L"Call") != 0
             || wcscmp(data_set->col_headers[2].name, L"Confidence") != 0
             || wcscmp(data_set->col_headers[5].name, L"Forced Call") != 0)
-            error("AGCC CHP file %s does not contain genotype data in the expected format\n", agcc[i]->fn);
+            error("AGCC file %s does not contain genotype data in the expected format\n", agcc[i]->fn);
         if (wcscmp(data_set->col_headers[3].name, L"Contrast") == 0
             || wcscmp(data_set->col_headers[3].name, L"Log Ratio") == 0
             || wcscmp(data_set->col_headers[4].name, L"Strength") == 0)
@@ -1408,9 +1553,9 @@ static varitr_t *varitr_init_cc(bcf_hdr_t *hdr, agcc_t **agcc, int n) {
             varitr->is_brlmm_p[i] = 0; // ProbeSetName / Call / Confidence / Signal A
                                        // / Signal B / Forced Call
         else
-            error("AGCC CHP file %s does not contain intensities data in the expected format\n", agcc[i]->fn);
+            error("AGCC file %s does not contain intensities data in the expected format\n", agcc[i]->fn);
         if (hseek(data_set->hfile, data_set->pos_first_element, SEEK_SET) < 0)
-            error("Fail to seek to position %d in AGCC CHP file\n", data_set->pos_first_element);
+            error("Fail to seek to position %d in AGCC file\n", data_set->pos_first_element);
         bcf_hdr_add_sample(hdr, agcc[i]->display_name);
         varitr->data_sets[i] = data_set;
     }
@@ -1475,16 +1620,6 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn, const cha
     return varitr;
 }
 
-static inline void check_n_probe_set_id(char *dest, const char *src, uint32_t n) {
-    if (dest[0] == '\0') {
-        if (n > MAX_LENGTH_PROBE_SET_ID) error("Probe Set Name %.*s is too long\n", n, src);
-        strncpy(dest, src, n);
-        dest[n] = '\0';
-    } else {
-        if (strncmp(dest, src, n) != 0) error("Probe Set Name mismatch: %s %.*s\n", dest, n, src);
-    }
-}
-
 static inline void check_probe_set_id(char *dest, const char *src) {
     if (dest[0] == '\0') {
         if (strlen(src) > MAX_LENGTH_PROBE_SET_ID) error("Probe Set Name %s is too long\n", src);
@@ -1494,20 +1629,27 @@ static inline void check_probe_set_id(char *dest, const char *src) {
     }
 }
 
-static int varitr_loop(varitr_t *varitr) {
+static int varitr_loop(varitr_t *varitr, void *probeset_ids) {
     int ret = 0;
-    varitr->probe_set_id[0] = '\0';
+    varitr->probeset_id[0] = '\0';
     if (varitr->data_sets) {
-        varitr->nrow++;
-        // check whether you have arrived at the last element
-        static const int gt[16] = {-1, -1, -1, -1, -1, -1, GT_AA, GT_BB, GT_AB, -1, -1, GT_NC, -1, -1, -1, -1};
         for (int i = 0; i < varitr->nsmpl; i++) {
             DataSet *data_set = varitr->data_sets[i];
-            if (varitr->nrow > data_set->n_rows) return -1;
-            read_bytes(data_set->hfile, (void *)data_set->buffer, data_set->n_buffer);
-            uint32_t n = ntohl(*(uint32_t *)&data_set->buffer[data_set->col_offsets[0]]);
-            check_n_probe_set_id(varitr->probe_set_id, &data_set->buffer[data_set->col_offsets[0] + 4], (size_t)n);
-            varitr->gts[i] = gt[data_set->buffer[data_set->col_offsets[1]] & 0x0F];
+            uint32_t n;
+            char probeset_id[MAX_LENGTH_PROBE_SET_ID + 1];
+            do {
+                varitr->nrows[i]++;
+                // check whether you have arrived at the last element
+                if (varitr->nrows[i] > data_set->n_rows) return -1;
+                read_bytes(data_set->hfile, (void *)data_set->buffer, data_set->n_buffer);
+                n = ntohl(*(uint32_t *)&data_set->buffer[data_set->col_offsets[0]]);
+                if (n > MAX_LENGTH_PROBE_SET_ID)
+                    error("Probe Set Name %.*s is too long\n", n, &data_set->buffer[data_set->col_offsets[0] + 4]);
+                strncpy(probeset_id, &data_set->buffer[data_set->col_offsets[0] + 4], (size_t)n);
+                probeset_id[n] = '\0';
+            } while (probeset_ids && !khash_str2int_has_key(probeset_ids, probeset_id));
+            check_probe_set_id(varitr->probeset_id, probeset_id);
+            varitr->gts[i] = chp_gt[data_set->buffer[data_set->col_offsets[1]] & 0x0F];
             union {
                 uint32_t u;
                 float f;
@@ -1541,77 +1683,91 @@ static int varitr_loop(varitr_t *varitr) {
 
         // read genotypes
         if (varitr->calls_fp) {
-            if ((ret = hts_getline(varitr->calls_fp, KS_SEP_LINE, &str)) < 0) goto exit;
-            ncols = ksplit_core(str.s, '\t', &moff, &off);
-            if (ncols != 1 + varitr->nsmpl)
-                error("Expected %d columns but %d columns found in the calls file\n", 1 + varitr->nsmpl, ncols);
-            for (int i = 1; i < 1 + varitr->nsmpl; i++) {
-                varitr->gts[i - 1] = strtol(&str.s[off[i]], &tmp, 0);
-                if (*tmp) error("Could not parse genotype %s found in the calls file\n", &str.s[off[i]]);
-            }
-            check_probe_set_id(varitr->probe_set_id, &str.s[off[0]]);
+            do {
+                if ((ret = hts_getline(varitr->calls_fp, KS_SEP_LINE, &str)) < 0) goto exit;
+                ncols = ksplit_core(str.s, '\t', &moff, &off);
+                if (ncols != 1 + varitr->nsmpl)
+                    error("Expected %d columns but %d columns found in the calls file\n", 1 + varitr->nsmpl, ncols);
+                for (int i = 1; i < 1 + varitr->nsmpl; i++) {
+                    int gt = strtol(&str.s[off[i]], &tmp, 0);
+                    if (*tmp || gt < -4 || gt > 14)
+                        error("Could not parse genotype %s found in the calls file\n", &str.s[off[i]]);
+                    varitr->gts[i - 1] = txt_gt[4 + gt];
+                }
+            } while (probeset_ids && !khash_str2int_has_key(probeset_ids, &str.s[off[0]]));
+            check_probe_set_id(varitr->probeset_id, &str.s[off[0]]);
         }
 
         // read confidences
         if (varitr->confidences_fp) {
-            if ((ret = hts_getline(varitr->confidences_fp, KS_SEP_LINE, &str)) < 0) goto exit;
-            ncols = ksplit_core(str.s, '\t', &moff, &off);
-            if (ncols != 1 + varitr->nsmpl)
-                error("Expected %d columns but %d columns found in the confidences file\n", 1 + varitr->nsmpl, ncols);
-            for (int i = 1; i < 1 + varitr->nsmpl; i++) varitr->conf_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
-            check_probe_set_id(varitr->probe_set_id, &str.s[off[0]]);
+            do {
+                if ((ret = hts_getline(varitr->confidences_fp, KS_SEP_LINE, &str)) < 0) goto exit;
+                ncols = ksplit_core(str.s, '\t', &moff, &off);
+                if (ncols != 1 + varitr->nsmpl)
+                    error("Expected %d columns but %d columns found in the confidences file\n", 1 + varitr->nsmpl,
+                          ncols);
+                for (int i = 1; i < 1 + varitr->nsmpl; i++) varitr->conf_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
+            } while (probeset_ids && !khash_str2int_has_key(probeset_ids, &str.s[off[0]]));
+            check_probe_set_id(varitr->probeset_id, &str.s[off[0]]);
         }
 
         // read intensities
         if (varitr->summary_fp) {
-            if ((ret = hts_getline(varitr->summary_fp, KS_SEP_LINE, &str)) < 0) goto exit;
-            ncols = ksplit_core(str.s, '\t', &moff, &off);
-            if (ncols != 1 + varitr->nsmpl)
-                error("Expected %d columns but %d columns found in the summary file\n", 1 + varitr->nsmpl, ncols);
-            len = strlen(&str.s[off[0]]);
             do {
-                if (str.s[off[0] + len - 2] != '-' || str.s[off[0] + len - 1] != 'A')
-                    error("Found Probe Set ID %s while a -A Probe Set ID was expected\n", &str.s[off[0]]);
-                // check whether the next line contains the expected -B probeset_id
-                if ((ret = hts_getline(varitr->summary_fp, KS_SEP_LINE, &str_b)) < 0) goto exit;
-                ncols_b = ksplit_core(str_b.s, '\t', &moff_b, &off_b);
-                if (ncols_b != 1 + varitr->nsmpl)
-                    error("Expected %d columns but %d columns found in the summary file\n", 1 + varitr->nsmpl, ncols_b);
-                len_b = strlen(&str_b.s[off_b[0]]);
-                if (str_b.s[off_b[0] + len_b - 2] == '-' && str_b.s[off_b[0] + len_b - 1] == 'B') break;
+                // skips -C/-D/-E/-F/-G summary statistics
+                do {
+                    if ((ret = hts_getline(varitr->summary_fp, KS_SEP_LINE, &str)) < 0) goto exit;
+                    ncols = ksplit_core(str.s, '\t', &moff, &off);
+                    if (ncols != 1 + varitr->nsmpl)
+                        error("Expected %d columns but %d columns found in the summary file\n", 1 + varitr->nsmpl,
+                              ncols);
+                    len = strlen(&str.s[off[0]]);
+                } while (str.s[off[0] + len - 2] != '-' && str.s[off[0] + len - 1] != 'A');
+                // skips probes with -A summary statistics only
+                do {
+                    // check whether the next line contains the expected -B probeset_id
+                    if ((ret = hts_getline(varitr->summary_fp, KS_SEP_LINE, &str_b)) < 0) goto exit;
+                    ncols_b = ksplit_core(str_b.s, '\t', &moff_b, &off_b);
+                    if (ncols_b != 1 + varitr->nsmpl)
+                        error("Expected %d columns but %d columns found in the summary file\n", 1 + varitr->nsmpl,
+                              ncols_b);
+                    len_b = strlen(&str_b.s[off_b[0]]);
+                    if (str_b.s[off_b[0] + len_b - 2] == '-' && str_b.s[off_b[0] + len_b - 1] == 'B') break;
 
-                kstring_t str_tmp = str;
-                str = str_b;
-                str_b = str_tmp;
-                int len_tmp = len;
-                len = len_b;
-                len_b = len_tmp;
-                int moff_tmp = moff;
-                moff = moff_b;
-                moff_b = moff_tmp;
-                int *off_tmp = off;
-                off = off_b;
-                off_b = off_tmp;
-                int ncols_tmp = ncols;
-                ncols = ncols_b;
-                ncols_b = ncols_tmp;
-            } while (1);
+                    kstring_t str_tmp = str;
+                    str = str_b;
+                    str_b = str_tmp;
+                    int len_tmp = len;
+                    len = len_b;
+                    len_b = len_tmp;
+                    int moff_tmp = moff;
+                    moff = moff_b;
+                    moff_b = moff_tmp;
+                    int *off_tmp = off;
+                    off = off_b;
+                    off_b = off_tmp;
+                    int ncols_tmp = ncols;
+                    ncols = ncols_b;
+                    ncols_b = ncols_tmp;
+                } while (1);
 
-            if (len != len_b || strncmp(&str.s[off[0]], &str_b.s[off_b[0]], len - 2) != 0)
-                error("Mismatching %s and %s Probe Set IDs found in the summary file\n", &str.s[off[0]],
-                      &str_b.s[off_b[0]]);
-            for (int i = 1; i < 1 + varitr->nsmpl; i++) {
-                varitr->norm_x_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
-                if (*tmp) error("Could not parse intensity value %s found in the summary file\n", &str.s[off[i]]);
-                varitr->norm_y_arr[i - 1] = strtof(&str_b.s[off_b[i]], &tmp);
-                if (*tmp) error("Could not parse intensity value %s found in the summary file\n", &str_b.s[off_b[i]]);
-                float log2x = logf(varitr->norm_x_arr[i - 1]) * (float)M_LOG2E;
-                float log2y = logf(varitr->norm_y_arr[i - 1]) * (float)M_LOG2E;
-                varitr->delta_arr[i - 1] = log2x - log2y;
-                varitr->size_arr[i - 1] = (log2x + log2y) * 0.5f;
-            }
-            str.s[off[0] + len - 2] = '\0';
-            check_probe_set_id(varitr->probe_set_id, &str.s[off[0]]);
+                if (len != len_b || strncmp(&str.s[off[0]], &str_b.s[off_b[0]], len - 2) != 0)
+                    error("Mismatching %s and %s Probe Set IDs found in the summary file\n", &str.s[off[0]],
+                          &str_b.s[off_b[0]]);
+                for (int i = 1; i < 1 + varitr->nsmpl; i++) {
+                    varitr->norm_x_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
+                    if (*tmp) error("Could not parse intensity value %s found in the summary file\n", &str.s[off[i]]);
+                    varitr->norm_y_arr[i - 1] = strtof(&str_b.s[off_b[i]], &tmp);
+                    if (*tmp)
+                        error("Could not parse intensity value %s found in the summary file\n", &str_b.s[off_b[i]]);
+                    float log2x = logf(varitr->norm_x_arr[i - 1]) * (float)M_LOG2E;
+                    float log2y = logf(varitr->norm_y_arr[i - 1]) * (float)M_LOG2E;
+                    varitr->delta_arr[i - 1] = log2x - log2y;
+                    varitr->size_arr[i - 1] = (log2x + log2y) * 0.5f;
+                }
+                str.s[off[0] + len - 2] = '\0';
+            } while (probeset_ids && !khash_str2int_has_key(probeset_ids, &str.s[off[0]]));
+            check_probe_set_id(varitr->probeset_id, &str.s[off[0]]);
         }
     exit:
         free(str_b.s);
@@ -1623,6 +1779,8 @@ static int varitr_loop(varitr_t *varitr) {
 }
 
 static void varitr_destroy(varitr_t *varitr) {
+    free(varitr->data_sets);
+    free(varitr->nrows);
     free(varitr->is_brlmm_p);
     if (varitr->calls_fp) hts_close(varitr->calls_fp);
     if (varitr->confidences_fp) hts_close(varitr->confidences_fp);
@@ -1919,8 +2077,8 @@ static void compute_baf_lrr(const float *norm_x, const float *norm_y, int n, con
     }
 }
 
-static void process(faidx_t *fai, const annot_t *annot, snp_models_t *snp_models, varitr_t *varitr, htsFile *out_fh,
-                    bcf_hdr_t *hdr, int flags, int gc_win) {
+static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_models_t *snp_models, varitr_t *varitr,
+                    htsFile *out_fh, bcf_hdr_t *hdr, int flags, int gc_win) {
     if (bcf_hdr_write(out_fh, hdr) < 0) error("Unable to write to output VCF file\n");
     if (bcf_hdr_sync(hdr) < 0) error_errno("[%s] Failed to update header",
                                            __func__); // updates the number of samples
@@ -1943,10 +2101,14 @@ static void process(faidx_t *fai, const annot_t *annot, snp_models_t *snp_models
         // identify variants to use for next VCF record
         int idx;
         if (varitr) {
-            if (varitr_loop(varitr) < 0) break;
-            int ret = khash_str2int_get(annot->probe_set_id, varitr->probe_set_id, &idx);
-            if (ret < 0) error("Probe Set %s not found in manifest file\n", varitr->probe_set_id);
+            if (varitr_loop(varitr, probeset_ids) < 0) break;
+            int ret = khash_str2int_get(annot->probeset_id, varitr->probeset_id, &idx);
+            if (ret < 0) error("Probe Set %s not found in manifest file\n", varitr->probeset_id);
         } else {
+            if (!khash_str2int_has_key(probeset_ids, annot->records[i].probeset_id)) {
+                n_skipped++;
+                continue;
+            }
             idx = i;
         }
         record_t *record = &annot->records[idx];
@@ -1956,11 +2118,11 @@ static void process(faidx_t *fai, const annot_t *annot, snp_models_t *snp_models
         rec->rid = bcf_hdr_name2id_flexible(hdr, record->chromosome);
         rec->pos = record->position - 1;
         if (rec->rid < 0 || rec->pos < 0 || record->strand < 0 || !record->flank) {
-            if (flags & VERBOSE) fprintf(stderr, "Skipping unlocalized marker %s\n", record->probe_set_id);
+            if (flags & VERBOSE) fprintf(stderr, "Skipping unlocalized marker %s\n", record->probeset_id);
             n_skipped++;
             continue;
         }
-        bcf_update_id(hdr, rec, record->probe_set_id);
+        bcf_update_id(hdr, rec, record->probeset_id);
 
         flank.l = 0;
         kputs(record->flank, &flank);
@@ -1983,8 +2145,7 @@ static void process(faidx_t *fai, const annot_t *annot, snp_models_t *snp_models
             kputc('I', &allele_b);
             int ref_is_del = get_indel_alleles(&allele_a, &allele_b, flank.s, ref, win, len);
             if (ref_is_del < 0) {
-                if (flags & VERBOSE)
-                    fprintf(stderr, "Unable to determine alleles for indel %s\n", record->probe_set_id);
+                if (flags & VERBOSE) fprintf(stderr, "Unable to determine alleles for indel %s\n", record->probeset_id);
                 n_missing++;
             }
             if (ref_is_del == 0) {
@@ -2007,7 +2168,7 @@ static void process(faidx_t *fai, const annot_t *annot, snp_models_t *snp_models
         int32_t allele_a_idx = get_allele_a_idx(allele_b_idx);
         const char *alleles[3];
         int nals = alleles_ab_to_vcf(alleles, ref_base, allele_a.s, allele_b.s, allele_b_idx);
-        if (nals < 0) error("Unable to process Probe Set %s\n", record->probe_set_id);
+        if (nals < 0) error("Unable to process Probe Set %s\n", record->probeset_id);
         bcf_update_alleles(hdr, rec, alleles, nals);
         bcf_update_info_int32(hdr, rec, "ALLELE_A", &allele_a_idx, 1);
         bcf_update_info_int32(hdr, rec, "ALLELE_B", &allele_b_idx, 1);
@@ -2018,10 +2179,6 @@ static void process(faidx_t *fai, const annot_t *annot, snp_models_t *snp_models
             if ((varitr->data_sets || varitr->calls_fp) && flags & FORMAT_GT) {
                 for (int i = 0; i < nsmpl; i++) {
                     switch (varitr->gts[i]) {
-                    case GT_NC:
-                        gt_arr[2 * i] = bcf_gt_missing;
-                        gt_arr[2 * i + 1] = bcf_gt_missing;
-                        break;
                     case GT_AA:
                         gt_arr[2 * i] = bcf_gt_unphased(allele_a_idx);
                         gt_arr[2 * i + 1] = bcf_gt_unphased(allele_a_idx);
@@ -2034,8 +2191,12 @@ static void process(faidx_t *fai, const annot_t *annot, snp_models_t *snp_models
                         gt_arr[2 * i] = bcf_gt_unphased(allele_b_idx);
                         gt_arr[2 * i + 1] = bcf_gt_unphased(allele_b_idx);
                         break;
+                    case GT_NC:
+                        gt_arr[2 * i] = bcf_gt_missing;
+                        gt_arr[2 * i + 1] = bcf_gt_missing;
+                        break;
                     default:
-                        error("Genotype for Probe Set ID %s is malformed: %d\n", record->probe_set_id, varitr->gts[i]);
+                        error("Genotype for Probe Set ID %s is malformed: %d\n", record->probeset_id, varitr->gts[i]);
                         break;
                     }
                 }
@@ -2056,7 +2217,7 @@ static void process(faidx_t *fai, const annot_t *annot, snp_models_t *snp_models
         if (snp_models) {
             int rets[2], idxs[2];
             for (int i = 0; i < 2; i++) {
-                rets[i] = khash_str2int_get(snp_models->probe_set_id[i], record->probe_set_id, &idxs[i]);
+                rets[i] = khash_str2int_get(snp_models->probeset_id[i], record->probeset_id, &idxs[i]);
             }
             static const char *hap_info_str[] = {
                 "meanX_AA.1",    "meanX_AB.1",    "meanX_BB.1",    "varX_AA.1",    "varX_AB.1",    "varX_BB.1",
@@ -2074,7 +2235,7 @@ static void process(faidx_t *fai, const annot_t *annot, snp_models_t *snp_models
             if (!snp) {
                 n_no_snp_models++;
                 if (flags & VERBOSE)
-                    fprintf(stderr, "Warning: SNP model for Probe Set ID %s was not found\n", record->probe_set_id);
+                    fprintf(stderr, "Warning: SNP model for Probe Set ID %s was not found\n", record->probeset_id);
             } else {
                 if (flags & ADJUST_CLUSTERS)
                     adjust_clusters(varitr->gts, snp_models->is_birdseed ? varitr->norm_x_arr : varitr->delta_arr,
@@ -2131,6 +2292,8 @@ static const char *usage_text(void) {
            "        --gc-window-size <int>    window size in bp used to compute the GC content "
            "(-1 for no estimate) [" GC_WIN_DFLT
            "]\n"
+           "        --probeset-ids            tab delimited file with column 'probeset_id' specifying probesets to "
+           "convert\n"
            "        --calls <file>            apt-probeset-genotype calls output (can be gzip compressed)\n"
            "        --confidences <file>      apt-probeset-genotype confidences output (can be gzip compressed)\n"
            "        --summary <file>          apt-probeset-genotype summary output (can be gzip compressed)\n"
@@ -2221,6 +2384,7 @@ int run(int argc, char *argv[]) {
     const char *ref_fname = NULL;
     const char *extra_fname = NULL;
     const char *csv_fname = NULL;
+    const char *probeset_ids_fname = NULL;
     const char *calls_fname = NULL;
     const char *confidences_fname = NULL;
     const char *summary_fname = NULL;
@@ -2245,20 +2409,21 @@ int run(int argc, char *argv[]) {
                                        {"fasta-ref", required_argument, NULL, 'f'},
                                        {"set-cache-size", required_argument, NULL, 1},
                                        {"gc-window-size", required_argument, NULL, 2},
-                                       {"calls", required_argument, NULL, 3},
-                                       {"confidences", required_argument, NULL, 4},
-                                       {"summary", required_argument, NULL, 5},
-                                       {"snp", required_argument, NULL, 6},
-                                       {"chps", required_argument, NULL, 7},
-                                       {"cel", no_argument, NULL, 10},
-                                       {"adjust-clusters", no_argument, NULL, 11},
+                                       {"probeset-ids", required_argument, NULL, 3},
+                                       {"calls", required_argument, NULL, 4},
+                                       {"confidences", required_argument, NULL, 5},
+                                       {"summary", required_argument, NULL, 6},
+                                       {"snp", required_argument, NULL, 7},
+                                       {"chps", required_argument, NULL, 10},
+                                       {"cel", no_argument, NULL, 11},
+                                       {"adjust-clusters", no_argument, NULL, 12},
                                        {"no-version", no_argument, NULL, 8},
                                        {"output", required_argument, NULL, 'o'},
                                        {"output-type", required_argument, NULL, 'O'},
                                        {"threads", required_argument, NULL, 9},
                                        {"extra", required_argument, NULL, 'x'},
                                        {"verbose", no_argument, NULL, 'v'},
-                                       {"fasta-flank", no_argument, NULL, 12},
+                                       {"fasta-flank", no_argument, NULL, 13},
                                        {"sam-flank", required_argument, NULL, 's'},
                                        {NULL, 0, NULL, 0}};
     int c;
@@ -2286,28 +2451,32 @@ int run(int argc, char *argv[]) {
             if (gc_win <= 0) flags |= NO_INFO_GC;
             break;
         case 3:
+            probeset_ids_fname = optarg;
+            flags |= PROBESET_IDS_LOADED;
+            break;
+        case 4:
             calls_fname = optarg;
             flags |= CALLS_LOADED;
             break;
-        case 4:
+        case 5:
             confidences_fname = optarg;
             flags |= CONFIDENCES_LOADED;
             break;
-        case 5:
+        case 6:
             summary_fname = optarg;
             flags |= SUMMARY_LOADED;
             break;
-        case 6:
+        case 7:
             snp_fname = optarg;
             flags |= SNP_LOADED;
             break;
-        case 7:
+        case 10:
             pathname = optarg;
             break;
-        case 10:
+        case 11:
             flags |= LOAD_CEL;
             break;
-        case 11:
+        case 12:
             flags |= ADJUST_CLUSTERS;
             break;
         case 8:
@@ -2344,7 +2513,7 @@ int run(int argc, char *argv[]) {
         case 'v':
             flags |= VERBOSE;
             break;
-        case 12:
+        case 13:
             fasta_flank = 1;
             break;
         case 's':
@@ -2435,11 +2604,14 @@ int run(int argc, char *argv[]) {
     if (annot) {
         if (extra_fname && !(flags & LOAD_CEL)) {
             out_txt = get_file_handle(extra_fname);
-            agccs_to_tsv((agcc_t **)files, nfiles, out_txt);
+            chps_to_tsv(magic, (agcc_t **)files, nfiles, out_txt);
         }
         fai = fai_load(ref_fname);
         if (!fai) error("Could not load the reference %s\n", ref_fname);
         if (cache_size) fai_set_cache_size(fai, cache_size);
+
+        if (probeset_ids_fname) fprintf(stderr, "Reading probeset IDs file %s\n", probeset_ids_fname);
+        void *probeset_ids = probeset_ids_fname ? probeset_ids_init(probeset_ids_fname) : NULL;
         if (snp_fname) fprintf(stderr, "Reading SNP posteriors file %s\n", snp_fname);
         snp_models_t *snp_models = snp_fname ? snp_models_init(snp_fname) : NULL;
         fprintf(stderr, "Writing VCF file\n");
@@ -2458,9 +2630,10 @@ int run(int argc, char *argv[]) {
             varitr = varitr_init_cc(hdr, (agcc_t **)files, nfiles);
         else if (calls_fname || confidences_fname || summary_fname)
             varitr = varitr_init_txt(hdr, calls_fname, confidences_fname, summary_fname);
-        process(fai, annot, snp_models, varitr, out_fh, hdr, flags, gc_win);
+        process(fai, annot, probeset_ids, snp_models, varitr, out_fh, hdr, flags, gc_win);
         if (varitr) varitr_destroy(varitr);
         if (snp_models) snp_models_destroy(snp_models);
+        if (probeset_ids) khash_str2int_destroy_free(probeset_ids);
         fai_destroy(fai);
         bcf_hdr_destroy(hdr);
         hts_close(out_fh);
@@ -2483,7 +2656,7 @@ int run(int argc, char *argv[]) {
         } else if (flags & LOAD_CEL) {
             cels_to_tsv(magic, files, nfiles, out_txt);
         } else {
-            agccs_to_tsv((agcc_t **)files, nfiles, out_txt);
+            chps_to_tsv(magic, (agcc_t **)files, nfiles, out_txt);
         }
     }
 

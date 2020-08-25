@@ -476,7 +476,7 @@ static inline int get_strand_from_top_alleles(char *allele_a, char *allele_b, co
         else if (ref_base == rev_nt(*allele_a) || ref_base == rev_nt(*allele_b))
             return 1;
         else
-            error("Reference allele %c is not A/C/G/T\n", ref_base);
+            return -1; // Reference allele is not A/C/G/T
         break;
     case 1 | 8: // A and T
     case 2 | 4: // C and G
@@ -494,15 +494,12 @@ static inline int get_strand_from_top_alleles(char *allele_a, char *allele_b, co
             case 2 | 4:              // C and G
                 continue;
             default:
-                error(
-                    "Reference alleles %c and %c are not valid for TOP/BOT strand "
-                    "determination\n",
-                    ref[win - i], ref[win + i]);
+                return -1; // Flanking reference alleles are not valid alleles for TOP/BOT strand determination
             }
         }
-        error("Unable to determine reference sequence strand: %s\n", ref);
+        return -1; // Unable to determine reference sequence strand
     default:
-        error("Alleles %c and %c are not TOP alleles\n", *allele_a, *allele_b);
+        return -1; // Alleles are not TOP alleles
     }
 }
 
