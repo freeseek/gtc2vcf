@@ -33,7 +33,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-08-25"
+#define GTC2VCF_VERSION "2020-08-26"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -522,7 +522,7 @@ static int tsv_read_int32(tsv_t *tsv, bcf1_t *rec, void *usr) {
     char tmp = *tsv->se;
     *tsv->se = 0;
     char *endptr;
-    *int32 = (int32_t)strtol(tsv->ss, &endptr, 0);
+    *int32 = (int32_t)strtol(tsv->ss, &endptr, 10);
     *tsv->se = tmp;
     return 0;
 }
@@ -1944,16 +1944,26 @@ static inline char rev_allele(char allele) {
     return allele_complement[(int)allele];
 }
 
-static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, FILE *stream) {
+static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, FILE *stream, int flags) {
     // print header
-    fprintf(stream, "Index\tName\tAddress\tChr\tPosition\tGenTrain Score\tFrac A\tFrac C\tFrac G\tFrac T");
-    for (int i = 0; i < n; i++)
-        fprintf(stream,
-                "\t%s.GType\t%s.Score\t%s.Theta\t%s.R\t%s.B Allele Freq\t%s.Log R "
-                "Ratio\t%s.Top Alleles\t%s.Plus/Minus Alleles",
-                gtc[i]->display_name, gtc[i]->display_name, gtc[i]->display_name, gtc[i]->display_name,
-                gtc[i]->display_name, gtc[i]->display_name, gtc[i]->display_name, gtc[i]->display_name);
-    fprintf(stream, "\n");
+    fputs("Index\tName\tAddress\tChr\tPosition", stream);
+    if (flags & EGT_LOADED) fputs("\tGenTrain Score", stream);
+    if (flags & BPM_LOADED) fputs("\tFrac A\tFrac C\tFrac G\tFrac T", stream);
+    for (int i = 0; i < n; i++) {
+        if (flags & FORMAT_GT) fprintf(stream, "\t%s.GType", gtc[i]->display_name);
+        if (flags & FORMAT_IGC) fprintf(stream, "\t%s.Score", gtc[i]->display_name);
+        if (flags & BPM_LOOKUPS & FORMAT_THETA) fprintf(stream, "\t%s.Theta", gtc[i]->display_name);
+        if (flags & BPM_LOOKUPS & FORMAT_R) fprintf(stream, "\t%s.R", gtc[i]->display_name);
+        if (flags & FORMAT_BAF) fprintf(stream, "\t%s.B Allele Freq", gtc[i]->display_name);
+        if (flags & FORMAT_LRR) fprintf(stream, "\t%s.Log R Ratio", gtc[i]->display_name);
+        if (flags & FORMAT_X) fprintf(stream, "\t%s.X Raw", gtc[i]->display_name);
+        if (flags & FORMAT_Y) fprintf(stream, "\t%s.Y Raw", gtc[i]->display_name);
+        if (flags & BPM_LOOKUPS & FORMAT_NORMX) fprintf(stream, "\t%s.X", gtc[i]->display_name);
+        if (flags & BPM_LOOKUPS & FORMAT_NORMY) fprintf(stream, "\t%s.Y", gtc[i]->display_name);
+        if (flags & FORMAT_GT)
+            fprintf(stream, "\t%s.Top Alleles\t%s.Plus/Minus Alleles", gtc[i]->display_name, gtc[i]->display_name);
+    }
+    fputc('\n', stream);
 
     // print loci
     for (int j = 0; j < bpm->num_loci; j++) {
@@ -1963,10 +1973,12 @@ static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, F
                                                      ? 0
                                                      : (strcmp(locus_entry->ref_strand, "-") == 0 ? 1 : -1));
         if (strand < 0) error("Unable to process reference strand %s\n", locus_entry->ref_strand);
-        fprintf(stream, "%d\t%s\t%d\t%s\t%s\t%f\t%f\t%f\t%f\t%f", bpm->indexes ? bpm->indexes[j] : j, locus_entry->name,
-                locus_entry->address_a, locus_entry->chrom, locus_entry->map_info,
-                egt ? egt->cluster_records[j].cluster_score.total_score : NAN, locus_entry->frac_a, locus_entry->frac_c,
-                locus_entry->frac_g, locus_entry->frac_t);
+        fprintf(stream, "%d\t%s\t%d\t%s\t%s", bpm->indexes ? bpm->indexes[j] : j, locus_entry->name,
+                locus_entry->address_a, locus_entry->chrom, locus_entry->map_info);
+        if (flags & EGT_LOADED) fprintf(stream, "\t%f", egt->cluster_records[j].cluster_score.total_score);
+        if (flags & BPM_LOADED)
+            fprintf(stream, "\t%f\t%f\t%f\t%f", locus_entry->frac_a, locus_entry->frac_c, locus_entry->frac_g,
+                    locus_entry->frac_t);
         for (int i = 0; i < n; i++) {
             uint8_t genotype;
             get_element(gtc[i]->genotypes, (void *)&genotype, j);
@@ -2000,11 +2012,20 @@ static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, F
                 error("Unable to process marker %s\n", locus_entry->name);
                 break;
             }
-            fprintf(stream, "\t%s\t%f\t%f\t%f\t%f\t%f\t%c%c\t%c%c", code2genotype[genotype], genotype_score,
-                    intensities.ilmn_theta, intensities.ilmn_r, intensities.baf, intensities.lrr, base_call[0],
-                    base_call[1], ref_call[0], ref_call[1]);
+            if (flags & FORMAT_GT) fprintf(stream, "\t%s", code2genotype[genotype]);
+            if (flags & FORMAT_IGC) fprintf(stream, "\t%f", genotype_score);
+            if (flags & BPM_LOOKUPS & FORMAT_THETA) fprintf(stream, "\t%f", intensities.ilmn_theta);
+            if (flags & BPM_LOOKUPS & FORMAT_R) fprintf(stream, "\t%f", intensities.ilmn_r);
+            if (flags & FORMAT_BAF) fprintf(stream, "\t%f", intensities.baf);
+            if (flags & FORMAT_LRR) fprintf(stream, "\t%f", intensities.lrr);
+            if (flags & FORMAT_X) fprintf(stream, "\t%d", intensities.raw_x);
+            if (flags & FORMAT_Y) fprintf(stream, "\t%d", intensities.raw_y);
+            if (flags & BPM_LOOKUPS & FORMAT_NORMX) fprintf(stream, "\t%f", intensities.norm_x);
+            if (flags & BPM_LOOKUPS & FORMAT_NORMY) fprintf(stream, "\t%f", intensities.norm_y);
+            if (flags & FORMAT_GT)
+                fprintf(stream, "\t%c%c\t%c%c", base_call[0], base_call[1], ref_call[0], ref_call[1]);
         }
-        fprintf(stream, "\n");
+        fputc('\n', stream);
     }
 }
 
@@ -2684,6 +2705,11 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
 
         n_total++;
         if (!tsv_parse_delimiter(tsv, rec, line.s, '\t')) {
+            if (rec->rid < 0 || rec->pos < 0) {
+                if (flags & VERBOSE) fprintf(stderr, "Skipping unlocalized marker %s\n", rec->d.id);
+                n_skipped++;
+                continue;
+            }
             // determine A and B alleles
             allele_a[0] = '.';
             allele_b[0] = '.';
@@ -3281,7 +3307,7 @@ int run(int argc, char *argv[]) {
         if (nfiles == 1) fprintf(stderr, "Warning: it is recommended to convert multiple GTC files at once\n");
         if (output_type == FT_TAB_TEXT) {
             fprintf(stderr, "Writing GenomeStudio final report file\n");
-            gtcs_to_gs((gtc_t **)files, nfiles, bpm, egt, out_txt);
+            gtcs_to_gs((gtc_t **)files, nfiles, bpm, egt, out_txt, flags);
         } else {
             fprintf(stderr, "Writing VCF file\n");
             bcf_hdr_t *hdr = hdr_init(fai, flags);
