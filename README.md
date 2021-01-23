@@ -341,11 +341,7 @@ Heavy random access to the reference will be needed, so it is important that eno
 
 Optionally, between the conversion and the sorting step you can include a `bcftools reheader --samples <file>` command to assign new names to the samples where `<file>` contains `old_name new_name\n` pairs separated by whitespaces, each on a separate line, with `old_name` being the GTC file name without the `.gtc` extension in this case
 
-When running the conversion, the gtc2vcf plugin will double check that the SNP manifest metadata information in the GTC file matches the descriptor file name in the BPM file to make sure you are using the correct manifest file. Sometimes, due to discrepancies between the BPM file name provided by Illumina and the internal descriptor file name, this safety check fails. To turn off this feature in these cases, you can use `--do-not-check-bpm`
-```
-
-``` 
-exhibit discrepancies with their internal descriptor file name
+When running the conversion, the gtc2vcf plugin will double check that the SNP manifest metadata information in the GTC file matches the descriptor file name in the BPM file to make sure you are using the correct manifest file. Sometimes, due to discrepancies between the BPM file name provided by Illumina and the internal descriptor file name, this safety check fails. To turn off this feature in these cases, you can use option `--do-not-check-bpm`
 
 Convert Affymetrix CEL files to CHP files
 =========================================
