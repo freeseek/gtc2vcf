@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2020 Giulio Genovese
+   Copyright (c) 2018-2021 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -400,7 +400,7 @@ static inline int get_indel_alleles(kstring_t *allele_a, kstring_t *allele_b, co
 }
 
 static inline int get_allele_b_idx(char ref_base, char *allele_a, char *allele_b) {
-    if (*allele_a == '.' || *allele_b == '.') {
+    if (*allele_a == '.' && *allele_b == '.') {
         return -1;
     } else if (*allele_a == 'D' || *allele_a == 'I' || *allele_b == 'D' || *allele_b == 'I') {
         return 1;

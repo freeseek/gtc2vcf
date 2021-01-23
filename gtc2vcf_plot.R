@@ -2,7 +2,7 @@
 ###
 #  The MIT License
 #
-#  Copyright (C) 2019-2020 Giulio Genovese
+#  Copyright (C) 2019-2021 Giulio Genovese
 #
 #  Author: Giulio Genovese <giulio.genovese@gmail.com>
 #
@@ -25,7 +25,7 @@
 #  THE SOFTWARE.
 ###
 
-gtc2vcf_plot_version <- '2020-09-01'
+gtc2vcf_plot_version <- '2021-01-20'
 
 library(optparse)
 library(data.table)
@@ -59,7 +59,6 @@ write(paste('gtc2vcf_plot.R', gtc2vcf_plot_version, 'https://github.com/freeseek
 if (is.null(args$vcf)) {print_help(parser); stop('option --vcf is required')}
 if (is.null(args$chrom)) {print_help(parser); stop('option --chrom is required')}
 if (is.null(args$pos)) {print_help(parser); stop('option --pos is required')}
-if (!args$illumina && !args$affymetrix) {print_help(parser); stop('either --illumina or --affymetrix is required')}
 if (args$illumina && args$affymetrix) {print_help(parser); stop('cannot use --illumina and --affymetrix at the same time')}
 if (args$illumina && args$birdseed) {print_help(parser); stop('cannot use --illumina and --birdseed at the same time')}
 if (args$affymetrix && args$zcall) {print_help(parser); stop('cannot use --affymetrix and --zcall at the same time')}
@@ -75,11 +74,13 @@ if (args$illumina) {
   if (args$zcall) {
     info <- c(info, c('zthresh_X', 'zthresh_Y'))
   }
-}
-if (args$affymetrix) {
+} else if (args$affymetrix) {
   info <- c('meanX_AA', 'meanX_AB', 'meanX_BB', 'meanY_AA', 'meanY_AB', 'meanY_BB', 'varX_AA', 'varX_AB', 'varX_BB', 'varY_AA', 'varY_AB', 'varY_BB', 'covarXY_AA', 'covarXY_AB', 'covarXY_BB')
   info <- c(info, paste0(info, '.1'))
   format <- c('GT', 'NORMX', 'NORMY', 'DELTA', 'SIZE', 'BAF', 'LRR')
+} else {
+  info <- c()
+  format <- c('GT', 'BAF', 'LRR')
 }
 
 fmt <- paste0('"[%', paste(base, collapse = '\\t%'), paste(c('', info), collapse = '\\t%INFO/'), paste(c('', format), collapse = '\\t%'), '\\n]"')
@@ -174,6 +175,7 @@ if (args$minimal) {
   grid.arrange(p2, p4, nrow = 2, ncol = 1, heights = c(3, 4), top = unique(df$ID))
 } else {
   if (args$illumina) grid.arrange(p1, p2, p3, p4, nrow = 4, ncol = 1, heights = c(3, 3, 3, 4), top = unique(df$ID))
-  if (args$affymetrix) grid.arrange(p2, p3, p4, nrow = 3, ncol = 1, heights = c(3, 3, 4), top = unique(df$ID))
+  else if (args$affymetrix) grid.arrange(p2, p3, p4, nrow = 3, ncol = 1, heights = c(3, 3, 4), top = unique(df$ID))
+  else grid.arrange(p4, nrow = 1, ncol = 1, top = unique(df$ID))
 }
 invisible(dev.off())

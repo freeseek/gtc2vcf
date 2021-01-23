@@ -130,7 +130,7 @@ Installation
 
 Install basic tools (Debian/Ubuntu specific if you have admin privileges)
 ```
-sudo apt install wget git g++ zlib1g-dev bwa unzip samtools msitools cabextract mono-devel libgdiplus libicu66 bcftools
+sudo apt install wget unzip git g++ zlib1g-dev bwa unzip samtools msitools cabextract mono-devel libgdiplus libicu66 bcftools
 ```
 
 Optionally, you can install these libraries to activate further HTSlib features:
@@ -140,10 +140,10 @@ sudo apt install libbz2-dev libssl-dev liblzma-dev libgsl0-dev
 
 Preparation steps
 ```
-mkdir -p $HOME/bin $HOME/res && cd /tmp
+mkdir -p $HOME/bin $HOME/GRCh3[78] && cd /tmp
 ```
 
-We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download <a href="http://software.broadinstitute.org/software/gtc2vcf">here</a>. However, notice that you will require a copy of BCFtools 1.10 or newer (available with Ubuntu 20.04)
+We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download <a href="http://software.broadinstitute.org/software/gtc2vcf">here</a>. However, notice that you will require BCFtools version 1.11 or newer
 
 Download latest version of <a href="https://github.com/samtools/htslib">HTSlib</a> and <a href="https://github.com/samtools/bcftools">BCFtools</a> (if not downloaded already)
 ```
@@ -170,20 +170,28 @@ export PATH="$HOME/bin:$PATH"
 export BCFTOOLS_PLUGINS="$HOME/bin"
 ```
 
+Alternatively, you can download gtc2vcf's binaries using the following code
+```
+wget http://ftp.us.debian.org/debian/pool/main/h/htslib/libhts3_1.11-2_amd64.deb
+wget http://ftp.us.debian.org/debian/pool/main/b/bcftools/bcftools_1.11-1_amd64.deb
+wget http://software.broadinstitute.org/software/gtc2vcf/gtc2vcf_1.11-dev_amd64.deb
+sudo apt install ./{libhts3_1.11-2,bcftools_1.11-1,gtc2vcf_1.11-dev}_amd64.deb
+```
+
 Install the GRCh37 human genome reference
 ```
 wget -O- ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/reference/human_g1k_v37.fasta.gz | \
-  gzip -d > $HOME/res/human_g1k_v37.fasta
-samtools faidx $HOME/res/human_g1k_v37.fasta
-bwa index $HOME/res/human_g1k_v37.fasta
+  gzip -d > $HOME/GRCh37/human_g1k_v37.fasta
+samtools faidx $HOME/GRCh37/human_g1k_v37.fasta
+bwa index $HOME/GRCh37/human_g1k_v37.fasta
 ```
 
 Install the GRCh38 human genome reference (following the suggestion from <a href="http://lh3.github.io/2017/11/13/which-human-reference-genome-to-use">Heng Li</a>)
 ```
 wget -O- ftp://ftp.ncbi.nlm.nih.gov/genomes/all/GCA/000/001/405/GCA_000001405.15_GRCh38/seqs_for_alignment_pipelines.ucsc_ids/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna.gz | \
-  gzip -d > $HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
-samtools faidx $HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
-bwa index $HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
+  gzip -d > $HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
+samtools faidx $HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
+bwa index $HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
 ```
 
 Software Installation
@@ -247,12 +255,15 @@ Convert Illumina IDAT files to GTC files
 
 Once iaap-cli is properly installed in your system, run Illumina's proprietary GenCall algorithm on multiple IDAT file pairs
 ```
-$HOME/bin/iaap-cli/iaap-cli gencall \
+LANG="en_US.UTF-8" $HOME/bin/iaap-cli/iaap-cli gencall \
   $bpm_manifest_file \
   $egt_cluster_file \
   $path_to_output_folder \
-  -f $path_to_idat_folder -g
+  --idat-folder $path_to_idat_folder \
+  --output-gtc \
+  --gender-estimate-call-rate-threshold -0.1
 ```
+It is important to set the `LANG` environmental variable to `en_US.UTF-8`, if this is set to other values, due to a bug in `iaap-cli` causing malformed GTC files to be generated as a result
 
 Alternatively, once Mono and AutoConvert are properly installed on your system, run Illumina's proprietary GenCall algorithm on a single IDAT file pair
 ```
@@ -312,7 +323,7 @@ bpm_manifest_file="..."
 csv_manifest_file="..."
 egt_cluster_file="..."
 path_to_gtc_folder="..."
-ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
+ref="$HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/GRCh37/human_g1k_v37.fasta"
 out_prefix="..."
 bcftools +gtc2vcf \
   --no-version -Ou \
@@ -326,7 +337,9 @@ bcftools +gtc2vcf \
   bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
   bcftools index -f $out_prefix.bcf
 ```
-Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Normalized intensities cannot be computed without the BPM manifest file. Indel alleles cannot be inferred and will be skipped without the CSV manifest file. Information about genotype cluster centers will be included in the VCF if the EGT cluster file is provided. You can use gtc2vcf to convert one GTC file at a time, but we strongly advise to convert multiple files at once as single sample VCF files will consume a lot of storage space. If you convert hundreds of GTC files at once, you can use the `--adjust-clusters` option which will recenter the genotype clusters rather than using those provided in the EGT cluster file and will compute less noisy LRR values. If you use the `--adjust-clusters` option and you are using the output for calling <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>, then it is safe to turn the median BAF/LRR adjustments off during that step (i.e. use `--adjust-BAF-LRR -1`)
+Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d exact` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Normalized intensities cannot be computed without the BPM manifest file. Indel alleles cannot be inferred and will be skipped without the CSV manifest file. Information about genotype cluster centers will be included in the VCF if the EGT cluster file is provided. You can use gtc2vcf to convert one GTC file at a time, but we strongly advise to convert multiple files at once as single sample VCF files will consume a lot of storage space. If you convert hundreds of GTC files at once, you can use the `--adjust-clusters` option which will recenter the genotype clusters rather than using those provided in the EGT cluster file and will compute less noisy LRR values. If you use the `--adjust-clusters` option and you are using the output for calling <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>, then it is safe to turn the median BAF/LRR adjustments off during that step (i.e. use `--adjust-BAF-LRR -1`)
+
+Optionally, between the conversion and the sorting step you can include a `bcftools reheader --samples <file>` command to assign new names to the samples where `<file>` contains `old_name new_name\n` pairs separated by whitespaces, each on a separate line, with `old_name` being the GTC file name without the `.gtc` extension in this case
 
 When running the conversion, the gtc2vcf plugin will double check that the SNP manifest metadata information in the GTC file matches the descriptor file name in the BPM file to make sure you are using the correct manifest file. Sometimes, due to discrepancies between the BPM file name provided by Illumina and the internal descriptor file name, this safety check fails. To turn off this feature in these cases, you can use `--do-not-check-bpm`
 ```
@@ -374,7 +387,7 @@ Convert Affymetrix CHP files to VCF
 The affy2vcf bcftools plugin can be used to convert Affymetrix CHP files to VCF
 ```
 csv_manifest_file="..." # for example csv_manifest_file="GenomeWideSNP_6.na35.annot.csv"
-ref="$HOME/res/human_g1k_v37.fasta" # or ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna"
+ref="$HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/GRCh37/human_g1k_v37.fasta" 
 path_to_chp_folder="cc-chp"
 path_to_txt_folder="..."
 out_prefix="..."
@@ -389,7 +402,9 @@ bcftools +affy2vcf \
   bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
   bcftools index -f $out_prefix.bcf
 ```
-Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. The final VCF might contain duplicates. If this is an issue `bcftools norm -d` can be used to remove such variants. There is often no need to use the `--adjust-clusters` option for Affymetrix data as the cluster posteriors are already adjusted using the data processed by the genotype caller
+Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. The final VCF might contain duplicates. If this is an issue `bcftools norm -d exact` can be used to remove such variants. There is often no need to use the `--adjust-clusters` option for Affymetrix data as the cluster posteriors are already adjusted using the data processed by the genotype caller
+
+Optionally, between the conversion and the sorting step you can include a `bcftools reheader --samples <file>` command to assign new names to the samples where `<file>` contains `old_name new_name\n` pairs separated by whitespaces, each on a separate line, with `old_name` being the CHP file name without the `.chp` extension
 
 Using an alternative genome reference
 =====================================
@@ -399,7 +414,7 @@ Illumina provides <a href="https://support.illumina.com/bulletins/2017/04/infini
 You first have to generate an alignment file for the source sequences from a CSV manifest file
 ```
 csv_manifest_file="..."
-ref="$HOME/res/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/res/human_g1k_v37.fasta"
+ref="$HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/GRCh37/human_g1k_v37.fasta"
 bam_alignment_file="..."
 bcftools +gtc2vcf \
   -c $csv_manifest_file \

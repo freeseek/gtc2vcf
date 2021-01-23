@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2020 Giulio Genovese
+   Copyright (c) 2018-2021 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2020-09-01"
+#define AFFY2VCF_VERSION "2021-01-20"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -739,6 +739,7 @@ static void chps_to_tsv(uint8_t *magic, agcc_t **agcc, int n, FILE *stream) {
     // cn-probe-chrXY-ratio_gender_meanY, cn-probe-chrXY-ratio_gender_ratio,
     // cn-probe-chrXY-ratio_gender while BRLMM-P analysis has also em-cluster-chrX-het-contrast_gender
     // em-cluster-chrX-het-contrast_gender_chrX_het_rate
+    // pm_mean
     static const wchar_t *chipsummary[] = {L"computed_gender",
                                            L"call_rate",
                                            L"total_call_rate",
@@ -753,10 +754,9 @@ static void chps_to_tsv(uint8_t *magic, agcc_t **agcc, int n, FILE *stream) {
                                            L"allele_deviation_mean",
                                            L"allele_deviation_stdev",
                                            L"allele_mad_residuals_mean",
-                                           L"allele_mad_residuals_stdev",
-                                           L"pm_mean"};
+                                           L"allele_mad_residuals_stdev"};
     fputs("chp", stream);
-    for (int j = 0; j < 16; j++) fprintf(stream, "\t%ls", chipsummary[j]);
+    for (int j = 0; j < 15; j++) fprintf(stream, "\t%ls", chipsummary[j]);
     fputc('\n', stream);
     for (int i = 0; i < n; i++) {
         if (magic[i] != 59) continue;
@@ -773,7 +773,7 @@ static void chps_to_tsv(uint8_t *magic, agcc_t **agcc, int n, FILE *stream) {
         }
         fputs(strrchr(agcc[i]->fn, '/') ? strrchr(agcc[i]->fn, '/') + 1 : agcc[i]->fn, stream);
         DataHeader *data_header = &agcc[i]->data_header;
-        for (int j = 0, k = 0; j < 16; j++) {
+        for (int j = 0, k = 0; j < 15; j++) {
             fputc('\t', stream);
             while (!data_header->parameters[k].name
                    || wcsncmp(data_header->parameters[k].name, L"affymetrix-chipsummary-", 23) != 0
@@ -1944,9 +1944,9 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags) {
         bcf_hdr_append(hdr,
                        "##INFO=<ID=GC,Number=1,Type=Float,Description=\"GC ratio content "
                        "around the variant\">");
-    if (flags & CALLS_LOADED && flags & FORMAT_GT)
+    if ((flags & CALLS_LOADED) && (flags & FORMAT_GT))
         bcf_hdr_append(hdr, "##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">");
-    if (flags & CONFIDENCES_LOADED && flags & FORMAT_CONF)
+    if ((flags & CONFIDENCES_LOADED) && (flags & FORMAT_CONF))
         bcf_hdr_append(hdr, "##FORMAT=<ID=CONF,Number=1,Type=Float,Description=\"Genotype confidence\">");
     if (flags & SUMMARY_LOADED) {
         if (flags & FORMAT_NORMX)
@@ -2105,7 +2105,7 @@ static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_
             int ret = khash_str2int_get(annot->probeset_id, varitr->probeset_id, &idx);
             if (ret < 0) error("Probe Set %s not found in manifest file\n", varitr->probeset_id);
         } else {
-            if (!khash_str2int_has_key(probeset_ids, annot->records[i].probeset_id)) {
+            if (probeset_ids && !khash_str2int_has_key(probeset_ids, annot->records[i].probeset_id)) {
                 n_skipped++;
                 continue;
             }
@@ -2131,7 +2131,9 @@ static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_
 
         int len, win = min(max(max(gc_win, strlen(flank.s)), 100), rec->pos);
         char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos - win, rec->pos + win, &len);
-        if (!ref || len == 1) error("faidx_fetch_seq failed at %s:%" PRId64 "\n", bcf_seqname(hdr, rec), rec->pos + 1);
+        if (!ref || len == 1)
+            error("faidx_fetch_seq failed at %s:%" PRId64 " (are you using the correct reference genome?)\n",
+                  bcf_seqname(hdr, rec), rec->pos + 1);
         strupper(ref);
         if (!(flags & NO_INFO_GC)) {
             float gc_ratio = get_gc_ratio(&ref[max(win - gc_win, 0)], &ref[min(win + gc_win, len)]);

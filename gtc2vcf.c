@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2020 Giulio Genovese
+   Copyright (c) 2018-2021 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -33,7 +33,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2020-08-26"
+#define GTC2VCF_VERSION "2021-01-20"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -48,23 +48,22 @@
 #define VERBOSE (1 << 0)
 #define BPM_LOADED (1 << 1)
 #define CSV_LOADED (1 << 2)
-#define BPM_LOOKUPS (1 << 3)
-#define EGT_LOADED (1 << 4)
-#define LOAD_IDAT (1 << 5)
-#define ADJUST_CLUSTERS (1 << 6)
-#define GENOME_STUDIO (1 << 7)
-#define NO_INFO_GC (1 << 8)
-#define FORMAT_GT (1 << 9)
-#define FORMAT_GQ (1 << 10)
-#define FORMAT_IGC (1 << 11)
-#define FORMAT_BAF (1 << 12)
-#define FORMAT_LRR (1 << 13)
-#define FORMAT_NORMX (1 << 14)
-#define FORMAT_NORMY (1 << 15)
-#define FORMAT_R (1 << 16)
-#define FORMAT_THETA (1 << 17)
-#define FORMAT_X (1 << 18)
-#define FORMAT_Y (1 << 19)
+#define EGT_LOADED (1 << 3)
+#define LOAD_IDAT (1 << 4)
+#define ADJUST_CLUSTERS (1 << 5)
+#define GENOME_STUDIO (1 << 6)
+#define NO_INFO_GC (1 << 7)
+#define FORMAT_GT (1 << 8)
+#define FORMAT_GQ (1 << 9)
+#define FORMAT_IGC (1 << 10)
+#define FORMAT_BAF (1 << 11)
+#define FORMAT_LRR (1 << 12)
+#define FORMAT_NORMX (1 << 13)
+#define FORMAT_NORMY (1 << 14)
+#define FORMAT_R (1 << 15)
+#define FORMAT_THETA (1 << 16)
+#define FORMAT_X (1 << 17)
+#define FORMAT_Y (1 << 18)
 
 /****************************************
  * hFILE READING FUNCTIONS              *
@@ -861,6 +860,8 @@ static void clusterrecord_read(ClusterRecord *clusterrecord, hFILE *hfile, int32
     if (data_block_version >= 7) {
         read_bytes(hfile, (void *)&clusterrecord->intensity_threshold, sizeof(float));
         read_bytes(hfile, NULL, 14 * sizeof(float));
+    } else {
+        clusterrecord->intensity_threshold = NAN;
     }
 }
 
@@ -1020,6 +1021,7 @@ static chip_type_t chip_types[] = {
     {"1-95um_multi-swath_for_8x2-5M", 2266367, 2266367, "Multi-EthnicGlobal"},
     {"1-95um_multi-swath_for_8x2-5M", 2266404, 2266404, "Multi-EthnicGlobal"},
     {"1-95um_multi-swath_for_8x2-5M", 2266406, 2266406, "Multi-EthnicGlobal"},
+    {"1-95um_multi-swath_for_8x2-5M", 2268676, 2268676, "MEGAEx_BioVU_15075710"},
     {"1-95um_multi-swath_for_8x2-5M", 2315574, 2315574, "Multi-EthnicGlobal"},
     {"1-95um_multi-swath_for_8x2-5M", 2389000, 2389000, "CCPMBiobankMEGA2_20002558X345183"},
     {"1-95um_multi-swath_for_8x2-5M", 2550870, 2550870, "HumanOmni2.5-8v1"},
@@ -1052,6 +1054,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 24x1x4", 716279, 716279, "InfiniumOmniExpress-24v1-2"},
     {"BeadChip 24x1x4", 718963, 718963, "HumanOmniExpress-24-v1-0"},
     {"BeadChip 24x1x4", 719234, 719234, "HumanOmniExpress-24-v1-0"},
+    {"BeadChip 24x1x4", 751614, 751614, "GSA-24v3-0"},
     {"BeadChip 24x1x4", 780509, 780509, "GSAMD-24v2-0_20024620"},
     {"BeadChip 24x1x4", 818205, 818205, "GSA-24v2-0"},
     {"BeadChip 2x10", 321354, 37161, "HumanHap300v2"},
@@ -1952,14 +1955,14 @@ static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, F
     for (int i = 0; i < n; i++) {
         if (flags & FORMAT_GT) fprintf(stream, "\t%s.GType", gtc[i]->display_name);
         if (flags & FORMAT_IGC) fprintf(stream, "\t%s.Score", gtc[i]->display_name);
-        if (flags & BPM_LOOKUPS & FORMAT_THETA) fprintf(stream, "\t%s.Theta", gtc[i]->display_name);
-        if (flags & BPM_LOOKUPS & FORMAT_R) fprintf(stream, "\t%s.R", gtc[i]->display_name);
+        if ((flags & BPM_LOADED) && (flags & FORMAT_THETA)) fprintf(stream, "\t%s.Theta", gtc[i]->display_name);
+        if ((flags & BPM_LOADED) && (flags & FORMAT_R)) fprintf(stream, "\t%s.R", gtc[i]->display_name);
         if (flags & FORMAT_BAF) fprintf(stream, "\t%s.B Allele Freq", gtc[i]->display_name);
         if (flags & FORMAT_LRR) fprintf(stream, "\t%s.Log R Ratio", gtc[i]->display_name);
         if (flags & FORMAT_X) fprintf(stream, "\t%s.X Raw", gtc[i]->display_name);
         if (flags & FORMAT_Y) fprintf(stream, "\t%s.Y Raw", gtc[i]->display_name);
-        if (flags & BPM_LOOKUPS & FORMAT_NORMX) fprintf(stream, "\t%s.X", gtc[i]->display_name);
-        if (flags & BPM_LOOKUPS & FORMAT_NORMY) fprintf(stream, "\t%s.Y", gtc[i]->display_name);
+        if ((flags & BPM_LOADED) && (flags & FORMAT_NORMX)) fprintf(stream, "\t%s.X", gtc[i]->display_name);
+        if ((flags & BPM_LOADED) && (flags & FORMAT_NORMY)) fprintf(stream, "\t%s.Y", gtc[i]->display_name);
         if (flags & FORMAT_GT)
             fprintf(stream, "\t%s.Top Alleles\t%s.Plus/Minus Alleles", gtc[i]->display_name, gtc[i]->display_name);
     }
@@ -2014,14 +2017,14 @@ static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, F
             }
             if (flags & FORMAT_GT) fprintf(stream, "\t%s", code2genotype[genotype]);
             if (flags & FORMAT_IGC) fprintf(stream, "\t%f", genotype_score);
-            if (flags & BPM_LOOKUPS & FORMAT_THETA) fprintf(stream, "\t%f", intensities.ilmn_theta);
-            if (flags & BPM_LOOKUPS & FORMAT_R) fprintf(stream, "\t%f", intensities.ilmn_r);
+            if ((flags & BPM_LOADED) && (flags & FORMAT_THETA)) fprintf(stream, "\t%f", intensities.ilmn_theta);
+            if ((flags & BPM_LOADED) && (flags & FORMAT_R)) fprintf(stream, "\t%f", intensities.ilmn_r);
             if (flags & FORMAT_BAF) fprintf(stream, "\t%f", intensities.baf);
             if (flags & FORMAT_LRR) fprintf(stream, "\t%f", intensities.lrr);
             if (flags & FORMAT_X) fprintf(stream, "\t%d", intensities.raw_x);
             if (flags & FORMAT_Y) fprintf(stream, "\t%d", intensities.raw_y);
-            if (flags & BPM_LOOKUPS & FORMAT_NORMX) fprintf(stream, "\t%f", intensities.norm_x);
-            if (flags & BPM_LOOKUPS & FORMAT_NORMY) fprintf(stream, "\t%f", intensities.norm_y);
+            if ((flags & BPM_LOADED) && (flags & FORMAT_NORMX)) fprintf(stream, "\t%f", intensities.norm_x);
+            if ((flags & BPM_LOADED) && (flags & FORMAT_NORMY)) fprintf(stream, "\t%f", intensities.norm_y);
             if (flags & FORMAT_GT)
                 fprintf(stream, "\t%c%c\t%c%c", base_call[0], base_call[1], ref_call[0], ref_call[1]);
         }
@@ -2144,7 +2147,7 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags) {
     if (flags & FORMAT_BAF)
         bcf_hdr_append(hdr, "##FORMAT=<ID=BAF,Number=1,Type=Float,Description=\"B Allele Frequency\">");
     if (flags & FORMAT_LRR) bcf_hdr_append(hdr, "##FORMAT=<ID=LRR,Number=1,Type=Float,Description=\"Log R Ratio\">");
-    if ((flags & BPM_LOOKUPS) | (flags & GENOME_STUDIO)) {
+    if ((flags & BPM_LOADED) | (flags & GENOME_STUDIO)) {
         if (flags & FORMAT_NORMX)
             bcf_hdr_append(hdr,
                            "##FORMAT=<ID=NORMX,Number=1,Type=Float,Description=\"Normalized X "
@@ -2237,7 +2240,9 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
         int len, win = min(max(100, locus_entry->source_seq ? max(gc_win, strlen(locus_entry->source_seq)) : gc_win),
                            rec->pos);
         char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos - win, rec->pos + win, &len);
-        if (!ref || len == 1) error("faidx_fetch_seq failed at %s:%" PRId64 "\n", bcf_seqname(hdr, rec), rec->pos + 1);
+        if (!ref || len == 1)
+            error("faidx_fetch_seq failed at %s:%" PRId64 " (are you using the correct reference genome?)\n",
+                  bcf_seqname(hdr, rec), rec->pos + 1);
         strupper(ref);
         if (!(flags & NO_INFO_GC)) {
             float gc_ratio = get_gc_ratio(&ref[max(win - gc_win, 0)], &ref[min(win + gc_win, len)]);
@@ -2436,7 +2441,7 @@ static int tsv_setter_gs_col(tsv_t *tsv, bcf1_t *rec, void *usr) {
     switch (gs_col->type) {
     case GS_GT:
         gts = (uint8_t *)gs_col->ptr + gs_col->col2sample[tsv->icol];
-        if (tsv->ss[0] == 'N' && tsv->ss[1] == 'C')
+        if ((tsv->ss[0] == 'N' && tsv->ss[1] == 'C') || (tsv->ss[0] == '-' && tsv->ss[1] == '-'))
             *gts = GT_NC;
         else if (tsv->ss[0] == 'A' && tsv->ss[1] == 'A')
             *gts = GT_AA;
@@ -2532,15 +2537,15 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
             if ((bcf_hdr_id2int(hdr, BCF_DT_SAMPLE, &line.s[off[i]]) < 0)) bcf_hdr_add_sample(hdr, &line.s[off[i]]);
             if (strcmp(ptr, "GType") == 0)
                 kputs("GT", &str);
-            else if (strcmp(ptr, "Score") == 0)
+            else if (strcmp(ptr, "Score") == 0 || strcmp(ptr, "GC Score") == 0)
                 kputs("IGC", &str);
-            else if (strcmp(ptr, "Theta") == 0)
+            else if (strcmp(ptr, "Theta") == 0 || strcmp(ptr, "Theta Illumina") == 0)
                 kputs("THETA", &str);
-            else if (strcmp(ptr, "R") == 0)
+            else if (strcmp(ptr, "R") == 0 || strcmp(ptr, "R Illumina") == 0)
                 kputc('R', &str);
-            else if (strcmp(ptr, "X Raw") == 0)
+            else if (strcmp(ptr, "X Raw") == 0 || strcmp(ptr, "Raw X") == 0)
                 kputc('X', &str);
-            else if (strcmp(ptr, "Y Raw") == 0)
+            else if (strcmp(ptr, "Y Raw") == 0 || strcmp(ptr, "Raw Y") == 0)
                 kputc('Y', &str);
             else if (strcmp(ptr, "X") == 0)
                 kputs("NORMX", &str);
@@ -2571,7 +2576,7 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
             ptr = &line.s[off[i]];
             if (strcmp(ptr, "Index") == 0)
                 kputc('-', &str);
-            else if (strcmp(ptr, "Name") == 0)
+            else if (strcmp(ptr, "Name") == 0 || strcmp(ptr, "SNP Name") == 0)
                 kputs("ID", &str);
             else if (strcmp(ptr, "Address") == 0)
                 kputc('-', &str);
@@ -2736,7 +2741,8 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
             int len, win = min(max(100, gc_win), rec->pos);
             char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos - win, rec->pos + win, &len);
             if (!ref || len == 1)
-                error("faidx_fetch_seq failed at %s:%" PRId64 "\n", bcf_seqname(hdr, rec), rec->pos + 1);
+                error("faidx_fetch_seq failed at %s:%" PRId64 " (are you using the correct reference genome?)\n",
+                      bcf_seqname(hdr, rec), rec->pos + 1);
             strupper(ref);
             if (!(flags & NO_INFO_GC)) {
                 float gc_ratio = get_gc_ratio(&ref[max(win - gc_win, 0)], &ref[min(win + gc_win, len)]);
@@ -2816,7 +2822,7 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
             if (gs_raw_y.ptr) bcf_update_format_int32(hdr, rec, "Y", (int32_t *)gs_raw_y.ptr, nsamples);
             if (bcf_write(out_fh, hdr, rec) < 0) error("Unable to write to output VCF file\n");
         } else {
-            if (flags & VERBOSE) fprintf(stderr, "Skipping unlocalized marker %s\n", rec->d.id);
+            if (flags & VERBOSE) fprintf(stderr, "Failed to process marker %s\n", rec->d.id);
             n_skipped++;
         }
     }
@@ -3150,11 +3156,16 @@ int run(int argc, char *argv[]) {
             error("Manifest file required when converting to VCF\n%s", usage_text());
         if (!egt_fname && (flags & ADJUST_CLUSTERS))
             error("Cluster file required when adjusting cluster centers\n%s", usage_text());
-        if (gs_fname && (argc - optind > 0 || pathname || output_type == FT_TAB_TEXT))
+        if (gs_fname && (bpm_fname || csv_fname || egt_fname || sam_fname))
             error(
-                "If a GenomeStudio final report file is provided, do not pass GTC files and do "
-                "not output to GenomeStudio format\n%s",
+                "If a GenomeStudio final report file is provided, you cannot use --bpm/--csv/--egt/--sam-flank "
+                "options\n%s",
                 usage_text());
+        if (gs_fname && (argc - optind > 0 || pathname))
+            error("If a GenomeStudio final report file is provided, do not pass GTC files\n%s", usage_text());
+        if (gs_fname && output_type == FT_TAB_TEXT)
+            error("If a GenomeStudio final report file is provided, you cannot output in GenomeStudio format\n%s",
+                  usage_text());
         if (argc - optind > 0 && pathname)
             error("GTC files cannot be listed through both command interface and file list\n%s", usage_text());
         if (!gs_fname && output_type != FT_TAB_TEXT && extra_fname) out_txt = get_file_handle(extra_fname);
@@ -3177,11 +3188,12 @@ int run(int argc, char *argv[]) {
     // make sure the process is allowed to open enough files
     struct rlimit lim;
     getrlimit(RLIMIT_NOFILE, &lim);
-    if (nfiles + 7 > lim.rlim_max)
+    if (nfiles + 10 > lim.rlim_max)
         error("On this system you cannot open more than %ld files at once while %d is required\n", lim.rlim_max,
-              nfiles + 7);
-    if (nfiles + 7 > lim.rlim_cur) {
-        lim.rlim_cur = nfiles + 7;
+              nfiles + 10);
+    if (nfiles + 10 > lim.rlim_cur) {
+        lim.rlim_cur = nfiles + 10;
+        fprintf(stderr, "Adjusting the limit of how many files can be open at once to %ld\n", lim.rlim_cur);
         setrlimit(RLIMIT_NOFILE, &lim);
     }
 
@@ -3252,9 +3264,8 @@ int run(int argc, char *argv[]) {
             j++;
         }
         if (beadset_order && out_txt) fprintf(out_txt, "%s,%s\n", bpm->manifest_name, str.s);
-        flags |= BPM_LOOKUPS;
     }
-    if ((flags & ADJUST_CLUSTERS) && !(flags & BPM_LOOKUPS))
+    if ((flags & ADJUST_CLUSTERS) && !(flags & BPM_LOADED))
         error("Cannot adjust clusters as couldn't generate the normalization lookup table\n");
 
     egt_t *egt = NULL;
@@ -3319,7 +3330,7 @@ int run(int argc, char *argv[]) {
                 bcf_hdr_printf(hdr, "##EGT=%s", strrchr(egt_fname, '/') ? strrchr(egt_fname, '/') + 1 : egt_fname);
             if (sam_fname)
                 bcf_hdr_printf(hdr, "##SAM=%s", strrchr(sam_fname, '/') ? strrchr(sam_fname, '/') + 1 : sam_fname);
-            if (bpm && flags & BPM_LOOKUPS) bcf_hdr_printf(hdr, "##BeadSet_Order=%s", str.s);
+            if ((flags & BPM_LOADED) && (flags & CSV_LOADED)) bcf_hdr_printf(hdr, "##BeadSet_Order=%s", str.s);
             if (record_cmd_line) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+gtc2vcf");
             if (gs_fname) {
                 htsFile *gs_fh = hts_open(gs_fname, "r");
