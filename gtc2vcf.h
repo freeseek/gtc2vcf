@@ -383,15 +383,15 @@ static inline int get_indel_alleles(kstring_t *allele_a, kstring_t *allele_b, co
 
     int del_left = len_common_suffix(left - 1, &ref[win], left - flank);
     int del_right = len_common_prefix(right + 1, &ref[win] + 1, strlen(right + 1));
-    int ins_match = 0 == strncmp(middle + 1, &ref[win], right - middle - 1);
+    int ins_match = strncmp(middle + 1, &ref[win], right - middle - 1) == 0;
     int ins_left = len_common_suffix(left - 1, &ref[win] - 1, left - flank);
     int ins_right = len_common_prefix(right + 1, &ref[win] + (right - middle) - 1, strlen(right + 1));
     int ref_is_del = (del_left >= ins_left) && (del_right >= ins_right);
     if ((ref_is_del && del_left * del_right == 0) || (!ref_is_del && (!ins_match || ins_left * ins_right == 0))) {
         ref_is_del = -1;
     } else {
-        allele_a->l = allele_b->l = 0;
         int allele_b_is_del = allele_b->s[0] == 'D';
+        allele_a->l = allele_b->l = 0;
         kputc(ref[win - 1 + ref_is_del], allele_a);
         kputc(ref[win - 1 + ref_is_del], allele_b);
         kputsn(ref_is_del ? middle + 1 : &ref[win], right - middle - 1, allele_b_is_del ? allele_a : allele_b);

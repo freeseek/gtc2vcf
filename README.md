@@ -133,7 +133,7 @@ Install basic tools (Debian/Ubuntu specific if you have admin privileges)
 sudo apt install wget unzip git g++ zlib1g-dev bwa unzip samtools msitools cabextract mono-devel libgdiplus libicu66 bcftools
 ```
 
-Optionally, you can install these libraries to activate further HTSlib features:
+Optionally, you can install these libraries to activate further HTSlib features
 ```
 sudo apt install libbz2-dev libssl-dev liblzma-dev libgsl0-dev
 ```
@@ -147,7 +147,7 @@ We recommend compiling the source code but, wherever this is not possible, Linux
 
 Download latest version of <a href="https://github.com/samtools/htslib">HTSlib</a> and <a href="https://github.com/samtools/bcftools">BCFtools</a> (if not downloaded already)
 ```
-git clone --branch=develop git://github.com/samtools/htslib.git
+git clone --branch=develop --recurse-submodules git://github.com/samtools/htslib.git
 git clone --branch=develop git://github.com/samtools/bcftools.git
 ```
 
@@ -172,10 +172,10 @@ export BCFTOOLS_PLUGINS="$HOME/bin"
 
 Alternatively, you can download gtc2vcf's binaries using the following code
 ```
-wget http://ftp.us.debian.org/debian/pool/main/h/htslib/libhts3_1.11-2_amd64.deb
+wget http://ftp.us.debian.org/debian/pool/main/h/htslib/libhts3_1.11-4_amd64.deb
 wget http://ftp.us.debian.org/debian/pool/main/b/bcftools/bcftools_1.11-1_amd64.deb
 wget http://software.broadinstitute.org/software/gtc2vcf/gtc2vcf_1.11-dev_amd64.deb
-sudo apt install ./{libhts3_1.11-2,bcftools_1.11-1,gtc2vcf_1.11-dev}_amd64.deb
+sudo apt install ./{libhts3_1.11-4,bcftools_1.11-1,gtc2vcf_1.11-dev}_amd64.deb
 ```
 
 Install the GRCh37 human genome reference
@@ -383,7 +383,7 @@ Convert Affymetrix CHP files to VCF
 The affy2vcf bcftools plugin can be used to convert Affymetrix CHP files to VCF
 ```
 csv_manifest_file="..." # for example csv_manifest_file="GenomeWideSNP_6.na35.annot.csv"
-ref="$HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/GRCh37/human_g1k_v37.fasta" 
+ref="$HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/GRCh37/human_g1k_v37.fasta"
 path_to_chp_folder="cc-chp"
 path_to_txt_folder="..."
 out_prefix="..."
@@ -419,7 +419,7 @@ bcftools +gtc2vcf \
   samtools view -bS \
   -o $bam_alignment_file
 ```
-Notice that you need to use the `-M` option to mark shorter split hits as secondary. Then you load the alignment file while converting your GTC files to VCF including the `-s $bam_alignment_file` option
+Notice that you need to use the `-M` option to mark shorter split hits as secondary and you should not sort the output BAM file as gtc2vcf expects it to have the sequences in the same order as in the CSV file . Then you load the alignment file while converting your GTC files to VCF including the `-s $bam_alignment_file` option
 
 Some older manifest files from Illumina have thousands of markers with incorrect RefStrand annotations that will lead to incorrect genotypes. While Illumina has not explained why this is the case, it still distributes incorrect manifests. If you are using one of the following manifests
 ```
@@ -470,7 +470,7 @@ gtc2vcf_plot.R \
   --vcf input.vcf \
   --chrom 1 \
   --pos 196642233 \
-  --png	rs800292.png
+  --png rs800292.png
 ```
 
 ![](rs800292.png)

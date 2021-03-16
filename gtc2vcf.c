@@ -33,7 +33,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2021-01-20"
+#define GTC2VCF_VERSION "2021-03-15"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -1047,6 +1047,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 24x1x4", 623302, 623302, "PsychChip_15048346"},
     {"BeadChip 24x1x4", 623513, 623513, "InfiniumPsychArray-24v1-1"},
     {"BeadChip 24x1x4", 638714, 638714, "PsychChip_v1-1_15073391"},
+    {"BeadChip 24x1x4", 647864, 647864, "InfiniumPsychArray-24v1-3"},
     {"BeadChip 24x1x4", 663209, 663209, "GSA-24v1-0"},
     {"BeadChip 24x1x4", 710576, 710576, "GSAMD-24v1-0_20011747"},
     {"BeadChip 24x1x4", 710606, 710606, "GSAMD-24v1-0_20011747"},
@@ -2487,6 +2488,21 @@ static int tsv_setter_chrom_flexible(tsv_t *tsv, bcf1_t *rec, void *usr) {
     return rec->rid == -1 ? -1 : 0;
 }
 
+static int tsv_setter_ilmn_strand(tsv_t *tsv, bcf1_t *rec, void *usr) {
+    char **strand = (char **)usr;
+    *strand = tsv->ss;
+    return 0;
+}
+
+static int tsv_setter_snp(tsv_t *tsv, bcf1_t *rec, void *usr) {
+    char **snp = (char **)usr;
+    if (strncmp(tsv->ss, "[N/A]", 5) == 0)
+        *snp = NULL;
+    else
+        *snp = tsv->ss;
+    return 0;
+}
+
 static int tsv_register_all(tsv_t *tsv, const char *id, tsv_setter_t setter, void *usr) {
     int i, n = 0;
     for (i = 0; i < tsv->ncols; i++) {
@@ -2596,10 +2612,10 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
                 kputs("FRAC_G", &str);
             else if (strcmp(ptr, "Frac T") == 0)
                 kputs("FRAC_T", &str);
-            else if (strcmp(ptr, "IlmnStrand") == 0)
-                kputc('-', &str);
+            else if (strcmp(ptr, "IlmnStrand") == 0 || strcmp(ptr, "ILMN Strand") == 0)
+                kputs("STRAND", &str);
             else if (strcmp(ptr, "SNP") == 0)
-                kputc('-', &str);
+                kputs("SNP", &str);
             else
                 error("Could not recognize INFO field: %s\n", ptr);
             col2sample[i] = -1;
@@ -2614,6 +2630,11 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
     if (tsv_register(tsv, "CHROM", tsv_setter_chrom_flexible, hdr) < 0) error("Expected CHROM column\n");
     if (tsv_register(tsv, "POS", tsv_setter_pos, NULL) < 0) error("Expected POS column\n");
     tsv_register(tsv, "ID", tsv_setter_id, hdr);
+
+    char *ilmn_strand = NULL;
+    tsv_register(tsv, "STRAND", tsv_setter_ilmn_strand, &ilmn_strand);
+    char *snp = NULL;
+    tsv_register(tsv, "SNP", tsv_setter_snp, &snp);
 
     float total_score;
     int gentrain_score = tsv_register(tsv, "GENTRAIN_SCORE", tsv_read_float, &total_score);
@@ -2715,29 +2736,39 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
                 n_skipped++;
                 continue;
             }
+
             // determine A and B alleles
             allele_a[0] = '.';
             allele_b[0] = '.';
-            for (int i = 0; i < nsamples; i++) {
-                switch (gts[i]) {
-                case GT_NC:
-                    break;
-                case GT_AA:
-                    allele_a[0] = strand_alleles[2 * i];
-                    break;
-                case GT_AB:
-                    allele_a[0] = strand_alleles[2 * i];
-                    allele_b[0] = strand_alleles[2 * i + 1];
-                    break;
-                case GT_BB:
-                    allele_b[0] = strand_alleles[2 * i];
-                    break;
-                default:
-                    error("Unable to process marker %s\n", rec->d.id);
-                    break;
+            if (ilmn_strand && snp) {
+                if (strncmp(ilmn_strand, "BOT", 3) == 0) {
+                    allele_a[0] = rev_nt(snp[1]);
+                    allele_b[0] = rev_nt(snp[3]);
+                } else {
+                    allele_a[0] = snp[1];
+                    allele_b[0] = snp[3];
+                }
+            } else {
+                for (int i = 0; i < nsamples; i++) {
+                    switch (gts[i]) {
+                    case GT_NC:
+                        break;
+                    case GT_AA:
+                        allele_a[0] = strand_alleles[2 * i];
+                        break;
+                    case GT_AB:
+                        allele_a[0] = strand_alleles[2 * i];
+                        allele_b[0] = strand_alleles[2 * i + 1];
+                        break;
+                    case GT_BB:
+                        allele_b[0] = strand_alleles[2 * i];
+                        break;
+                    default:
+                        error("Unable to process marker %s\n", rec->d.id);
+                        break;
+                    }
                 }
             }
-
             int len, win = min(max(100, gc_win), rec->pos);
             char *ref = faidx_fetch_seq(fai, bcf_seqname(hdr, rec), rec->pos - win, rec->pos + win, &len);
             if (!ref || len == 1)
@@ -2759,7 +2790,7 @@ static void gs_to_vcf(faidx_t *fai, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *
                 }
                 ref_base[0] = allele_a[0];
                 n_missing++;
-            } else if (strand_alleles == top_strand_alleles) {
+            } else if ((ilmn_strand && snp) || strand_alleles == top_strand_alleles) {
                 if (allele_a[0] == '.' || allele_b[0] == '.') {
                     allele_a[0] = '.';
                     allele_b[0] = '.';

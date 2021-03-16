@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2021-01-20"
+#define AFFY2VCF_VERSION "2021-03-15"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -1393,9 +1393,11 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
                 // "Ref Allele" and "Alt Allele" will not be updated
                 fprintf(out_txt, "\"%s\"", probeset_id);
                 for (int i = 1; i < ncols; i++) {
-                    if (i == flank_idx) fprintf(out_txt, ",\"%s\"", flank);
-                    if (i == allele_a_idx) fprintf(out_txt, ",\"%s\"", allele_a);
-                    if (i == allele_b_idx) {
+                    if (i == flank_idx) {
+                        fprintf(out_txt, ",\"%s\"", flank);
+                    } else if (i == allele_a_idx) {
+                        fprintf(out_txt, ",\"%s\"", allele_a);
+                    } else if (i == allele_b_idx) {
                         fprintf(out_txt, ",\"%s\"", allele_b);
                     } else if (i == chromosome_idx) {
                         if (chromosome)
@@ -2160,10 +2162,28 @@ static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_
             const char *middle = strchr(flank.s, '/');
             const char *right = strchr(flank.s, ']');
             if (!left || !middle || !right) error("Flank sequence is malformed: %s\n", flank.s);
-
             kputsn(left + 1, middle - left - 1, &allele_a);
             kputsn(middle + 1, right - middle - 1, &allele_b);
-            allele_b_idx = get_allele_b_idx(ref_base[0], allele_a.s, allele_b.s);
+
+            if (middle - left == 2 && right - middle == 2) {
+                allele_b_idx = get_allele_b_idx(ref_base[0], allele_a.s, allele_b.s);
+            } else {
+                int allele_a_match = strncmp(left + 1, &ref[win], middle - left - 1) == 0;
+                int allele_b_match = strncmp(middle + 1, &ref[win], right - middle - 1) == 0;
+                if (allele_a_match && !allele_b_match) {
+                    allele_b_idx = 1;
+                } else if (!allele_a_match && allele_b_match) {
+                    allele_b_idx = 0;
+                } else if (allele_a_match && allele_b_match) {
+                    int allele_a_right =
+                        len_common_prefix(right + 1, &ref[win] + (middle - left) - 1, strlen(right + 1));
+                    int allele_b_right =
+                        len_common_prefix(right + 1, &ref[win] + (right - middle) - 1, strlen(right + 1));
+                    allele_b_idx = allele_a_right > allele_b_right;
+                } else {
+                    allele_b_idx = -1;
+                }
+            }
         }
         free(ref);
 

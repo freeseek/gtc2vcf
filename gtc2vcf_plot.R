@@ -25,7 +25,7 @@
 #  THE SOFTWARE.
 ###
 
-gtc2vcf_plot_version <- '2021-01-20'
+gtc2vcf_plot_version <- '2021-03-15'
 
 library(optparse)
 library(data.table)
@@ -51,7 +51,7 @@ parser <- add_option(parser, c('--samples'), type = 'character', help = 'comma-s
 parser <- add_option(parser, c('--samples-file'), type = 'character', help = 'file with list of samples to include', metavar = '<file>')
 parser <- add_option(parser, c('--minimal'), action = 'store_true', default = FALSE, help = 'only plot NORMX/NORMY and BAF/LRR plots')
 parser <- add_option(parser, c('--zcall'), action = 'store_true', default = FALSE, help = 'plot ZCall thresholds')
-args <- parse_args(parser, commandArgs(trailingOnly = TRUE))
+args <- parse_args(parser, commandArgs(trailingOnly = TRUE), convert_hyphens_to_underscores = TRUE)
 
 write(paste('gtc2vcf_plot.R', gtc2vcf_plot_version, 'https://github.com/freeseek/gtc2vcf'), stderr())
 
