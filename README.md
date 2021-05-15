@@ -3,6 +3,8 @@ gtc2vcf
 
 A set of tools to convert Illumina and Affymetrix DNA microarray intensity data files into VCF files <b>without</b> using Microsoft Windows. You can use the final output to run the pipeline to detect <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>. If you use this tool in your publication, please cite this website. For any feedback or questions, contact the <a href="mailto:giulio.genovese@gmail.com">author</a>
 
+WARNING: do not use the conda bcftools-gtc2vcf-plugin version 1.9 as it is neither updated nor supported. The current version of gtc2vcf requires BCFtools 1.11 or newer
+
 ![](gtc2vcf.png)
 
 <!--ts-->
@@ -130,7 +132,7 @@ Installation
 
 Install basic tools (Debian/Ubuntu specific if you have admin privileges)
 ```
-sudo apt install wget unzip git g++ zlib1g-dev bwa unzip samtools msitools cabextract mono-devel libgdiplus libicu66 bcftools
+sudo apt install wget unzip git g++ zlib1g-dev bwa unzip samtools msitools cabextract mono-devel libgdiplus libicu67 bcftools
 ```
 
 Optionally, you can install these libraries to activate further HTSlib features
@@ -175,7 +177,8 @@ Alternatively, you can download gtc2vcf's binaries using the following code
 wget http://ftp.us.debian.org/debian/pool/main/h/htslib/libhts3_1.11-4_amd64.deb
 wget http://ftp.us.debian.org/debian/pool/main/b/bcftools/bcftools_1.11-1_amd64.deb
 wget http://software.broadinstitute.org/software/gtc2vcf/gtc2vcf_1.11-dev_amd64.deb
-sudo apt install ./{libhts3_1.11-4,bcftools_1.11-1,gtc2vcf_1.11-dev}_amd64.deb
+sudo apt remove gtc2vcf_1.11-dev_amd64.deb
+sudo apt install --reinstall ./{libhts3_1.11-4,bcftools_1.11-1,gtc2vcf_1.11-dev}_amd64.deb
 ```
 
 Install the GRCh37 human genome reference
@@ -363,7 +366,7 @@ apt-probeset-genotype \
   --write-models \
   --read-models-brlmmp GenomeWideSNP_6.generic_prior.txt
 ```
-Affymetrix provides Library and NetAffx Annotation files for their arrays <a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a> and <a href="http://media.affymetrix.com/analysis/downloads/lf/genotyping">here</a>
+Affymetrix provides Library and NetAffx Annotation files for their arrays (<a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a>, <a href="http://media.affymetrix.com/analysis/downloads/lf/genotyping">here</a>, and <a href="https://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-data-analysis/genechip-array-annotation-files.html">here</a>
 
 As an example, the following commands will obtain the files necessary to run the genotyping for the Affymetrix SNP6 array:
 ```

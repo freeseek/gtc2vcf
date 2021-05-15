@@ -133,18 +133,23 @@ static inline int bcf_hdr_name2id_flexible(const bcf_hdr_t *hdr, char *chr) {
     char buf[] = {'c', 'h', 'r', '\0', '\0', '\0'};
     int rid = bcf_hdr_name2id(hdr, chr);
     if (rid >= 0) return rid;
+    if (strncmp(chr, "chr", 3) == 0) rid = bcf_hdr_name2id(hdr, chr + 3);
+    if (rid >= 0) return rid;
     if (strlen(chr) > 2) return -1;
     strcpy(buf + 3, chr);
     rid = bcf_hdr_name2id(hdr, buf);
-    if (rid >= 0) {
-        return rid;
-    } else if (strcmp(chr, "X") == 0 || strcmp(chr, "XY") == 0 || strcmp(chr, "XX") == 0) {
+    if (rid >= 0) return rid;
+    if (strcmp(chr, "23") == 0 || strcmp(chr, "25") == 0 || strcmp(chr, "XY") == 0 || strcmp(chr, "XX") == 0) {
         rid = bcf_hdr_name2id(hdr, "X");
         if (rid >= 0) return rid;
         rid = bcf_hdr_name2id(hdr, "chrX");
-    } else if (strcmp(chr, "Y") == 0) {
+    } else if (strcmp(chr, "24") == 0) {
+        rid = bcf_hdr_name2id(hdr, "Y");
+        if (rid >= 0) return rid;
         rid = bcf_hdr_name2id(hdr, "chrY");
-    } else if (strcmp(chr, "MT") == 0) {
+    } else if (strcmp(chr, "26") == 0 || strcmp(chr, "MT") == 0 || strcmp(chr, "chrM") == 0) {
+        rid = bcf_hdr_name2id(hdr, "MT");
+        if (rid >= 0) return rid;
         rid = bcf_hdr_name2id(hdr, "chrM");
     }
     return rid;

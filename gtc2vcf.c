@@ -33,7 +33,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2021-03-15"
+#define GTC2VCF_VERSION "2021-05-14"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -2514,6 +2514,7 @@ static int tsv_register_all(tsv_t *tsv, const char *id, tsv_setter_t setter, voi
     return n ? 0 : -1;
 }
 
+// adapted from Petr Danecek's implementation of tsv_parse() in bcftools/tsv2vcf.c
 static int tsv_parse_delimiter(tsv_t *tsv, bcf1_t *rec, char *str, int delimiter) {
     int status = 0;
     tsv->icol = 0;

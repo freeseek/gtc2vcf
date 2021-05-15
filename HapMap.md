@@ -161,7 +161,7 @@ for chip in HumanCNV370v1 HumanOmni25M-8v1-1 HumanOmni2.5-4v1; do
     --csv ${csv[$chip]} \
     --sam ${sam[$chip]} \
     --gtcs $chip \
-    --sex HapMap.$chip.sex \
+    --extra HapMap.$chip.sex \
     --do-not-check-bpm | \
     bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
     bcftools norm --no-version -Ob -o HapMap.$chip.bcf -c x -f $ref && \
@@ -204,7 +204,7 @@ for chip in GenomeWideEx_6 GenomeWideSNP_6; do
     --models $chip/AxiomGT1.snp-posteriors.txt \
     --report $chip/AxiomGT1.report.txt \
     --chps $chip \
-    --sex HapMap.$chip.sex | \
+    --extra HapMap.$chip.sex | \
     bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
     bcftools norm --no-version -Ob -o HapMap.$chip.bcf -c x -f $ref && \
     bcftools index -f HapMap.$chip.bcf"

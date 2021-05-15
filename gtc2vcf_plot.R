@@ -25,7 +25,7 @@
 #  THE SOFTWARE.
 ###
 
-gtc2vcf_plot_version <- '2021-03-15'
+gtc2vcf_plot_version <- '2021-05-14'
 
 library(optparse)
 library(data.table)
@@ -89,7 +89,7 @@ cmd <- paste0('bcftools query --format ', fmt, ' ', args$vcf, ' -r ', args$chrom
 if (!is.null(args$samples)) cmd <- paste(cmd, '--samples', args$samples)
 if (!is.null(args$samples_file)) cmd <- paste(cmd, '--samples-file', args$samples_file)
 write(paste('Command:', cmd), stderr())
-if (packageVersion("data.table") < '1.11.6') {
+if (packageVersion('data.table') < '1.11.6') {
   df <- setNames(fread(cmd, sep = '\t', header = FALSE, na.strings = '.', data.table = FALSE), names)
 } else {
   df <- setNames(fread(cmd = cmd, sep = '\t', header = FALSE, na.strings = '.', data.table = FALSE), names)
@@ -100,7 +100,7 @@ if (!is.null(args$id)) {
 } else {
   if ( length(unique(df$ID)) > 1 ) stop('More than one variant at the specified position, use --id to specify which variant to plot')
 }
-v <- sapply(df[,info], unique)
+v <- sapply(df[, info], unique)
 
 if (args$illumina) {
   p1 <- ggplot(df, aes(x = Y, y = X, color = GT, shape = GT)) +
@@ -130,7 +130,7 @@ if (args$illumina) {
     t <- seq(0, 2*pi, length.out = 100)
     x <- unname(v[paste0('meanTHETA_', gt)]) + unname(v[paste0('devTHETA_', gt)])*cos(t)
     y <- unname(v[paste0('meanR_', gt)]) + unname(v[paste0('devR_', gt)])*sin(t)
-    p3 <- p3 + annotate('path', x=x, y=y)
+    p3 <- p3 + annotate('path', x = x, y = y)
   }
 } else if (args$affymetrix) {
   p2 <- ggplot(df, aes(x = NORMX, y = NORMY, color = GT, shape = GT)) +
@@ -154,9 +154,9 @@ if (args$illumina) {
     x <- unname(v[paste0('meanX_', gt)]) + sqrt(lambda1)*cos(theta)*cos(t) - sqrt(lambda2)*sin(theta)*sin(t)
     y <- unname(v[paste0('meanY_', gt)]) + sqrt(lambda1)*sin(theta)*cos(t) + sqrt(lambda2)*cos(theta)*sin(t)
     if (args$birdseed) {
-      p2 <- p2 + annotate('path', x=x, y=y)
+      p2 <- p2 + annotate('path', x = x, y = y)
     } else {
-      p3 <- p3 + annotate('path', x=x, y=y)
+      p3 <- p3 + annotate('path', x = x, y = y)
     }
   }
 }
