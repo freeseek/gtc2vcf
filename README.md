@@ -24,7 +24,7 @@ WARNING: do not use the conda bcftools-gtc2vcf-plugin version 1.9 as it is neith
 Usage
 =====
 
-Illumina tool:
+Illumina data tool:
 ```
 Usage: bcftools +gtc2vcf [options] [<A.gtc> ...]
 
@@ -74,7 +74,7 @@ Examples of manifest file options:
     bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --sam-source-seq GSA-24v3-0_A1.sam -o GSA-24v3-0_A1.GRCh38.csv
 ```
 
-Affymetrix tool:
+Affymetrix data tool:
 ```
 Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> [<A.chp> ...]
 

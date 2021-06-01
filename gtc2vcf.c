@@ -33,7 +33,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2021-05-14"
+#define GTC2VCF_VERSION "2021-06-01"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -561,7 +561,7 @@ static int csv_parse(tsv_t *tsv, bcf1_t *rec, char *str) {
             if (ret < 0) return -1;
             status++;
         }
-        tsv->se++;
+        if (*tsv->se) tsv->se++;
         tsv->ss = tsv->se;
         tsv->icol++;
     }
@@ -933,6 +933,7 @@ static void egt_destroy(egt_t *egt) {
     free(egt->call_version);
     free(egt->normalization_version);
     free(egt->date_created);
+    free(egt->opa);
     free(egt->manifest_name);
     free(egt->cluster_records);
     for (int i = 0; i < egt->num_records; i++) free(egt->loci_names[i]);
@@ -3322,7 +3323,7 @@ int run(int argc, char *argv[]) {
             gtc_t *gtc = gtc_init(filenames[i], capacity);
             // GenCall fills the GTC SNP manifest with the BPM file name rather than
             // the BPM manifest name
-            if (bpm_check && bpm && strcmp(bpm->manifest_name, gtc->snp_manifest)
+            if (bpm && bpm->fn && bpm_check && strcmp(bpm->manifest_name, gtc->snp_manifest)
                 && strcmp(strrchr(bpm->fn, '/') ? strrchr(bpm->fn, '/') + 1 : bpm->fn, gtc->snp_manifest))
                 error(
                     "Manifest name %s in BPM file %s does not match manifest name %s in GTC "
