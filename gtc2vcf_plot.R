@@ -25,7 +25,7 @@
 #  THE SOFTWARE.
 ###
 
-gtc2vcf_plot_version <- '2021-05-14'
+gtc2vcf_plot_version <- '2021-10-15'
 
 library(optparse)
 library(data.table)

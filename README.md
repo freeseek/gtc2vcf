@@ -230,8 +230,8 @@ If you fail to download the autoconvert software, contact the <a href="mailto:gi
 Affymetrix provides the <a href="https://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-analysis-partners-programs/affymetrix-developers-network/affymetrix-power-tools.html">Analysis Power Tools (APT)</a> for free which allow to call genotypes from raw intensity data using an algorithm derived from <a href="http://tools.thermofisher.com/content/sfs/brochures/brlmmp_whitepaper.pdf">BRLMM-P</a>
 ```
 mkdir -p $HOME/bin && cd /tmp
-wget https://downloads.thermofisher.com/APT/2.11.3/apt_2.11.3_linux_64_bit_x86_binaries.zip
-unzip -ojd $HOME/bin apt_2.11.3_linux_64_bit_x86_binaries.zip apt_2.11.3_linux_64_bit_x86_binaries/bin/apt-probeset-genotype
+wget https://downloads.thermofisher.com/APT/APT_2.11.4/apt_2.11.4_linux_64_bit_x86_binaries.zip
+unzip -ojd $HOME/bin apt_2.11.4_linux_64_bit_x86_binaries.zip apt_2.11.4_linux_64_bit_x86_binaries/bin/apt-probeset-genotype
 chmod a+x $HOME/bin/apt-probeset-genotype
 ```
 
@@ -337,8 +337,9 @@ bcftools +gtc2vcf \
   --fasta-ref $ref \
   --extra $out_prefix.tsv | \
   bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
-  bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
-  bcftools index -f $out_prefix.bcf
+  bcftools norm --no-version -Ob -c x -f $ref | \
+  tee $out_prefix.bcf | \
+  bcftools index --force --output $out_prefix.bcf.csi
 ```
 Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d exact` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Normalized intensities cannot be computed without the BPM manifest file. Indel alleles cannot be inferred and will be skipped without the CSV manifest file. Information about genotype cluster centers will be included in the VCF if the EGT cluster file is provided. You can use gtc2vcf to convert one GTC file at a time, but we strongly advise to convert multiple files at once as single sample VCF files will consume a lot of storage space. If you convert hundreds of GTC files at once, you can use the `--adjust-clusters` option which will recenter the genotype clusters rather than using those provided in the EGT cluster file and will compute less noisy LRR values. If you use the `--adjust-clusters` option and you are using the output for calling <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>, then it is safe to turn the median BAF/LRR adjustments off during that step (i.e. use `--adjust-BAF-LRR -1`)
 
@@ -366,7 +367,7 @@ apt-probeset-genotype \
   --write-models \
   --read-models-brlmmp GenomeWideSNP_6.generic_prior.txt
 ```
-Affymetrix provides Library and NetAffx Annotation files for their arrays (<a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a>, <a href="http://media.affymetrix.com/analysis/downloads/lf/genotyping">here</a>, and <a href="https://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-data-analysis/genechip-array-annotation-files.html">here</a>
+Affymetrix provides Library and NetAffx Annotation files for their arrays (<a href="http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays">here</a>, <a href="http://media.affymetrix.com/analysis/downloads/lf/genotyping">here</a>, and <a href="https://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-data-analysis/genechip-array-annotation-files.html">here</a>)
 
 As an example, the following commands will obtain the files necessary to run the genotyping for the Affymetrix SNP6 array:
 ```
@@ -398,8 +399,9 @@ bcftools +affy2vcf \
   --snp $path_to_txt_folder/AxiomGT1.snp-posteriors.txt \
   --extra $out_prefix.tsv | \
   bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
-  bcftools norm --no-version -Ob -o $out_prefix.bcf -c x -f $ref && \
-  bcftools index -f $out_prefix.bcf
+  bcftools norm --no-version -Ob -c x -f $ref | \
+  tee $out_prefix.bcf | \
+  bcftools index --force --output $out_prefix.bcf.csi
 ```
 Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. The final VCF might contain duplicates. If this is an issue `bcftools norm -d exact` can be used to remove such variants. There is often no need to use the `--adjust-clusters` option for Affymetrix data as the cluster posteriors are already adjusted using the data processed by the genotype caller
 

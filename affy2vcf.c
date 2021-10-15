@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2021-05-14"
+#define AFFY2VCF_VERSION "2021-10-15"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"

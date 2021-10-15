@@ -33,7 +33,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2021-06-01"
+#define GTC2VCF_VERSION "2021-10-15"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -732,7 +732,7 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm) {
     tsv_register(tsv, "SourceStrand", tsv_read_string, &locus_entry.source_strand);
     tsv_register(tsv, "SourceSeq", tsv_read_string, &locus_entry.source_seq);
     tsv_register(tsv, "TopGenomicSeq", tsv_read_string, &locus_entry.top_genomic_seq);
-    tsv_register(tsv, "BeadSetID", tsv_read_int32, &locus_entry.beadset_id);
+    int beadset_id = tsv_register(tsv, "BeadSetID", tsv_read_int32, &locus_entry.beadset_id);
     tsv_register(tsv, "Exp_Clusters", tsv_read_uint8, &locus_entry.exp_clusters);
     tsv_register(tsv, "Intensity_Only", tsv_read_uint8, &locus_entry.intensity_only);
     tsv_register(tsv, "Frac A", tsv_read_float, &locus_entry.frac_a);
@@ -748,6 +748,8 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm) {
         locus_entry.norm_id = 0xFF;
         if (hts_getline(bpm->fp, KS_SEP_LINE, &str) <= 0) error("Error reading from file: %s\n", fn);
         if (csv_parse(tsv, NULL, str.s) < 0) error("Could not parse the manifest file: %s\n", str.s);
+        if (beadset_id == 0 && locus_entry.beadset_id == 0)
+            error("BeadSetID value 0 for probe %s is not allowed\n", locus_entry.ilmn_id);
         if (locus_entry.source_seq) {
             char *ptr = strchr(locus_entry.source_seq, '-');
             if (ptr && *(ptr - 1) == '/') {
@@ -1045,6 +1047,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 24x1x4", 306776, 306776, "InfiniumCore-24v1-2"},
     {"BeadChip 24x1x4", 527136, 527136, "OncoArray-500K"},
     {"BeadChip 24x1x4", 577781, 577781, "HumanCoreExome-24v1-0"},
+    {"BeadChip 24x1x4", 582684, 582684, "HumanCoreExome-24v1-1"},
     {"BeadChip 24x1x4", 623302, 623302, "PsychChip_15048346"},
     {"BeadChip 24x1x4", 623513, 623513, "InfiniumPsychArray-24v1-1"},
     {"BeadChip 24x1x4", 638714, 638714, "PsychChip_v1-1_15073391"},
@@ -1231,10 +1234,12 @@ static idat_t *idat_init(const char *fn, size_t capacity) {
     idat->capacity = capacity;
     for (int i = 0; i < idat->number_toc_entries; i++) idat_read(idat, idat->id[i]);
 
-    for (const chip_type_t *ptr = chip_types; ptr->chip_type; ptr++) {
-        if (strcmp(idat->chip_type, ptr->chip_type) == 0 && ptr->num_snps == idat->num_snps
-            && ptr->num_mid_blocks == idat->mid_block->item_num)
-            idat->chip_type_guess = ptr->chip_type_guess;
+    if (idat->chip_type) {
+        for (const chip_type_t *ptr = chip_types; ptr->chip_type; ptr++) {
+            if (strcmp(idat->chip_type, ptr->chip_type) == 0 && ptr->num_snps == idat->num_snps
+                && ptr->num_mid_blocks == idat->mid_block->item_num)
+                idat->chip_type_guess = ptr->chip_type_guess;
+        }
     }
 
     for (int i = 0; i < idat->m_run_infos; i++) {
@@ -3165,9 +3170,9 @@ int run(int argc, char *argv[]) {
             error("%s", usage_text());
         }
     }
-    if (((bpm_fname != NULL) || (csv_fname != NULL)) + (egt_fname != NULL) + (ref_fname != NULL) + (gs_fname != NULL)
-            + (argc - optind > 0) + (pathname != NULL)
-        == 1)
+    if ((((bpm_fname != NULL) || (csv_fname != NULL)) + (egt_fname != NULL) + (argc - optind > 0) + (pathname != NULL)
+         == 1)
+        && ref_fname == NULL && gs_fname == NULL)
         binary_to_csv = 1;
     if (sam_fname && (csv_fname == NULL)) error("The --sam-flank option requires the --csv option\n%s", usage_text());
     if (binary_to_csv) {
@@ -3181,6 +3186,8 @@ int run(int argc, char *argv[]) {
                 "used at once\n%s",
                 usage_text());
     } else {
+        if (flags & LOAD_IDAT)
+            error("The --idat option can only be used alone or with option --gtcs\n%s", usage_text());
         if (beadset_order)
             error("The --beadset-order option can only be used with options --bpm and --csv\n%s", usage_text());
         if (fasta_flank)
