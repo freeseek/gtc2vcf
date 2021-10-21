@@ -174,11 +174,11 @@ export BCFTOOLS_PLUGINS="$HOME/bin"
 
 Alternatively, you can download gtc2vcf's binaries using the following code
 ```
-wget http://ftp.us.debian.org/debian/pool/main/h/htslib/libhts3_1.11-4_amd64.deb
-wget http://ftp.us.debian.org/debian/pool/main/b/bcftools/bcftools_1.11-1_amd64.deb
-wget http://software.broadinstitute.org/software/gtc2vcf/gtc2vcf_1.11-dev_amd64.deb
-sudo apt remove gtc2vcf_1.11-dev_amd64.deb
-sudo apt install --reinstall ./{libhts3_1.11-4,bcftools_1.11-1,gtc2vcf_1.11-dev}_amd64.deb
+wget http://ftp.us.debian.org/debian/pool/main/h/htslib/libhts3_1.13+ds-2_amd64.deb
+wget http://ftp.us.debian.org/debian/pool/main/b/bcftools/bcftools_1.13-1_amd64.deb
+wget http://software.broadinstitute.org/software/gtc2vcf/gtc2vcf_1.13-dev_amd64.deb
+sudo apt remove gtc2vcf
+sudo apt install --reinstall ./{libhts3_1.13+ds-2,bcftools_1.13-1,gtc2vcf_1.13-dev}_amd64.deb
 ```
 
 Install the GRCh37 human genome reference
