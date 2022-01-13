@@ -2,7 +2,7 @@
 ###
 #  The MIT License
 #
-#  Copyright (C) 2019-2021 Giulio Genovese
+#  Copyright (C) 2019-2022 Giulio Genovese
 #
 #  Author: Giulio Genovese <giulio.genovese@gmail.com>
 #
@@ -25,14 +25,14 @@
 #  THE SOFTWARE.
 ###
 
-gtc2vcf_plot_version <- '2021-10-15'
+gtc2vcf_plot_version <- '2022-01-12'
 
-library(optparse)
-library(data.table)
-library(ggplot2)
-library(grid)
-library(gridExtra)
-options(bitmapType = 'cairo')
+suppressPackageStartupMessages(library(optparse))
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(grid))
+suppressPackageStartupMessages(library(gridExtra))
+if (capabilities()[['cairo']]) options(bitmapType = 'cairo')
 
 parser <- OptionParser('usage: gtc2vcf_plot.R [options] --illumina|--affymetrix --vcf <file.vcf> --chrom <string> --pos <integer> --pdf|--png <file>')
 parser <- add_option(parser, c('--vcf'), type = 'character', help = 'input VCF file', metavar = '<file.vcf>')
@@ -41,8 +41,8 @@ parser <- add_option(parser, c('--affymetrix'), action = 'store_true', default =
 parser <- add_option(parser, c('--birdseed'), action = 'store_true', default = FALSE, help = 'whether the input VCF file contains Affymetrix data from Birdseed')
 parser <- add_option(parser, c('--pdf'), type = 'character', help = 'output PDF file', metavar = '<file.pdf>')
 parser <- add_option(parser, c('--png'), type = 'character', help = 'output PNG file', metavar = '<file.png>')
-parser <- add_option(parser, c('--width'), type = 'integer', default = 7, help = 'inches width of the output file [7]', metavar = '<integer>')
-parser <- add_option(parser, c('--height'), type = 'integer', default = 7, help = 'inches height of the output file [7]', metavar = '<integer>')
+parser <- add_option(parser, c('--width'), type = 'double', default = 7.0, help = 'inches width of the output file [7.0]', metavar = '<float>')
+parser <- add_option(parser, c('--height'), type = 'double', default = 7.0, help = 'inches height of the output file [7.0]', metavar = '<float>')
 parser <- add_option(parser, c('--fontsize'), type = 'integer', default = 12, help = 'font size [12]', metavar = '<integer>')
 parser <- add_option(parser, c('--chrom'), type = 'character', help = 'chromosome', metavar = '<string>')
 parser <- add_option(parser, c('--pos'), type = 'integer', help = 'chromosome position', metavar = '<integer>')

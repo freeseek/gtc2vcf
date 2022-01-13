@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2021 Giulio Genovese
+   Copyright (c) 2018-2022 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 

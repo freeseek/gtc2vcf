@@ -29,34 +29,34 @@ Illumina data tool:
 Usage: bcftools +gtc2vcf [options] [<A.gtc> ...]
 
 Plugin options:
-    -l, --list-tags                 list available FORMAT tags with description for VCF output
-    -t, --tags LIST                 list of output FORMAT tags [GT,GQ,IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
-    -b, --bpm <file>                BPM manifest file
-    -c, --csv <file>                CSV manifest file (can be gzip compressed)
-    -e, --egt <file>                EGT cluster file
-    -f, --fasta-ref <file>          reference sequence in fasta format
-        --set-cache-size <int>      select fasta cache size in bytes
-        --gc-window-size <int>      window size in bp used to compute the GC content (-1 for no estimate) [200]
-    -g, --gtcs <dir|file>           GTC genotype files from directory or list from file
-    -i, --idat                      input IDAT files rather than GTC files
-        --capacity <int>            number of variants to read from intensity files per I/O operation [32768]
-        --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)
-        --use-gtc-sample-names      use sample name in GTC files rather than GTC file name
-        --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name
-        --genome-studio <file>      input a GenomeStudio final report file (in matrix format)
-        --no-version                do not append version and command line to the header
-    -o, --output <file>             write output to a file [standard output]
-    -O, --output-type <b|u|z|v|t>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF
-                                    v: uncompressed VCF, t: GenomeStudio tab-delimited text output [v]
-        --threads <int>             number of extra output compression threads [0]
-    -x, --extra <file>              write GTC metadata to a file
-    -v, --verbose                   print verbose information
+    -l, --list-tags                   list available FORMAT tags with description for VCF output
+    -t, --tags LIST                   list of output FORMAT tags [GT,GQ,IGC,BAF,LRR,NORMX,NORMY,R,THETA,X,Y]
+    -b, --bpm <file>                  BPM manifest file
+    -c, --csv <file>                  CSV manifest file (can be gzip compressed)
+    -e, --egt <file>                  EGT cluster file
+    -f, --fasta-ref <file>            reference sequence in fasta format
+        --set-cache-size <int>        select fasta cache size in bytes
+        --gc-window-size <int>        window size in bp used to compute the GC content (-1 for no estimate) [200]
+    -g, --gtcs <dir|file>             GTC genotype files from directory or list from file
+    -i, --idat                        input IDAT files rather than GTC files
+        --capacity <int>              number of variants to read from intensity files per I/O operation [32768]
+        --adjust-clusters             adjust cluster centers in (Theta, R) space (requires --bpm and --egt)
+        --use-gtc-sample-names        use sample name in GTC files rather than GTC file name
+        --do-not-check-bpm            do not check whether BPM and GTC files match manifest file name
+        --genome-studio <file>        input a GenomeStudio final report file (in matrix format)
+        --no-version                  do not append version and command line to the header
+    -o, --output <file>               write output to a file [standard output]
+    -O, --output-type u|b|v|z|t[0-9]  u/b: un/compressed BCF, v/z: un/compressed VCF
+                                      t: GenomeStudio tab-delimited text output, 0-9: compression level [v]
+        --threads <int>               number of extra output compression threads [0]
+    -x, --extra <file>                write GTC metadata to a file
+    -v, --verbose                     print verbose information
 
 Manifest options:
-        --beadset-order             output BeadSetID normalization order (requires --bpm and --csv)
-        --fasta-flank               output flank sequence in FASTA format (requires --csv)
-    -s, --sam-flank <file>          input flank sequence alignment in SAM/BAM format (requires --csv)
-        --genome-build <assembly>   genome build ID used to update the manifest file [GRCh38]
+        --beadset-order               output BeadSetID normalization order (requires --bpm and --csv)
+        --fasta-flank                 output flank sequence in FASTA format (requires --csv)
+    -s, --sam-flank <file>            input flank sequence alignment in SAM/BAM format (requires --csv)
+        --genome-build <assembly>     genome build ID used to update the manifest file [GRCh38]
 
 Examples:
     bcftools +gtc2vcf -i 5434246082_R03C01_Grn.idat
@@ -79,30 +79,30 @@ Affymetrix data tool:
 Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> [<A.chp> ...]
 
 Plugin options:
-    -l, --list-tags               list available FORMAT tags with description for  VCF output
-    -t, --tags LIST               list of output FORMAT tags [GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE]
-    -c, --csv <file>              CSV manifest file (can be gzip compressed)
-    -f, --fasta-ref <file>        reference sequence in fasta format
-        --set-cache-size <int>    select fasta cache size in bytes
-        --gc-window-size <int>    window size in bp used to compute the GC content (-1 for no estimate) [200]
-        --probeset-ids            tab delimited file with column 'probeset_id' specifying probesets to convert
-        --calls <file>            apt-probeset-genotype calls output (can be gzip compressed)
-        --confidences <file>      apt-probeset-genotype confidences output (can be gzip compressed)
-        --summary <file>          apt-probeset-genotype summary output (can be gzip compressed)
-        --snp <file>              apt-probeset-genotype SNP posteriors output (can be gzip compressed)
-        --chps <dir|file>         input CHP files rather than tab delimited files
-        --cel <file>              input CEL files rather CHP files
-        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --snp)
-        --no-version              do not append version and command line to the header
-    -o, --output <file>           write output to a file [standard output]
-    -O, --output-type <b|u|z|v>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF, v: uncompressed VCF [v]
-        --threads <int>           number of extra output compression threads [0]
-    -x, --extra <file>            write CHP metadata to a file (requires CHP files)
-    -v, --verbose                 print verbose information
+    -l, --list-tags                 list available FORMAT tags with description for  VCF output
+    -t, --tags LIST                 list of output FORMAT tags [GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE]
+    -c, --csv <file>                CSV manifest file (can be gzip compressed)
+    -f, --fasta-ref <file>          reference sequence in fasta format
+        --set-cache-size <int>      select fasta cache size in bytes
+        --gc-window-size <int>      window size in bp used to compute the GC content (-1 for no estimate) [200]
+        --probeset-ids              tab delimited file with column 'probeset_id' specifying probesets to convert
+        --calls <file>              apt-probeset-genotype calls output (can be gzip compressed)
+        --confidences <file>        apt-probeset-genotype confidences output (can be gzip compressed)
+        --summary <file>            apt-probeset-genotype summary output (can be gzip compressed)
+        --snp <file>                apt-probeset-genotype SNP posteriors output (can be gzip compressed)
+        --chps <dir|file>           input CHP files rather than tab delimited files
+        --cel <file>                input CEL files rather CHP files
+        --adjust-clusters           adjust cluster centers in (Contrast, Size) space (requires --snp)
+        --no-version                do not append version and command line to the header
+    -o, --output <file>             write output to a file [standard output]
+    -O, --output-type u|b|v|z[0-9]  u/b: un/compressed BCF, v/z: un/compressed VCF, 0-9: compression level [v]
+        --threads <int>             number of extra output compression threads [0]
+    -x, --extra <file>              write CHP metadata to a file (requires CHP files)
+    -v, --verbose                   print verbose information
 
 Manifest options:
-        --fasta-flank             output flank sequence in FASTA format (requires --csv)
-    -s, --sam-flank <file>        input source sequence alignment in SAM/BAM format (requires --csv)
+        --fasta-flank               output flank sequence in FASTA format (requires --csv)
+    -s, --sam-flank <file>          input source sequence alignment in SAM/BAM format (requires --csv)
 
 Examples:
     bcftools +affy2vcf \

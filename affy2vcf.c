@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2021 Giulio Genovese
+   Copyright (c) 2018-2022 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2021-10-15"
+#define AFFY2VCF_VERSION "2022-01-12"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -1037,10 +1037,9 @@ static htsFile *unheader(const char *fn, kstring_t *str) {
     htsFile *fp = hts_open(fn, "r");
     if (fp == NULL) error("Could not open %s: %s\n", fn, strerror(errno));
 
-    if (hts_getline(fp, KS_SEP_LINE, str) <= 0) error("Empty file: %s\n", fn);
-
-    // skip header
-    while (str->s[0] == '#') hts_getline(fp, KS_SEP_LINE, str);
+    do // skip header
+        if (hts_getline(fp, KS_SEP_LINE, str) <= 0) error("Empty file: %s\n", fn);
+    while (str->s[0] == '#');
 
     return fp;
 }
@@ -1059,6 +1058,8 @@ static void *probeset_ids_init(const char *fn) {
         error("Malformed first line from probeset IDs file: %s\n%s\n", fn, str.s);
     while (hts_getline(fp, KS_SEP_LINE, &str) > 0) {
         ncols = ksplit_core(str.s, '\t', &moff, &off);
+        if (khash_str2int_has_key(probeset_ids, &str.s[off[0]]))
+            error("Probe Set %s present multiple times in file %s\n", &str.s[off[0]], fn);
         khash_str2int_inc(probeset_ids, strdup(&str.s[off[0]]));
     }
     free(off);
@@ -1169,6 +1170,8 @@ static snp_models_t *snp_models_init(const char *fn) {
         snp = &snp_models->snps[idx][snp_models->n_snps[idx]];
         snp->probeset_id = strdup(&str.s[off1[0]]);
         snp->copynumber = copynumber;
+        if (khash_str2int_has_key(snp_models->probeset_id[idx], snp->probeset_id))
+            error("Probe Set %s present multiple times in file %s\n", snp->probeset_id, fn);
         khash_str2int_inc(snp_models->probeset_id[idx], snp->probeset_id);
 
         if (ncols1 < 4 - (2 - copynumber) * snp_models->is_birdseed)
@@ -1326,7 +1329,6 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
     const char *probeset_id, *flank, *allele_a, *allele_b;
 
     if (!hts && out_txt) {
-
         while (hts_getline(fp, KS_SEP_LINE, &str) > 0) {
             ncols = ksplit_core(str.s, ',', &moff, &off);
             probeset_id = unquote(&str.s[off[probe_set_id_idx]]);
@@ -1432,6 +1434,9 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
             } else {
                 hts_expand0(record_t, annot->n_records + 1, annot->m_records, annot->records);
                 annot->records[annot->n_records].probeset_id = strdup(probeset_id);
+                if (khash_str2int_has_key(annot->probeset_id, annot->records[annot->n_records].probeset_id))
+                    error("Probe Set %s present multiple times in file %s\n",
+                          annot->records[annot->n_records].probeset_id, fn);
                 khash_str2int_inc(annot->probeset_id, annot->records[annot->n_records].probeset_id);
                 const char *dbsnp_rs_id = unquote(&str.s[off[dbsnp_rs_id_idx]]);
                 if (dbsnp_rs_id) annot->records[annot->n_records].dbsnp_rs_id = strdup(dbsnp_rs_id);
@@ -2305,35 +2310,35 @@ static const char *usage_text(void) {
            "Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> [<A.chp> ...]\n"
            "\n"
            "Plugin options:\n"
-           "    -l, --list-tags               list available FORMAT tags with description for  VCF output\n"
-           "    -t, --tags LIST               list of output FORMAT tags [" TAG_LIST_DFLT
+           "    -l, --list-tags                 list available FORMAT tags with description for  VCF output\n"
+           "    -t, --tags LIST                 list of output FORMAT tags [" TAG_LIST_DFLT
            "]\n"
-           "    -c, --csv <file>              CSV manifest file (can be gzip compressed)\n"
-           "    -f, --fasta-ref <file>        reference sequence in fasta format\n"
-           "        --set-cache-size <int>    select fasta cache size in bytes\n"
-           "        --gc-window-size <int>    window size in bp used to compute the GC content "
-           "(-1 for no estimate) [" GC_WIN_DFLT
+           "    -c, --csv <file>                CSV manifest file (can be gzip compressed)\n"
+           "    -f, --fasta-ref <file>          reference sequence in fasta format\n"
+           "        --set-cache-size <int>      select fasta cache size in bytes\n"
+           "        --gc-window-size <int>      window size in bp used to compute the GC content (-1 for no estimate) "
+           "[" GC_WIN_DFLT
            "]\n"
-           "        --probeset-ids            tab delimited file with column 'probeset_id' specifying probesets to "
+           "        --probeset-ids              tab delimited file with column 'probeset_id' specifying probesets to "
            "convert\n"
-           "        --calls <file>            apt-probeset-genotype calls output (can be gzip compressed)\n"
-           "        --confidences <file>      apt-probeset-genotype confidences output (can be gzip compressed)\n"
-           "        --summary <file>          apt-probeset-genotype summary output (can be gzip compressed)\n"
-           "        --snp <file>              apt-probeset-genotype SNP posteriors output (can be gzip compressed)\n"
-           "        --chps <dir|file>         input CHP files rather than tab delimited files\n"
-           "        --cel <file>              input CEL files rather CHP files\n"
-           "        --adjust-clusters         adjust cluster centers in (Contrast, Size) space (requires --snp)\n"
-           "        --no-version              do not append version and command line to the header\n"
-           "    -o, --output <file>           write output to a file [standard output]\n"
-           "    -O, --output-type <b|u|z|v>   b: compressed BCF, u: uncompressed BCF, z: "
-           "compressed VCF, v: uncompressed VCF [v]\n"
-           "        --threads <int>           number of extra output compression threads [0]\n"
-           "    -x, --extra <file>            write CHP metadata to a file (requires CHP files)\n"
-           "    -v, --verbose                 print verbose information\n"
+           "        --calls <file>              apt-probeset-genotype calls output (can be gzip compressed)\n"
+           "        --confidences <file>        apt-probeset-genotype confidences output (can be gzip compressed)\n"
+           "        --summary <file>            apt-probeset-genotype summary output (can be gzip compressed)\n"
+           "        --snp <file>                apt-probeset-genotype SNP posteriors output (can be gzip compressed)\n"
+           "        --chps <dir|file>           input CHP files rather than tab delimited files\n"
+           "        --cel <file>                input CEL files rather CHP files\n"
+           "        --adjust-clusters           adjust cluster centers in (Contrast, Size) space (requires --snp)\n"
+           "        --no-version                do not append version and command line to the header\n"
+           "    -o, --output <file>             write output to a file [standard output]\n"
+           "    -O, --output-type u|b|v|z[0-9]  u/b: un/compressed BCF, v/z: un/compressed VCF, 0-9: compression level "
+           "[v]\n"
+           "        --threads <int>             number of extra output compression threads [0]\n"
+           "    -x, --extra <file>              write CHP metadata to a file (requires CHP files)\n"
+           "    -v, --verbose                   print verbose information\n"
            "\n"
            "Manifest options:\n"
-           "        --fasta-flank             output flank sequence in FASTA format (requires --csv)\n"
-           "    -s, --sam-flank <file>        input source sequence alignment in SAM/BAM format (requires --csv)\n"
+           "        --fasta-flank               output flank sequence in FASTA format (requires --csv)\n"
+           "    -s, --sam-flank <file>          input source sequence alignment in SAM/BAM format (requires --csv)\n"
            "\n"
            "Examples:\n"
            "    bcftools +affy2vcf \\\n"
@@ -2417,6 +2422,7 @@ int run(int argc, char *argv[]) {
     char *tmp;
     int flags = 0;
     int output_type = FT_VCF;
+    int clevel = -1;
     int cache_size = 0;
     int gc_win = (int)strtol(GC_WIN_DFLT, NULL, 0);
     int n_threads = 0;
@@ -2521,8 +2527,15 @@ int run(int argc, char *argv[]) {
             case 'v':
                 output_type = FT_VCF;
                 break;
-            default:
-                error("The output type \"%s\" not recognised\n", optarg);
+            default: {
+                clevel = strtol(optarg, &tmp, 10);
+                if (*tmp || clevel < 0 || clevel > 9) error("The output type \"%s\" not recognised\n", optarg);
+            }
+            }
+            if (optarg[1]) {
+                clevel = strtol(optarg + 1, &tmp, 10);
+                if (*tmp || clevel < 0 || clevel > 9)
+                    error("Could not parse argument: --compression-level %s\n", optarg + 1);
             }
             break;
         case 9:
@@ -2644,8 +2657,10 @@ int run(int argc, char *argv[]) {
         if (snp_fname)
             bcf_hdr_printf(hdr, "##SNP=%s", strrchr(snp_fname, '/') ? strrchr(snp_fname, '/') + 1 : snp_fname);
         if (record_cmd_line) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+affy2vcf");
+        char wmode[8];
+        set_wmode(wmode, output_type, (char *)output_fname, clevel);
         htsFile *out_fh = hts_open(output_fname, hts_bcf_wmode(output_type));
-        if (out_fh == NULL) error("Can't write to \"%s\": %s\n", output_fname, strerror(errno));
+        if (out_fh == NULL) error("[%s] Error: cannot write to \"%s\": %s\n", __func__, output_fname, strerror(errno));
         if (n_threads) hts_set_threads(out_fh, n_threads);
         varitr_t *varitr = NULL;
         if (nfiles > 0)

@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2021 Giulio Genovese
+   Copyright (c) 2018-2022 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -33,7 +33,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2021-10-15"
+#define GTC2VCF_VERSION "2022-01-12"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -1047,7 +1047,9 @@ static chip_type_t chip_types[] = {
     {"BeadChip 24x1x4", 306776, 306776, "InfiniumCore-24v1-2"},
     {"BeadChip 24x1x4", 527136, 527136, "OncoArray-500K"},
     {"BeadChip 24x1x4", 577781, 577781, "HumanCoreExome-24v1-0"},
+    {"BeadChip 24x1x4", 581261, 581261, "HumanCoreExome-24v1-2"},
     {"BeadChip 24x1x4", 582684, 582684, "HumanCoreExome-24v1-1"},
+    {"BeadChip 24x1x4", 611866, 611866, "HumanCoreExome-24v1-4"},
     {"BeadChip 24x1x4", 623302, 623302, "PsychChip_15048346"},
     {"BeadChip 24x1x4", 623513, 623513, "InfiniumPsychArray-24v1-1"},
     {"BeadChip 24x1x4", 638714, 638714, "PsychChip_v1-1_15073391"},
@@ -2905,39 +2907,41 @@ static const char *usage_text(void) {
            "Usage: bcftools +gtc2vcf [options] [<A.gtc> ...]\n"
            "\n"
            "Plugin options:\n"
-           "    -l, --list-tags                 list available FORMAT tags with description for VCF output\n"
-           "    -t, --tags LIST                 list of output FORMAT tags [" TAG_LIST_DFLT
+           "    -l, --list-tags                   list available FORMAT tags with description for VCF output\n"
+           "    -t, --tags LIST                   list of output FORMAT tags [" TAG_LIST_DFLT
            "]\n"
-           "    -b, --bpm <file>                BPM manifest file\n"
-           "    -c, --csv <file>                CSV manifest file (can be gzip compressed)\n"
-           "    -e, --egt <file>                EGT cluster file\n"
-           "    -f, --fasta-ref <file>          reference sequence in fasta format\n"
-           "        --set-cache-size <int>      select fasta cache size in bytes\n"
-           "        --gc-window-size <int>      window size in bp used to compute the GC content (-1 for no estimate) "
-           "[" GC_WIN_DFLT
+           "    -b, --bpm <file>                  BPM manifest file\n"
+           "    -c, --csv <file>                  CSV manifest file (can be gzip compressed)\n"
+           "    -e, --egt <file>                  EGT cluster file\n"
+           "    -f, --fasta-ref <file>            reference sequence in fasta format\n"
+           "        --set-cache-size <int>        select fasta cache size in bytes\n"
+           "        --gc-window-size <int>        window size in bp used to compute the GC content (-1 for no "
+           "estimate) [" GC_WIN_DFLT
            "]\n"
-           "    -g, --gtcs <dir|file>           GTC genotype files from directory or list from file\n"
-           "    -i, --idat                      input IDAT files rather than GTC files\n"
-           "        --capacity <int>            number of variants to read from intensity files per I/O operation "
+           "    -g, --gtcs <dir|file>             GTC genotype files from directory or list from file\n"
+           "    -i, --idat                        input IDAT files rather than GTC files\n"
+           "        --capacity <int>              number of variants to read from intensity files per I/O operation "
            "[" CAPACITY_DFLT
            "]\n"
-           "        --adjust-clusters           adjust cluster centers in (Theta, R) space (requires --bpm and --egt)\n"
-           "        --use-gtc-sample-names      use sample name in GTC files rather than GTC file name\n"
-           "        --do-not-check-bpm          do not check whether BPM and GTC files match manifest file name\n"
-           "        --genome-studio <file>      input a GenomeStudio final report file (in matrix format)\n"
-           "        --no-version                do not append version and command line to the header\n"
-           "    -o, --output <file>             write output to a file [standard output]\n"
-           "    -O, --output-type <b|u|z|v|t>   b: compressed BCF, u: uncompressed BCF, z: compressed VCF\n"
-           "                                    v: uncompressed VCF, t: GenomeStudio tab-delimited text output [v]\n"
-           "        --threads <int>             number of extra output compression threads [0]\n"
-           "    -x, --extra <file>              write GTC metadata to a file\n"
-           "    -v, --verbose                   print verbose information\n"
+           "        --adjust-clusters             adjust cluster centers in (Theta, R) space (requires --bpm and "
+           "--egt)\n"
+           "        --use-gtc-sample-names        use sample name in GTC files rather than GTC file name\n"
+           "        --do-not-check-bpm            do not check whether BPM and GTC files match manifest file name\n"
+           "        --genome-studio <file>        input a GenomeStudio final report file (in matrix format)\n"
+           "        --no-version                  do not append version and command line to the header\n"
+           "    -o, --output <file>               write output to a file [standard output]\n"
+           "    -O, --output-type u|b|v|z|t[0-9]  u/b: un/compressed BCF, v/z: un/compressed VCF\n"
+           "                                      t: GenomeStudio tab-delimited text output, 0-9: compression level "
+           "[v]\n"
+           "        --threads <int>               number of extra output compression threads [0]\n"
+           "    -x, --extra <file>                write GTC metadata to a file\n"
+           "    -v, --verbose                     print verbose information\n"
            "\n"
            "Manifest options:\n"
-           "        --beadset-order             output BeadSetID normalization order (requires --bpm and --csv)\n"
-           "        --fasta-flank               output flank sequence in FASTA format (requires --csv)\n"
-           "    -s, --sam-flank <file>          input flank sequence alignment in SAM/BAM format (requires --csv)\n"
-           "        --genome-build <assembly>   genome build ID used to update the manifest file [" GENOME_BUILD_DFLT
+           "        --beadset-order               output BeadSetID normalization order (requires --bpm and --csv)\n"
+           "        --fasta-flank                 output flank sequence in FASTA format (requires --csv)\n"
+           "    -s, --sam-flank <file>            input flank sequence alignment in SAM/BAM format (requires --csv)\n"
+           "        --genome-build <assembly>     genome build ID used to update the manifest file [" GENOME_BUILD_DFLT
            "]\n"
            "\n"
            "Examples:\n"
@@ -3023,6 +3027,7 @@ int run(int argc, char *argv[]) {
     char *tmp;
     int flags = 0;
     int output_type = FT_VCF;
+    int clevel = -1;
     size_t capacity = 0;
     int cache_size = 0;
     int gc_win = (int)strtol(GC_WIN_DFLT, NULL, 0);
@@ -3138,8 +3143,15 @@ int run(int argc, char *argv[]) {
             case 't':
                 output_type = FT_TAB_TEXT;
                 break;
-            default:
-                error("The output type \"%s\" not recognised\n", optarg);
+            default: {
+                clevel = strtol(optarg, &tmp, 10);
+                if (*tmp || clevel < 0 || clevel > 9) error("The output type \"%s\" not recognised\n", optarg);
+            }
+            }
+            if (optarg[1]) {
+                clevel = strtol(optarg + 1, &tmp, 10);
+                if (*tmp || clevel < 0 || clevel > 9)
+                    error("Could not parse argument: --compression-level %s\n", optarg + 1);
             }
             break;
         case 9:
@@ -3243,8 +3255,10 @@ int run(int argc, char *argv[]) {
     if (binary_to_csv || output_type == FT_TAB_TEXT) {
         out_txt = get_file_handle(output_fname);
     } else {
+        char wmode[8];
+        set_wmode(wmode, output_type, (char *)output_fname, clevel);
         out_fh = hts_open(output_fname, hts_bcf_wmode(output_type));
-        if (out_fh == NULL) error("Can't write to \"%s\": %s\n", output_fname, strerror(errno));
+        if (out_fh == NULL) error("[%s] Error: cannot write to \"%s\": %s\n", __func__, output_fname, strerror(errno));
         if (n_threads) hts_set_threads(out_fh, n_threads);
         if (!ref_fname) error("VCF output requires the --fasta-ref option\n");
         fai = fai_load(ref_fname);
