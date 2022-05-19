@@ -3,7 +3,7 @@ gtc2vcf
 
 A set of tools to convert Illumina and Affymetrix DNA microarray intensity data files into VCF files <b>without</b> using Microsoft Windows. You can use the final output to run the pipeline to detect <a href="https://github.com/freeseek/mocha">mosaic chromosomal alterations</a>. If you use this tool in your publication, please cite this website. For any feedback or questions, contact the <a href="mailto:giulio.genovese@gmail.com">author</a>
 
-WARNING: do not use the conda bcftools-gtc2vcf-plugin version 1.9 as it is neither updated nor supported. The current version of gtc2vcf requires BCFtools 1.11 or newer
+WARNING: do not use the conda bcftools-gtc2vcf-plugin version 1.9 as it is neither updated nor supported. The current version of gtc2vcf requires BCFtools 1.14 or newer
 
 ![](gtc2vcf.png)
 
@@ -69,9 +69,9 @@ Examples:
 
 Examples of manifest file options:
     bcftools +gtc2vcf -b GSA-24v3-0_A1.bpm -c GSA-24v3-0_A1.csv --beadset-order
-    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --fasta-source-seq -o GSA-24v3-0_A1.fasta
+    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --fasta-flank -o GSA-24v3-0_A1.fasta
     bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GSA-24v3-0_A1.fasta -o GSA-24v3-0_A1.sam
-    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --sam-source-seq GSA-24v3-0_A1.sam -o GSA-24v3-0_A1.GRCh38.csv
+    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --sam-flank GSA-24v3-0_A1.sam -o GSA-24v3-0_A1.GRCh38.csv
 ```
 
 Affymetrix data tool:
@@ -102,7 +102,7 @@ Plugin options:
 
 Manifest options:
         --fasta-flank               output flank sequence in FASTA format (requires --csv)
-    -s, --sam-flank <file>          input source sequence alignment in SAM/BAM format (requires --csv)
+    -s, --sam-flank <file>          input flank sequence alignment in SAM/BAM format (requires --csv)
 
 Examples:
     bcftools +affy2vcf \
@@ -132,7 +132,7 @@ Installation
 
 Install basic tools (Debian/Ubuntu specific if you have admin privileges)
 ```
-sudo apt install wget unzip git g++ zlib1g-dev bwa unzip samtools msitools cabextract mono-devel libgdiplus libicu67 bcftools
+sudo apt install wget unzip git g++ zlib1g-dev bwa unzip samtools msitools cabextract mono-devel libgdiplus icu-devtools bcftools
 ```
 
 Optionally, you can install these libraries to activate further HTSlib features
@@ -145,7 +145,7 @@ Preparation steps
 mkdir -p $HOME/bin $HOME/GRCh3[78] && cd /tmp
 ```
 
-We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download <a href="http://software.broadinstitute.org/software/gtc2vcf">here</a>. However, notice that you will require BCFtools version 1.11 or newer
+We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download <a href="http://software.broadinstitute.org/software/gtc2vcf">here</a>. However, notice that you will require BCFtools version 1.14 or newer
 
 Download latest version of <a href="https://github.com/samtools/htslib">HTSlib</a> and <a href="https://github.com/samtools/bcftools">BCFtools</a> (if not downloaded already)
 ```
@@ -258,7 +258,8 @@ Convert Illumina IDAT files to GTC files
 
 Once iaap-cli is properly installed in your system, run Illumina's proprietary GenCall algorithm on multiple IDAT file pairs
 ```
-LANG="en_US.UTF-8" $HOME/bin/iaap-cli/iaap-cli gencall \
+CLR_ICU_VERSION_OVERRIDE="$(uconv -V | sed 's/.* //g')" LANG="en_US.UTF-8" $HOME/bin/iaap-cli/iaap-cli \
+  gencall \
   $bpm_manifest_file \
   $egt_cluster_file \
   $path_to_output_folder \
@@ -410,9 +411,9 @@ Optionally, between the conversion and the sorting step you can include a `bcfto
 Using an alternative genome reference
 =====================================
 
-Illumina provides <a href="https://support.illumina.com/bulletins/2017/04/infinium-human-genotyping-manifests-and-support-files--with-anno.html">GRCh38/hg38</a> manifests for many of its genotyping arrays. However, if your genotyping array is not supported for the newer reference by Illumina, you can use the `--fasta-flank` and `--sam-flank` options to realign the source sequences from the manifest files you have and recompute the marker positions. This approach uses <a href="https://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html">source sequence</a> and <a href="https://support.illumina.com/bulletins/2017/06/how-to-interpret-dna-strand-and-allele-information-for-infinium-.html">strand</a> information to identify the marker <a href="https://support.illumina.com/bulletins/2016/06/-infinium-genotyping-array-manifest-files-what-does-chr-or-mapinfo---mean.html">coordinates</a>. It will need a sequence aligner such as `bwa` to realign the sequences and it seems to reproduce the coordinates provided from Illumina more than 99.9% of the times. Mapping information will follow the <a href="https://github.com/Illumina/GTCtoVCF#manifests">implicit dbSNP standard</a>. Occasionally the source sequence provided by Illumina is incorrect and it is impossible to recover the correct marker coordinate from the source sequence alone
+Illumina provides <a href="https://support.illumina.com/bulletins/2017/04/infinium-human-genotyping-manifests-and-support-files--with-anno.html">GRCh38/hg38</a> manifests for many of its genotyping arrays. However, if your genotyping array is not supported for the newer reference by Illumina, you can use the `--fasta-flank` and `--sam-flank` options to realign the flank sequences from the manifest files you have and recompute the marker positions. This approach uses <a href="https://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html">flank sequence</a> and <a href="https://support.illumina.com/bulletins/2017/06/how-to-interpret-dna-strand-and-allele-information-for-infinium-.html">strand</a> information to identify the marker <a href="https://support.illumina.com/bulletins/2016/06/-infinium-genotyping-array-manifest-files-what-does-chr-or-mapinfo---mean.html">coordinates</a>. It will need a sequence aligner such as `bwa` to realign the sequences and it seems to reproduce the coordinates provided from Illumina more than 99.9% of the times. Mapping information will follow the <a href="https://github.com/Illumina/GTCtoVCF#manifests">implicit dbSNP standard</a>. Occasionally the flank sequence provided by Illumina is incorrect and it is impossible to recover the correct marker coordinate from the flank sequence alone
 
-You first have to generate an alignment file for the source sequences from a CSV manifest file
+You first have to generate an alignment file for the flank sequences from a CSV manifest file
 ```
 csv_manifest_file="..."
 ref="$HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna" # or ref="$HOME/GRCh37/human_g1k_v37.fasta"
@@ -435,9 +436,9 @@ HumanCytoSNP-12v2-1_Anova
 HumanOmni1-Quad_v1-0-Multi_H
 HumanOmni1-Quad_v1-0_H
 ```
-We advise to either contact Illumina to demand a fixed version or to use gtc2vcf to realign the source sequences
+We advise to either contact Illumina to demand a fixed version or to use gtc2vcf to realign the flank sequences
 
-Also, Illumina assigns chromosomal positions to indels by first left aligning the source sequences in an incoherent way (see <a href="https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py">here</a>). Apparently this is incoherent enough that Illumina also cannot get the coordinates of homopolymer indels right. For example, chromosome 13 ClinVar indel <a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/37959">rs80359507</a> is assigned to position 32913838 in the manifest file for the GSA-24v2-0 array, but it is assigned to position 32913837 in the manifest file for GSA-24v3-0 array (GRCh37 coordinates). If you want to trust genotypes at homopolymer indels, we advise to use gtc2vcf to realign the source sequences
+Also, Illumina assigns chromosomal positions to indels by first left aligning the flank sequences in an incoherent way (see <a href="https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py">here</a>). Apparently this is incoherent enough that Illumina also cannot get the coordinates of homopolymer indels right. For example, chromosome 13 ClinVar indel <a href="https://www.ncbi.nlm.nih.gov/clinvar/variation/37959">rs80359507</a> is assigned to position 32913838 in the manifest file for the GSA-24v2-0 array, but it is assigned to position 32913837 in the manifest file for GSA-24v3-0 array (GRCh37 coordinates). If you want to trust genotypes at homopolymer indels, we advise to use gtc2vcf to realign the flank sequences
 
 The same functionality exists for the affy2vcf tool to convert Affymetrix data
 

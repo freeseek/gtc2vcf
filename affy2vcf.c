@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2022-01-12"
+#define AFFY2VCF_VERSION "2022-05-18"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -2080,7 +2080,7 @@ static void compute_baf_lrr(const float *norm_x, const float *norm_y, int n, con
     for (int i = 0; i < n; i++) {
         float ilmn_theta = atanf(norm_y[i] / norm_x[i]) * (float)M_2_PI;
         float ilmn_r = norm_x[i] + norm_y[i];
-        get_baf_lrr(ilmn_theta, ilmn_r, aa_theta, ab_theta, bb_theta, aa_r, ab_r, bb_r, &baf[i], &lrr[i]);
+        get_baf_lrr(ilmn_theta, ilmn_r, aa_theta, ab_theta, bb_theta, aa_r, ab_r, bb_r, NAN, &baf[i], &lrr[i]);
     }
 }
 
@@ -2338,7 +2338,7 @@ static const char *usage_text(void) {
            "\n"
            "Manifest options:\n"
            "        --fasta-flank               output flank sequence in FASTA format (requires --csv)\n"
-           "    -s, --sam-flank <file>          input source sequence alignment in SAM/BAM format (requires --csv)\n"
+           "    -s, --sam-flank <file>          input flank sequence alignment in SAM/BAM format (requires --csv)\n"
            "\n"
            "Examples:\n"
            "    bcftools +affy2vcf \\\n"

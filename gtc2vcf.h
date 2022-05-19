@@ -508,27 +508,29 @@ static inline int get_strand_from_top_alleles(char *allele_a, char *allele_b, co
     }
 }
 
-// compute BAF and LRR from Theta and R
-static inline void get_baf_lrr(const float ilmn_theta, const float ilmn_r, float aa_theta, float ab_theta,
-                               float bb_theta, float aa_r, float ab_r, float bb_r, float *baf, float *lrr) {
-    // compute LRR and BAF
+// compute BAF and LRR from Theta and R as explained in Peiffer, D. A. et al. High-resolution genomic profiling of
+// chromosomal aberrations using Infinium whole-genome genotyping. Genome Res. 16, 1136–1148 (2006)
+static inline void get_baf_lrr(float ilmn_theta, float ilmn_r, float aa_theta, float ab_theta, float bb_theta,
+                               float aa_r, float ab_r, float bb_r, float r_mean, float *baf, float *lrr) {
+    float r_ref;
     if (ilmn_theta == ab_theta) {
-        *lrr = logf(ilmn_r / ab_r) * (float)M_LOG2E;
+        r_ref = ab_r;
         *baf = 0.5f;
     } else if (ilmn_theta < ab_theta) {
         float slope = (aa_r - ab_r) / (aa_theta - ab_theta);
         float b = aa_r - (aa_theta * slope);
-        float r_ref = (slope * ilmn_theta) + b;
-        *lrr = logf(ilmn_r / r_ref) * (float)M_LOG2E;
+        r_ref = (slope * ilmn_theta) + b;
         *baf = 0.5f - (ab_theta - ilmn_theta) * 0.5f / (ab_theta - aa_theta);
     } else if (ilmn_theta > ab_theta) {
         float slope = (ab_r - bb_r) / (ab_theta - bb_theta);
         float b = ab_r - (ab_theta * slope);
-        float r_ref = (slope * ilmn_theta) + b;
-        *lrr = logf(ilmn_r / r_ref) * (float)M_LOG2E;
+        r_ref = (slope * ilmn_theta) + b;
         *baf = 1.0f - (bb_theta - ilmn_theta) * 0.5f / (bb_theta - ab_theta);
     } else {
-        *lrr = NAN;
-        *baf = NAN;
+        *lrr = -NAN;
+        *baf = -NAN;
+        return;
     }
+    // for non-polymorphic (Illumina) markers we compute the LRR using the clusters mean
+    *lrr = logf(ilmn_r / (isnan(r_mean) ? r_ref : r_mean)) * (float)M_LOG2E;
 }
