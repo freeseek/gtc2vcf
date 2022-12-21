@@ -16,7 +16,7 @@ A tutorial for how to convert HapMap data from Illumina and Affymetrix arrays to
 Download manifest files
 =======================
 
-Download HumanCNV370v1 manifest and cluster files from <a href="http://support.illumina.com/downloads/humancnv370-duo_v10_product_files.html">Illumina</a> and <a href="http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL6986">GEO</a>
+Download HumanCNV370v1 manifest and cluster files from [Illumina](http://support.illumina.com/downloads/humancnv370-duo_v10_product_files.html) and [GEO](http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL6986)
 ```
 wget ftp://webdata:webdata@ussd-ftp.illumina.com/downloads/ProductFiles/HumanCNV370/HumanCNV370-Duo/humancnv370v1_c.bpm
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/ProductFiles/HumanCNV370/HumanCNV370-Duo/HumanCNV370v1_C.egt
@@ -25,14 +25,14 @@ gunzip GPL6986_HumanCNV370v1_C.csv.gz
 /bin/mv GPL6986_HumanCNV370v1_C.csv HumanCNV370v1_C.csv
 ```
 
-Download HumanOmni2.5-4v1 manifest and cluster files from <a href="http://support.illumina.com/downloads/humanomni2-5-quad_product_files.html">Illumina</a>
+Download HumanOmni2.5-4v1 manifest and cluster files from [Illumina](http://support.illumina.com/downloads/humanomni2-5-quad_product_files.html)
 ```
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/MyIllumina/94afb35e-7c11-45cc-8a65-d868af527c54/HumanOmni2.5-4v1_H.bpm
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/MyIllumina/f003e017-1761-4348-958f-03997a30cf67/HumanOmni2.5-4v1_H.egt
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/MyIllumina/d5578cf6-bb3b-4b4b-98d3-21edc5bcbd45/HumanOmni2.5-4v1_H.csv
 ```
 
-Download HumanOmni25M-8v1-1 manifest and cluster files from <a href="ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/productfiles/humanomni25">Illumina</a> and <a href="http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL20641">GEO</a>
+Download HumanOmni25M-8v1-1 manifest and cluster files from [Illumina](ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/productfiles/humanomni25) and [GEO](http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL20641)
 ```
 wget https://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL20nnn/GPL20641/suppl/GPL20641_HumanOmni2.5M-8v1-1_B.bpm.gz
 wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/productfiles/humanomni25/humanomni2-5m-8v1-1_b.egt
@@ -43,7 +43,7 @@ gunzip GPL20641_HumanOmni25M-8v1-1_B.csv.gz
 /bin/mv GPL20641_HumanOmni25M-8v1-1_B.csv HumanOmni25M-8v1-1_B.csv
 ```
 
-Download GenomeWideEx_6 and GenomeWideSNP_6 library and annotation files from <a href="http://www.affymetrix.com/support/technical/byproduct.affx?product=genomewidesnp_6">Affymetrix</a>
+Download GenomeWideEx_6 and GenomeWideSNP_6 library and annotation files from [Affymetrix](http://www.affymetrix.com/support/technical/byproduct.affx?product=genomewidesnp_6)
 ```
 wget http://www.affymetrix.com/Auth/support/downloads/library_files/genomewidesnp6_libraryfile.zip
 wget http://www.affymetrix.com/Auth/analysis/downloads/lf/genotyping/GenomeWideSNP_6/SNP6_supplemental_axiom_analysis_files.zip
@@ -163,7 +163,7 @@ for chip in HumanCNV370v1 HumanOmni25M-8v1-1 HumanOmni2.5-4v1; do
     --gtcs $chip \
     --extra HapMap.$chip.sex \
     --do-not-check-bpm | \
-    bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
+    bcftools sort -Ou -T ./bcftools. | \
     bcftools norm --no-version -Ob -o HapMap.$chip.bcf -c x -f $ref && \
     bcftools index -f HapMap.$chip.bcf"
 done
@@ -205,7 +205,7 @@ for chip in GenomeWideEx_6 GenomeWideSNP_6; do
     --report $chip/AxiomGT1.report.txt \
     --chps $chip \
     --extra HapMap.$chip.sex | \
-    bcftools sort -Ou -T ./bcftools-sort.XXXXXX | \
+    bcftools sort -Ou -T ./bcftools. | \
     bcftools norm --no-version -Ob -o HapMap.$chip.bcf -c x -f $ref && \
     bcftools index -f HapMap.$chip.bcf"
 done

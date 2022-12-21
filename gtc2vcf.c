@@ -34,7 +34,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2022-05-18"
+#define GTC2VCF_VERSION "2022-12-21"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -361,7 +361,7 @@ static uint8_t *bpm_norm_lookups(bpm_t *bpm) {
     return norm_lookups;
 }
 
-static bpm_t *bpm_init(const char *fn, int make_dict) {
+static bpm_t *bpm_init(const char *fn, int eof_check, int make_dict) {
     bpm_t *bpm = (bpm_t *)calloc(1, sizeof(bpm_t));
     bpm->fn = strdup(fn);
     bpm->hfile = hopen(bpm->fn, "rb");
@@ -421,8 +421,11 @@ static bpm_t *bpm_init(const char *fn, int make_dict) {
     bpm->header = (char **)malloc(bpm->m_header * sizeof(char *));
     for (int i = 0; i < bpm->m_header; i++) read_pfx_string(bpm->hfile, &bpm->header[i], NULL);
 
-    if (!heof(bpm->hfile))
-        error("BPM reader did not reach the end of file %s at position %ld\n", bpm->fn, htell(bpm->hfile));
+    if (eof_check && !heof(bpm->hfile))
+        error(
+            "BPM reader did not reach the end of file %s at position %ld\nUse --do-not-check-eof to suppress this "
+            "check\n",
+            bpm->fn, htell(bpm->hfile));
 
     return bpm;
 }
@@ -918,7 +921,7 @@ static void clusterrecord_read(ClusterRecord *clusterrecord, hFILE *hfile, int32
     }
 }
 
-static egt_t *egt_init(const char *fn) {
+static egt_t *egt_init(const char *fn, int eof_check) {
     egt_t *egt = (egt_t *)calloc(1, sizeof(egt_t));
     egt->fn = strdup(fn);
     egt->hfile = hopen(egt->fn, "rb");
@@ -975,8 +978,11 @@ static egt_t *egt_init(const char *fn) {
     }
 
     if (egt->data_block_version == 9) read_bytes(egt->hfile, NULL, egt->num_records * sizeof(float));
-    if (!heof(egt->hfile))
-        error("EGT reader did not reach the end of file %s at position %ld\n", egt->fn, htell(egt->hfile));
+    if (eof_check && !heof(egt->hfile))
+        error(
+            "EGT reader did not reach the end of file %s at position %ld\nUse --do-not-check-eof to suppress this "
+            "check\n",
+            egt->fn, htell(egt->hfile));
 
     for (int i = 0; i < egt->num_records; i++) {
         ClusterStats *aa = &egt->cluster_records[i].aa_cluster_stats;
@@ -1096,6 +1102,7 @@ static chip_type_t chip_types[] = {
     {"1-95um_multi-swath_for_8x2-5M", 2563064, 2563064, "HumanOmni25M-8v1-1"},
     {"1-95um_multi-swath_for_8x2-5M", 2605775, 2605775, "HumanOmni25M-8v1-1"},
     {"BeadChip 12x1", 55300, 55300, "humanmethylation27_270596_v1-2 ???"},
+    {"BeadChip 12x1Q", 191668, 191668, "CanineHD"},
     {"BeadChip 12x8", 301084, 301084, "HumanCore-12v1-0"},
     {"BeadChip 12x8", 304138, 304138, "HumanExome-12v1-1"},
     {"BeadChip 12x8", 567727, 567727, "HumanCoreExome-12-v1-0"},
@@ -1133,6 +1140,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 24x1x4", 749019, 749019, "DeCodeGenetics_V3_20032937X331991"},
     {"BeadChip 24x1x4", 751614, 751614, "GSAMD-24v3-0-EA_20034606"},
     {"BeadChip 24x1x4", 766804, 766804, "JSA-24v1-0"},
+    {"BeadChip 24x1x4", 780343, 780343, "GSAMD-24v2-0_20024620"},
     {"BeadChip 24x1x4", 780509, 780509, "GSAMD-24v2-0_20024620"},
     {"BeadChip 24x1x4", 818205, 818205, "GSA-24v2-0"},
     {"BeadChip 2x10", 321354, 37161, "HumanHap300v2"},
@@ -2501,9 +2509,9 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
         if (!bpm->locus_entries[j].intensity_only) {
             gts_to_gt_arr(gt_arr, gts, n, allele_a_idx, allele_b_idx);
             bcf_update_genotypes(hdr, rec, gt_arr, n * 2);
+            bcf_update_format_int32(hdr, rec, "GQ", gq_arr, n);
+            bcf_update_format_float(hdr, rec, "IGC", igc_arr, n);
         }
-        bcf_update_format_int32(hdr, rec, "GQ", gq_arr, n);
-        bcf_update_format_float(hdr, rec, "IGC", igc_arr, n);
         bcf_update_format_float(hdr, rec, "BAF", baf_arr, n);
         bcf_update_format_float(hdr, rec, "LRR", lrr_arr, n);
         bcf_update_format_float(hdr, rec, "NORMX", norm_x_arr, n);
@@ -3124,6 +3132,8 @@ static const char *usage_text(void) {
            "--egt)\n"
            "        --use-gtc-sample-names        use sample name in GTC files rather than GTC file name\n"
            "        --do-not-check-bpm            do not check whether BPM and GTC files match manifest file name\n"
+           "        --do-not-check-eof            do not check whether the BPM and EGT readers reach the end of the "
+           "file\n"
            "        --genome-studio <file>        input a GenomeStudio final report file (in matrix format)\n"
            "        --no-version                  do not append version and command line to the header\n"
            "    -o, --output <file>               write output to a file [standard output]\n"
@@ -3155,7 +3165,7 @@ static const char *usage_text(void) {
            "Examples of manifest file options:\n"
            "    bcftools +gtc2vcf -b GSA-24v3-0_A1.bpm -c GSA-24v3-0_A1.csv --beadset-order\n"
            "    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --fasta-flank -o GSA-24v3-0_A1.fasta\n"
-           "    bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GSA-24v3-0_A1.fasta -o GSA-24v3-0_A1.sam\n"
+           "    bwa mem -M Homo_sapiens_assembly38.fasta GSA-24v3-0_A1.fasta -o GSA-24v3-0_A1.sam\n"
            "    bcftools +gtc2vcf -c GSA-24v3-0_A1.csv --sam-flank GSA-24v3-0_A1.sam -o GSA-24v3-0_A1.GRCh38.csv\n"
            "\n";
 }
@@ -3230,6 +3240,7 @@ int run(int argc, char *argv[]) {
     int gc_win = (int)strtol(GC_WIN_DFLT, NULL, 0);
     int gtc_sample_names = 0;
     int bpm_check = 1;
+    int eof_check = 1;
     int n_threads = 0;
     int record_cmd_line = 1;
     int binary_to_csv = 0;
@@ -3253,17 +3264,18 @@ int run(int argc, char *argv[]) {
                                        {"adjust-clusters", no_argument, NULL, 4},
                                        {"use-gtc-sample-names", no_argument, NULL, 5},
                                        {"do-not-check-bpm", no_argument, NULL, 6},
-                                       {"genome-studio", required_argument, NULL, 7},
-                                       {"no-version", no_argument, NULL, 8},
+                                       {"do-not-check-eof", no_argument, NULL, 7},
+                                       {"genome-studio", required_argument, NULL, 8},
+                                       {"no-version", no_argument, NULL, 9},
                                        {"output", required_argument, NULL, 'o'},
                                        {"output-type", required_argument, NULL, 'O'},
-                                       {"threads", required_argument, NULL, 9},
+                                       {"threads", required_argument, NULL, 10},
                                        {"extra", required_argument, NULL, 'x'},
                                        {"verbose", no_argument, NULL, 'v'},
-                                       {"beadset-order", no_argument, NULL, 10},
-                                       {"fasta-flank", no_argument, NULL, 11},
+                                       {"beadset-order", no_argument, NULL, 11},
+                                       {"fasta-flank", no_argument, NULL, 12},
                                        {"sam-flank", required_argument, NULL, 's'},
-                                       {"genome-build", required_argument, NULL, 12},
+                                       {"genome-build", required_argument, NULL, 13},
                                        {NULL, 0, NULL, 0}};
     int c;
     while ((c = getopt_long(argc, argv, "h?lt:b:c:e:f:g:io:O:x:vs:", loptions, NULL)) >= 0) {
@@ -3315,9 +3327,12 @@ int run(int argc, char *argv[]) {
             bpm_check = 0;
             break;
         case 7:
-            gs_fname = optarg;
+            eof_check = 0;
             break;
         case 8:
+            gs_fname = optarg;
+            break;
+        case 9:
             record_cmd_line = 0;
             break;
         case 'o':
@@ -3351,7 +3366,7 @@ int run(int argc, char *argv[]) {
                     error("Could not parse argument: --compression-level %s\n", optarg + 1);
             }
             break;
-        case 9:
+        case 10:
             n_threads = strtol(optarg, &tmp, 0);
             if (*tmp) error("Could not parse argument: --threads %s\n", optarg);
             break;
@@ -3361,16 +3376,16 @@ int run(int argc, char *argv[]) {
         case 'v':
             flags |= VERBOSE;
             break;
-        case 10:
+        case 11:
             beadset_order = 1;
             break;
-        case 11:
+        case 12:
             fasta_flank = 1;
             break;
         case 's':
             sam_fname = optarg;
             break;
-        case 12:
+        case 13:
             genome_build = optarg;
             break;
         case 'h':
@@ -3462,7 +3477,7 @@ int run(int argc, char *argv[]) {
     bpm_t *bpm = NULL;
     if (bpm_fname) {
         fprintf(stderr, "Reading BPM file %s\n", bpm_fname);
-        bpm = bpm_init(bpm_fname, gs_fname != NULL);
+        bpm = bpm_init(bpm_fname, eof_check, gs_fname != NULL);
         flags |= BPM_LOADED;
         if (binary_to_csv && !csv_fname) bpm_to_csv(bpm, out_txt, flags);
     }
@@ -3517,7 +3532,7 @@ int run(int argc, char *argv[]) {
     egt_t *egt = NULL;
     if (egt_fname) {
         fprintf(stderr, "Reading EGT file %s\n", egt_fname);
-        egt = egt_init(egt_fname);
+        egt = egt_init(egt_fname, eof_check);
         if (binary_to_csv)
             egt_to_csv(egt, out_txt, flags & VERBOSE);
         else
@@ -3586,7 +3601,7 @@ int run(int argc, char *argv[]) {
             if (sam_fname)
                 bcf_hdr_printf(hdr, "##SAM=%s", strrchr(sam_fname, '/') ? strrchr(sam_fname, '/') + 1 : sam_fname);
             if ((flags & BPM_LOADED) && (flags & CSV_LOADED)) bcf_hdr_printf(hdr, "##BeadSet_Order=%s", str.s);
-            if (record_cmd_line) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+gtc2vcf");
+            if (record_cmd_line) bcf_hdr_append_version(hdr, argc, argv, "bcftools_gtc2vcf");
             if (gs_fname) {
                 htsFile *gs_fh = hts_open(gs_fname, "r");
                 bcf_hdr_printf(hdr, "##GenomeStudio=%s",

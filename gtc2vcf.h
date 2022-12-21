@@ -135,11 +135,11 @@ static inline int bcf_hdr_name2id_flexible(const bcf_hdr_t *hdr, char *chr) {
     if (rid >= 0) return rid;
     if (strncmp(chr, "chr", 3) == 0) rid = bcf_hdr_name2id(hdr, chr + 3);
     if (rid >= 0) return rid;
-    if (strlen(chr) > 2) return -1;
-    strcpy(buf + 3, chr);
+    strncpy(buf + 3, chr, 2);
     rid = bcf_hdr_name2id(hdr, buf);
     if (rid >= 0) return rid;
-    if (strcmp(chr, "23") == 0 || strcmp(chr, "25") == 0 || strcmp(chr, "XY") == 0 || strcmp(chr, "XX") == 0) {
+    if (strcmp(chr, "23") == 0 || strcmp(chr, "25") == 0 || strcmp(chr, "XY") == 0 || strcmp(chr, "XX") == 0
+        || strcmp(chr, "PAR1") == 0 || strcmp(chr, "PAR2") == 0) {
         rid = bcf_hdr_name2id(hdr, "X");
         if (rid >= 0) return rid;
         rid = bcf_hdr_name2id(hdr, "chrX");
@@ -177,7 +177,7 @@ static inline char mask_nt(char iupac) {
     return iupac_mask[(int)(iupac & 0x7F)];
 }
 
-#define MAX_LENGTH_LEFT_ALLELE 8
+#define MAX_LENGTH_LEFT_ALLELE 256
 static inline void flank_reverse_complement(char *flank) {
     // swap alleles, but only if first allele is one base pair long
     char *left = strchr(flank, '[');

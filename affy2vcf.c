@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2022-05-18"
+#define AFFY2VCF_VERSION "2022-12-21"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -2359,7 +2359,7 @@ static const char *usage_text(void) {
            "\n"
            "Examples of manifest file options:\n"
            "    bcftools +affy2vcf -c GenomeWideSNP_6.na35.annot.csv --fasta-flank -o  GenomeWideSNP_6.fasta\n"
-           "    bwa mem -M GCA_000001405.15_GRCh38_no_alt_analysis_set.fna GenomeWideSNP_6.fasta -o "
+           "    bwa mem -M Homo_sapiens_assembly38.fasta GenomeWideSNP_6.fasta -o "
            "GenomeWideSNP_6.sam\n"
            "    bcftools +affy2vcf -c GenomeWideSNP_6.na35.annot.csv -s GenomeWideSNP_6.sam -o "
            "GenomeWideSNP_6.na35.annot.GRCh38.csv\n"
@@ -2656,7 +2656,7 @@ int run(int argc, char *argv[]) {
             bcf_hdr_printf(hdr, "##SAM=%s", strrchr(sam_fname, '/') ? strrchr(sam_fname, '/') + 1 : sam_fname);
         if (snp_fname)
             bcf_hdr_printf(hdr, "##SNP=%s", strrchr(snp_fname, '/') ? strrchr(snp_fname, '/') + 1 : snp_fname);
-        if (record_cmd_line) bcf_hdr_append_version(hdr, argc, argv, "bcftools_+affy2vcf");
+        if (record_cmd_line) bcf_hdr_append_version(hdr, argc, argv, "bcftools_affy2vcf");
         char wmode[8];
         set_wmode(wmode, output_type, (char *)output_fname, clevel);
         htsFile *out_fh = hts_open(output_fname, hts_bcf_wmode(output_type));

@@ -25,7 +25,7 @@
 #  THE SOFTWARE.
 ###
 
-gtc2vcf_plot_version <- '2022-05-18'
+gtc2vcf_plot_version <- '2022-12-21'
 
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(data.table))
