@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2022 Giulio Genovese
+   Copyright (c) 2018-2023 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2022-12-21"
+#define AFFY2VCF_VERSION "2023-09-19"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"

@@ -3,8 +3,6 @@ gtc2vcf
 
 A set of tools to convert Illumina and Affymetrix DNA microarray intensity data files into VCF files <b>without</b> using Microsoft Windows. You can use the final output to run the pipeline to detect [mosaic chromosomal alterations](https://github.com/freeseek/mocha). If you use this tool in your publication, please cite this website. For any feedback or questions, contact the [author](mailto:giulio.genovese@gmail.com)
 
-WARNING: do not use the conda bcftools-gtc2vcf-plugin version 1.9 as it is neither updated nor supported. The current version of gtc2vcf requires BCFtools 1.14 or newer
-
 ![](gtc2vcf.png)
 
 <!--ts-->
@@ -143,20 +141,20 @@ sudo apt install libbz2-dev libssl-dev liblzma-dev libgsl0-dev
 
 Preparation steps
 ```
-mkdir -p $HOME/bin $HOME/GRCh3[78] && cd /tmp
+mkdir -p $HOME/bin $HOME/GRCh3{7,8} && cd /tmp
 ```
 
-We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download [here](http://software.broadinstitute.org/software/gtc2vcf). However, notice that you will require BCFtools version 1.14 or newer
+We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download [here](http://software.broadinstitute.org/software/gtc2vcf). However, notice that you will require BCFtools version 1.14 or newer. You can also download a previous version of the plugin through [bioconda](https://anaconda.org/bioconda/bcftools-gtc2vcf-plugin)
 
 Download latest version of [HTSlib](https://github.com/samtools/htslib) and [BCFtools](https://github.com/samtools/bcftools) (if not downloaded already)
 ```
-wget https://github.com/samtools/bcftools/releases/download/1.16/bcftools-1.16.tar.bz2
-tar xjvf bcftools-1.16.tar.bz2
+wget https://github.com/samtools/bcftools/releases/download/1.18/bcftools-1.18.tar.bz2
+tar xjvf bcftools-1.18.tar.bz2
 ```
 
 Download and compile plugins code (make sure you are using gcc version 5 or newer)
 ```
-cd bcftools-1.16/
+cd bcftools-1.18/
 /bin/rm -f plugins/{gtc2vcf.{c,h},affy2vcf.c}
 wget -P plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{gtc2vcf.{c,h},affy2vcf.c}
 make

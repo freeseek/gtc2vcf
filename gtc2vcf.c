@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2022 Giulio Genovese
+   Copyright (c) 2018-2023 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -34,7 +34,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2022-12-21"
+#define GTC2VCF_VERSION "2023-09-19"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -1113,6 +1113,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 12x8", 722405, 722405, "HumanOmniExpress-12-v1-1"},
     {"BeadChip 12x8", 734889, 734889, "HumanOmniExpress-12-v1-0"},
     {"BeadChip 12x8", 736136, 736136, "HumanOmniExpress-12-v1-0"},
+    {"BeadChip 1x12", 577085, 8627, "HumanHap550v3"},
     {"BeadChip 1x12", 661182, 49163, "HumanHap650Yv3"},
     {"BeadChip 1x40", 1129736, 57373, "Human1Mv1"},
     {"BeadChip 1x40 66", 1078890, 52497, "Human1Mv1"},
@@ -1162,6 +1163,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 8x5", 867478, 867478, "CytoSNP-850K"},
     {"BeadChip 8x5", 988240, 988240, "HumanOmniExpressExome-8-v1-1"},
     {"BeadChip 8x5", 989536, 989536, "HumanOmniExpressExome-8-v1-1"},
+    {"BeadChip 8x5", 992824, 992824, "HumanOmniExpressExome-8-v1-4"},
     {"BeadChip 8x5", 996003, 996003, "HumanOmniExpressExome-8-v1-2"},
     {"BeadChip 8x5", 996055, 996055, "HumanOmniExpressExome-8-v1-2"},
     {"SLIDE.15028542.24x1x3", 307984, 307984, "HumanCore-24v1-0"},

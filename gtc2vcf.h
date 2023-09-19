@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2022 Giulio Genovese
+   Copyright (c) 2018-2023 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -25,7 +25,6 @@
  */
 
 #include <dirent.h>
-#include <sys/stat.h>
 #include <htslib/hfile.h>
 #include <htslib/faidx.h>
 #include <htslib/sam.h>
@@ -66,10 +65,8 @@ static inline void read_bytes(hFILE *hfile, void *buffer, size_t nbytes) {
 
 static inline char **get_file_list(const char *pathname, const char *extension, int *nfiles) {
     char **filenames = NULL;
-    struct stat statbuf;
-    if (stat(pathname, &statbuf) < 0) error("Can't open \"%s\": %s\n", pathname, strerror(errno));
-    if (S_ISDIR(statbuf.st_mode)) {
-        DIR *d = opendir(pathname);
+    DIR *d = opendir(pathname);
+    if (d) { // check if d is a directory
         struct dirent *dir;
         int mfiles = 0;
         int p = strlen(pathname);
