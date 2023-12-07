@@ -34,7 +34,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2023-09-19"
+#define GTC2VCF_VERSION "2023-12-06"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -86,8 +86,8 @@ static inline void read_array(hFILE *hfile, void **arr, size_t *m_arr, size_t nm
             error("Failed to read %ld bytes from stream\n", nmemb * size);
         }
     } else {
-        int c = 0;
-        for (int i = 0; i < nmemb * size; i++) c = hgetc(hfile);
+        int i, c = 0;
+        for (i = 0; i < nmemb * size; i++) c = hgetc(hfile);
         if (c == EOF) error("Failed to reposition stream forward %ld bytes\n", nmemb * size);
     }
 }
@@ -346,18 +346,19 @@ typedef struct {
 } bpm_t;
 
 static uint8_t *bpm_norm_lookups(bpm_t *bpm) {
+    int i;
     uint8_t sorted_norm_ids[256];
-    for (int i = 0; i < 256; i++) sorted_norm_ids[i] = 0xFF;
-    for (int i = 0; i < bpm->num_loci; i++) {
+    for (i = 0; i < 256; i++) sorted_norm_ids[i] = 0xFF;
+    for (i = 0; i < bpm->num_loci; i++) {
         int norm_id = bpm->locus_entries[i].norm_id;
         sorted_norm_ids[norm_id] = norm_id;
     }
     int j = 0;
-    for (int i = 0; i < 256; i++)
+    for (i = 0; i < 256; i++)
         if (sorted_norm_ids[i] != 0xFF) sorted_norm_ids[j++] = sorted_norm_ids[i];
     uint8_t *norm_lookups = (uint8_t *)malloc(256 * sizeof(uint8_t *));
     memset((void *)norm_lookups, 0xFF, 256 * sizeof(uint8_t *));
-    for (int i = 0; i < j; i++) norm_lookups[sorted_norm_ids[i]] = i;
+    for (i = 0; i < j; i++) norm_lookups[sorted_norm_ids[i]] = i;
     return norm_lookups;
 }
 
@@ -368,6 +369,7 @@ static bpm_t *bpm_init(const char *fn, int eof_check, int make_dict) {
     if (bpm->hfile == NULL) error("Could not open %s: %s\n", bpm->fn, strerror(errno));
     if (is_gzip(bpm->hfile)) error("File %s is gzip compressed and currently cannot be sought\n", bpm->fn);
 
+    int i;
     uint8_t buffer[4];
     if (hread(bpm->hfile, (void *)buffer, 4) < 4) error("Failed to read magic number from %s file\n", bpm->fn);
     if (memcmp(buffer, "BPM", 3) != 0) error("BPM file %s format identifier is bad\n", bpm->fn);
@@ -383,10 +385,10 @@ static bpm_t *bpm_init(const char *fn, int eof_check, int make_dict) {
     read_bytes(bpm->hfile, (void *)&bpm->num_loci, sizeof(int32_t));
     read_array(bpm->hfile, (void **)&bpm->indexes, NULL, bpm->num_loci, sizeof(int32_t), 0);
     bpm->names = (char **)malloc(bpm->num_loci * sizeof(char *));
-    for (int i = 0; i < bpm->num_loci; i++) read_pfx_string(bpm->hfile, &bpm->names[i], NULL);
+    for (i = 0; i < bpm->num_loci; i++) read_pfx_string(bpm->hfile, &bpm->names[i], NULL);
     if (make_dict) {
         bpm->names2index = khash_str2int_init();
-        for (int i = 0; i < bpm->num_loci; i++) {
+        for (i = 0; i < bpm->num_loci; i++) {
             if (khash_str2int_has_key(bpm->names2index, bpm->names[i]))
                 error("Illumina probe %s present multiple times in file %s\n", bpm->names[i], fn);
             khash_str2int_inc(bpm->names2index, bpm->names[i]);
@@ -396,7 +398,7 @@ static bpm_t *bpm_init(const char *fn, int eof_check, int make_dict) {
 
     bpm->locus_entries = (LocusEntry *)malloc(bpm->num_loci * sizeof(LocusEntry));
     LocusEntry locus_entry;
-    for (int i = 0; i < bpm->num_loci; i++) {
+    for (i = 0; i < bpm->num_loci; i++) {
         memset(&locus_entry, 0, sizeof(LocusEntry));
         locusentry_read(&locus_entry, bpm->hfile);
         int idx = locus_entry.index - 1;
@@ -410,7 +412,7 @@ static bpm_t *bpm_init(const char *fn, int eof_check, int make_dict) {
         memcpy(&bpm->locus_entries[idx], &locus_entry, sizeof(LocusEntry));
     }
     bpm->norm_lookups = bpm_norm_lookups(bpm);
-    for (int i = 0; i < bpm->num_loci; i++) {
+    for (i = 0; i < bpm->num_loci; i++) {
         if (i != bpm->locus_entries[i].index - 1)
             error("Manifest format error: read invalid number of assay entries\n");
     }
@@ -419,7 +421,7 @@ static bpm_t *bpm_init(const char *fn, int eof_check, int make_dict) {
 
     read_bytes(bpm->hfile, (void *)&bpm->m_header, sizeof(int32_t));
     bpm->header = (char **)malloc(bpm->m_header * sizeof(char *));
-    for (int i = 0; i < bpm->m_header; i++) read_pfx_string(bpm->hfile, &bpm->header[i], NULL);
+    for (i = 0; i < bpm->m_header; i++) read_pfx_string(bpm->hfile, &bpm->header[i], NULL);
 
     if (eof_check && !heof(bpm->hfile))
         error(
@@ -432,6 +434,7 @@ static bpm_t *bpm_init(const char *fn, int eof_check, int make_dict) {
 
 static void bpm_destroy(bpm_t *bpm) {
     if (!bpm) return;
+    int i;
     if (bpm->hfile && hclose(bpm->hfile) < 0) error("Error closing BPM file %s\n", bpm->fn);
     free(bpm->fn);
     if (bpm->fp && hts_close(bpm->fp) < 0) error("Error closing CSV file %s\n", bpm->fp->fn);
@@ -439,12 +442,12 @@ static void bpm_destroy(bpm_t *bpm) {
     free(bpm->control_config);
     free(bpm->indexes);
     if (bpm->names) {
-        for (int i = 0; i < bpm->num_loci; i++) free(bpm->names[i]);
+        for (i = 0; i < bpm->num_loci; i++) free(bpm->names[i]);
         free(bpm->names);
     }
     khash_str2int_destroy(bpm->names2index);
     free(bpm->norm_ids);
-    for (int i = 0; i < bpm->num_loci; i++) {
+    for (i = 0; i < bpm->num_loci; i++) {
         LocusEntry *locus_entry = &bpm->locus_entries[i];
         free(locus_entry->ilmn_id);
         free(locus_entry->name);
@@ -467,13 +470,14 @@ static void bpm_destroy(bpm_t *bpm) {
     }
     free(bpm->locus_entries);
     free(bpm->norm_lookups);
-    for (int i = 0; i < bpm->m_header; i++) free(bpm->header[i]);
+    for (i = 0; i < bpm->m_header; i++) free(bpm->header[i]);
     free(bpm->header);
     free(bpm);
 }
 
 static void bpm_to_csv(const bpm_t *bpm, FILE *stream, int flags) {
-    for (int i = 0; i < bpm->m_header; i++) fprintf(stream, "%s\n", bpm->header[i]);
+    int i;
+    for (i = 0; i < bpm->m_header; i++) fprintf(stream, "%s\n", bpm->header[i]);
     if (flags & BPM_LOADED) {
         fprintf(stream,
                 "Index,NormID,IlmnID,Name,IlmnStrand,SNP,AddressA_ID,AlleleA_ProbeSeq,AddressB_"
@@ -491,7 +495,7 @@ static void bpm_to_csv(const bpm_t *bpm, FILE *stream, int flags) {
     if (flags & VERBOSE) {
         kstring_t address_b = {0, 0, NULL};
         if (flags & BPM_LOADED) {
-            for (int i = 0; i < bpm->num_loci; i++) {
+            for (i = 0; i < bpm->num_loci; i++) {
                 LocusEntry *locus_entry = &bpm->locus_entries[i];
                 address_b.l = 0;
                 ksprintf(&address_b, locus_entry->address_b ? "%010d" : "", locus_entry->address_b);
@@ -513,7 +517,7 @@ static void bpm_to_csv(const bpm_t *bpm, FILE *stream, int flags) {
                 fputc('\n', stream);
             }
         } else {
-            for (int i = 0; i < bpm->num_loci; i++) {
+            for (i = 0; i < bpm->num_loci; i++) {
                 LocusEntry *locus_entry = &bpm->locus_entries[i];
                 address_b.l = 0;
                 ksprintf(&address_b, locus_entry->address_b ? "%010d" : "", locus_entry->address_b);
@@ -734,12 +738,12 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm, int make_dict) {
         error("BPM manifest file has %d loci while CSV manifest file %s has %d loci\n", bpm_prev_num_loci, fn,
               bpm->num_loci);
 
-    int moff = 0, *off = NULL;
-    for (int i = 0; i < bpm->m_header; i++) free(bpm->header[i]);
+    int i, moff = 0, *off = NULL;
+    for (i = 0; i < bpm->m_header; i++) free(bpm->header[i]);
     bpm->m_header = ksplit_core(hdr.s, '\n', &moff, &off);
     free(bpm->header);
     bpm->header = (char **)malloc(bpm->m_header * sizeof(char *));
-    for (int i = 0; i < bpm->m_header; i++) bpm->header[i] = strdup(&hdr.s[off[i]]);
+    for (i = 0; i < bpm->m_header; i++) bpm->header[i] = strdup(&hdr.s[off[i]]);
     free(off);
     free(hdr.s);
 
@@ -778,7 +782,7 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm, int make_dict) {
     if (ref_strand < 0) fprintf(stderr, "Warning: RefStrand annotation missing from manifest file %s\n", fn);
 
     if (!bpm_available) bpm->locus_entries = (LocusEntry *)malloc(bpm->num_loci * sizeof(LocusEntry));
-    for (int i = 0; i < bpm->num_loci; i++) {
+    for (i = 0; i < bpm->num_loci; i++) {
         memset(&locus_entry, 0, sizeof(LocusEntry));
         locus_entry.norm_id = 0xFF;
         locus_entry.assay_type = 0xFF;
@@ -824,7 +828,7 @@ static bpm_t *bpm_csv_init(const char *fn, bpm_t *bpm, int make_dict) {
 
     if (make_dict && !bpm->names2index) {
         bpm->names2index = khash_str2int_init();
-        for (int i = 0; i < bpm->num_loci; i++) {
+        for (i = 0; i < bpm->num_loci; i++) {
             if (khash_str2int_has_key(bpm->names2index, bpm->locus_entries[i].name))
                 error("Illumina probe %s present multiple times in file %s\n", bpm->locus_entries[i].name, fn);
             khash_str2int_inc(bpm->names2index, bpm->locus_entries[i].name);
@@ -922,6 +926,7 @@ static void clusterrecord_read(ClusterRecord *clusterrecord, hFILE *hfile, int32
 }
 
 static egt_t *egt_init(const char *fn, int eof_check) {
+    int i;
     egt_t *egt = (egt_t *)calloc(1, sizeof(egt_t));
     egt->fn = strdup(fn);
     egt->hfile = hopen(egt->fn, "rb");
@@ -949,26 +954,26 @@ static egt_t *egt_init(const char *fn, int eof_check) {
 
     read_bytes(egt->hfile, (void *)&egt->num_records, sizeof(int32_t));
     egt->cluster_records = (ClusterRecord *)malloc(egt->num_records * sizeof(ClusterRecord));
-    for (int i = 0; i < egt->num_records; i++)
+    for (i = 0; i < egt->num_records; i++)
         clusterrecord_read(&egt->cluster_records[i], egt->hfile, egt->data_block_version);
-    for (int i = 0; i < egt->num_records; i++) clusterscore_read(&egt->cluster_records[i].cluster_score, egt->hfile);
+    for (i = 0; i < egt->num_records; i++) clusterscore_read(&egt->cluster_records[i].cluster_score, egt->hfile);
 
     // toss useless strings such as aa_ab_bb/aa_ab/aa_bb/ab_bb
-    for (int i = 0; i < egt->num_records; i++) read_pfx_string(egt->hfile, NULL, NULL);
+    for (i = 0; i < egt->num_records; i++) read_pfx_string(egt->hfile, NULL, NULL);
 
     egt->names = (char **)malloc(egt->num_records * sizeof(char *));
     egt->names2index = khash_str2int_init();
-    for (int i = 0; i < egt->num_records; i++) {
+    for (i = 0; i < egt->num_records; i++) {
         read_pfx_string(egt->hfile, &egt->names[i], NULL);
         if (khash_str2int_has_key(egt->names2index, egt->names[i]))
             error("Illumina probe %s present multiple times in file %s\n", egt->names[i], fn);
         khash_str2int_inc(egt->names2index, egt->names[i]);
     }
-    for (int i = 0; i < egt->num_records; i++)
+    for (i = 0; i < egt->num_records; i++)
         read_bytes(egt->hfile, (void *)&egt->cluster_records[i].address, sizeof(int32_t));
 
     int32_t aa_n, ab_n, bb_n;
-    for (int i = 0; i < egt->num_records; i++) {
+    for (i = 0; i < egt->num_records; i++) {
         read_bytes(egt->hfile, (void *)&aa_n, sizeof(int32_t));
         read_bytes(egt->hfile, (void *)&ab_n, sizeof(int32_t));
         read_bytes(egt->hfile, (void *)&bb_n, sizeof(int32_t));
@@ -984,7 +989,7 @@ static egt_t *egt_init(const char *fn, int eof_check) {
             "check\n",
             egt->fn, htell(egt->hfile));
 
-    for (int i = 0; i < egt->num_records; i++) {
+    for (i = 0; i < egt->num_records; i++) {
         ClusterStats *aa = &egt->cluster_records[i].aa_cluster_stats;
         ClusterStats *ab = &egt->cluster_records[i].ab_cluster_stats;
         ClusterStats *bb = &egt->cluster_records[i].bb_cluster_stats;
@@ -996,6 +1001,7 @@ static egt_t *egt_init(const char *fn, int eof_check) {
 
 static void egt_destroy(egt_t *egt) {
     if (!egt) return;
+    int i;
     if (hclose(egt->hfile) < 0) error("Error closing EGT file %s\n", egt->fn);
     free(egt->fn);
     free(egt->gencall_version);
@@ -1006,7 +1012,7 @@ static void egt_destroy(egt_t *egt) {
     free(egt->opa);
     free(egt->manifest_name);
     free(egt->cluster_records);
-    for (int i = 0; i < egt->num_records; i++) free(egt->names[i]);
+    for (i = 0; i < egt->num_records; i++) free(egt->names[i]);
     free(egt->names);
     khash_str2int_destroy(egt->names2index);
     free(egt);
@@ -1030,7 +1036,8 @@ static void egt_to_csv(const egt_t *egt, FILE *stream, int verbose) {
             "Theta_dev,AB.Theta_mean,BB.N,BB.R_dev,BB.R_mean,BB.Theta_dev,BB.Theta_mean,Intensity "
             "Threshold,Cluster Separation,GenTrain Score,Original Score,Edited,Address\n");
     if (verbose) {
-        for (int i = 0; i < egt->num_records; i++) {
+        int i;
+        for (i = 0; i < egt->num_records; i++) {
             ClusterRecord *cluster_record = &egt->cluster_records[i];
             fprintf(stream, "%s,%d,%f,%f,%f,%f,%d,%f,%f,%f,%f,%d,%f,%f,%f,%f,%f,%f,%f,%f,%d,%d\n", egt->names[i],
                     cluster_record->aa_cluster_stats.N, cluster_record->aa_cluster_stats.r_dev,
@@ -1277,7 +1284,7 @@ static int idat_read(idat_t *idat, uint16_t id) {
     case RUN_INFO:
         read_bytes(idat->hfile, (void *)&idat->m_run_infos, sizeof(int32_t));
         idat->run_infos = (RunInfo *)malloc(idat->m_run_infos * sizeof(RunInfo));
-        for (int i = 0; i < idat->m_run_infos; i++) {
+        for (i = 0; i < idat->m_run_infos; i++) {
             read_pfx_string(idat->hfile, &idat->run_infos[i].run_time, NULL);
             read_pfx_string(idat->hfile, &idat->run_infos[i].block_type, NULL);
             read_pfx_string(idat->hfile, &idat->run_infos[i].block_pars, NULL);
@@ -1299,6 +1306,7 @@ static idat_t *idat_init(const char *fn, size_t capacity) {
     if (idat->hfile == NULL) error("Could not open %s: %s\n", idat->fn, strerror(errno));
     if (is_gzip(idat->hfile)) error("File %s is gzip compressed and currently cannot be sought\n", idat->fn);
 
+    int i;
     uint8_t buffer[4];
     if (hread(idat->hfile, (void *)buffer, 4) < 4) error("Failed to read magic number from %s file\n", idat->fn);
     if (memcmp(buffer, "IDAT", 4) != 0) error("IDAT file %s format identifier is bad\n", idat->fn);
@@ -1310,23 +1318,24 @@ static idat_t *idat_init(const char *fn, size_t capacity) {
     read_bytes(idat->hfile, (void *)&idat->number_toc_entries, sizeof(int32_t));
     idat->id = (uint16_t *)malloc(idat->number_toc_entries * sizeof(uint16_t));
     idat->toc = (int64_t *)malloc(idat->number_toc_entries * sizeof(int64_t));
-    for (int i = 0; i < idat->number_toc_entries; i++) {
+    for (i = 0; i < idat->number_toc_entries; i++) {
         read_bytes(idat->hfile, (void *)&idat->id[i], sizeof(uint16_t));
         read_bytes(idat->hfile, (void *)&idat->toc[i], sizeof(int64_t));
     }
 
     idat->capacity = capacity;
-    for (int i = 0; i < idat->number_toc_entries; i++) idat_read(idat, idat->id[i]);
+    for (i = 0; i < idat->number_toc_entries; i++) idat_read(idat, idat->id[i]);
 
     if (idat->chip_type) {
-        for (const chip_type_t *ptr = chip_types; ptr->chip_type; ptr++) {
+        const chip_type_t *ptr;
+        for (ptr = chip_types; ptr->chip_type; ptr++) {
             if (strcmp(idat->chip_type, ptr->chip_type) == 0 && ptr->num_snps == idat->num_snps
                 && ptr->num_mid_blocks == idat->mid_block->item_num)
                 idat->chip_type_guess = ptr->chip_type_guess;
         }
     }
 
-    for (int i = 0; i < idat->m_run_infos; i++) {
+    for (i = 0; i < idat->m_run_infos; i++) {
         if (strcmp(idat->run_infos[i].block_type, "Scan") != 0) continue;
         idat->imaging_date = idat->run_infos[i].run_time;
         idat->scanner_data = idat->run_infos[i].block_pars;
@@ -1352,7 +1361,8 @@ static void idat_destroy(idat_t *idat) {
     free(idat->sample_well);
     free(idat->unknown1);
     free(idat->unknown2);
-    for (int i = 0; i < idat->m_run_infos; i++) {
+    int i;
+    for (i = 0; i < idat->m_run_infos; i++) {
         free(idat->run_infos[i].run_time);
         free(idat->run_infos[i].block_type);
         free(idat->run_infos[i].block_pars);
@@ -1369,7 +1379,7 @@ static void idat_destroy(idat_t *idat) {
 }
 
 static void idat_to_csv(const idat_t *idat, FILE *stream, int verbose) {
-
+    int i;
     fprintf(stream, "Illumina, Inc.\n");
     fprintf(stream, "[Heading]\n");
     fprintf(stream, "Descriptor File Name,%s\n", strrchr(idat->fn, '/') ? strrchr(idat->fn, '/') + 1 : idat->fn);
@@ -1394,7 +1404,7 @@ static void idat_to_csv(const idat_t *idat, FILE *stream, int verbose) {
     fprintf(stream, "[Assay]\n");
     fprintf(stream, "IlmnID,Sd,Mean,Nbeads\n");
     if (verbose) {
-        for (int i = 0; i < idat->num_snps; i++) {
+        for (i = 0; i < idat->num_snps; i++) {
             int32_t ilmn_id;
             get_element(idat->ilmn_id, (void *)&ilmn_id, i);
             int16_t sd;
@@ -1406,7 +1416,7 @@ static void idat_to_csv(const idat_t *idat, FILE *stream, int verbose) {
             fprintf(stream, "%d,%d,%d,%d\n", ilmn_id, sd, mean, nbeads);
         }
         fprintf(stream, "[Mid Blocks]\n");
-        for (int i = 0; i < idat->mid_block->item_num; i++) {
+        for (i = 0; i < idat->mid_block->item_num; i++) {
             int8_t mid_block;
             get_element(idat->mid_block, (void *)&mid_block, i);
             fprintf(stream, "%d\n", mid_block);
@@ -1417,7 +1427,7 @@ static void idat_to_csv(const idat_t *idat, FILE *stream, int verbose) {
         fprintf(stream, "... use --verbose to visualize Mid Blocks data ...\n");
     }
     fprintf(stream, "[Run Infos]\n");
-    for (int i = 0; i < idat->m_run_infos; i++) {
+    for (i = 0; i < idat->m_run_infos; i++) {
         fprintf(stream, "%s\t%s\t%s\t%s\t%s\n", idat->run_infos[i].run_time, idat->run_infos[i].block_type,
                 idat->run_infos[i].block_pars, idat->run_infos[i].block_code, idat->run_infos[i].code_version);
     }
@@ -1430,7 +1440,8 @@ static void idats_to_tsv(idat_t **idats, int n, FILE *stream) {
             "sentrix_position\topa\tsample_name\tdescription\tsample_plate\tsample_"
             "well\tunknown1\tunknown2\t"
             "chip_type_guess\tscan_date\tscanner_data\n");
-    for (int i = 0; i < n; i++) {
+    int i;
+    for (i = 0; i < n; i++) {
         idat_t *idat = idats[i];
         fprintf(stream,
                 "%s\t%d\t%d\t%02x %02x %02x "
@@ -1697,6 +1708,7 @@ static gtc_t *gtc_init(const char *fn, size_t capacity) {
     if (gtc->hfile == NULL) error("Could not open %s: %s\n", gtc->fn, strerror(errno));
     if (is_gzip(gtc->hfile)) error("File %s is gzip compressed and currently cannot be sought\n", gtc->fn);
 
+    int i;
     uint8_t buffer[4];
     if (hread(gtc->hfile, (void *)buffer, 4) < 4) error("Failed to read magic number from %s file\n", gtc->fn);
     if (memcmp(buffer, "gtc", 3) != 0) error("GTC file %s format identifier is bad\n", gtc->fn);
@@ -1706,20 +1718,20 @@ static gtc_t *gtc_init(const char *fn, size_t capacity) {
     read_bytes(gtc->hfile, (void *)&gtc->number_toc_entries, sizeof(int32_t));
     gtc->id = (uint16_t *)malloc(gtc->number_toc_entries * sizeof(uint16_t));
     gtc->toc = (int32_t *)malloc(gtc->number_toc_entries * sizeof(int32_t));
-    for (int i = 0; i < gtc->number_toc_entries; i++) {
+    for (i = 0; i < gtc->number_toc_entries; i++) {
         read_bytes(gtc->hfile, (void *)&gtc->id[i], sizeof(uint16_t));
         read_bytes(gtc->hfile, (void *)&gtc->toc[i], sizeof(int32_t));
     }
 
     gtc->capacity = capacity;
-    for (int i = 0; i < gtc->number_toc_entries; i++) gtc_read(gtc, gtc->id[i]);
+    for (i = 0; i < gtc->number_toc_entries; i++) gtc_read(gtc, gtc->id[i]);
 
     const char *ptr = strrchr(gtc->fn, '/') ? strrchr(gtc->fn, '/') + 1 : gtc->fn;
     gtc->display_name = strndup(ptr, strlen(ptr) - 4);
 
     gtc->sin_theta = (float *)malloc(gtc->m_normalization_transforms * sizeof(float));
     gtc->cos_theta = (float *)malloc(gtc->m_normalization_transforms * sizeof(float));
-    for (int i = 0; i < gtc->m_normalization_transforms; i++) {
+    for (i = 0; i < gtc->m_normalization_transforms; i++) {
         gtc->sin_theta[i] = sinf(gtc->normalization_transforms[i].theta);
         gtc->cos_theta[i] = cosf(gtc->normalization_transforms[i].theta);
     }
@@ -1807,8 +1819,9 @@ static void gtc_to_csv(const gtc_t *gtc, FILE *stream, int verbose) {
     fprintf(stream, "Sentrix identifier for the slide,%s\n", gtc->sentrix_id ? gtc->sentrix_id : "");
     fprintf(stream, "[Assay]\n");
     fprintf(stream, "Raw X,Raw Y,GType,Top Alleles,Score,B Allele Freq,Log R Ratio\n");
+    int i;
     if (verbose) {
-        for (int i = 0; i < gtc->num_snps; i++) {
+        for (i = 0; i < gtc->num_snps; i++) {
             uint16_t raw_x = 0, raw_y = 0;
             get_element(gtc->raw_x, (void *)&raw_x, i);
             get_element(gtc->raw_y, (void *)&raw_y, i);
@@ -1829,7 +1842,7 @@ static void gtc_to_csv(const gtc_t *gtc, FILE *stream, int verbose) {
     fprintf(stream, "[Normalization Transforms]\n");
     fprintf(stream, "Version,Offset X,Offset Y,Scale X,Scale Y,Shear,Theta\n");
     if (verbose) {
-        for (int i = 0; i < gtc->m_normalization_transforms; i++)
+        for (i = 0; i < gtc->m_normalization_transforms; i++)
             fprintf(stream, "%d,%f,%f,%f,%f,%f,%f\n", gtc->normalization_transforms[i].version,
                     gtc->normalization_transforms[i].offset_x, gtc->normalization_transforms[i].offset_y,
                     gtc->normalization_transforms[i].scale_x, gtc->normalization_transforms[i].scale_y,
@@ -1852,7 +1865,8 @@ static void gtcs_to_tsv(gtc_t **gtcs, int n, FILE *stream) {
             "number_valid_calls\tnumber_invalid_calls\tnumber_intensity_only_or_zeroed_"
             "loci\tp05_x\tp50_x\tp95_x\tp05_y\t"
             "p50_y\tp95_y\tsentrix_barcode\n");
-    for (int i = 0; i < n; i++) {
+    int i;
+    for (i = 0; i < n; i++) {
         gtc_t *gtc = gtcs[i];
         fprintf(stream,
                 "%s\t%d\t%d\t%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%ld\t%ld\t%ld\t%s\t%d\t%d\t%"
@@ -1885,8 +1899,8 @@ static bpm_t *sam_csv_init(const char *fn, bpm_t *bpm, const char *genome_build,
 
     kstring_t str = {0, 0, NULL};
     const char *chromosome = NULL;
-    int strand = -1, position = 0, n_unmapped = 0;
-    for (int i = 0; i < bpm->num_loci; i++) {
+    int i, strand = -1, position = 0, n_unmapped = 0;
+    for (i = 0; i < bpm->num_loci; i++) {
         LocusEntry *locus_entry = &bpm->locus_entries[i];
         int idx = get_position(hts, sam_hdr, b, locus_entry->ilmn_id, locus_entry->source_seq, 1, &chromosome,
                                &position, &strand);
@@ -1954,7 +1968,8 @@ static void adjust_clusters(const uint8_t *gts, const float *ilmn_theta, const f
     cluster_record->ab_cluster_stats.r_mean *= 0.2f;
     cluster_record->bb_cluster_stats.r_mean *= 0.2f;
 
-    for (int i = 0; i < n; i++) {
+    int i;
+    for (i = 0; i < n; i++) {
         switch (gts[i]) {
         case GT_AA:
             cluster_record->aa_cluster_stats.N++;
@@ -1999,11 +2014,13 @@ static inline char rev_allele(char allele) {
 }
 
 static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, FILE *stream, int flags) {
+    int i, j;
+
     // print header
     fputs("Index\tName\tAddress\tChr\tPosition", stream);
     if (flags & EGT_LOADED) fputs("\tGenTrain Score", stream);
     if (flags & BPM_LOADED) fputs("\tFrac A\tFrac C\tFrac G\tFrac T", stream);
-    for (int i = 0; i < n; i++) {
+    for (i = 0; i < n; i++) {
         if (flags & FORMAT_GT) fprintf(stream, "\t%s.GType", gtc[i]->display_name);
         if (flags & FORMAT_IGC) fprintf(stream, "\t%s.Score", gtc[i]->display_name);
         if ((flags & BPM_LOADED) && (flags & FORMAT_THETA)) fprintf(stream, "\t%s.Theta", gtc[i]->display_name);
@@ -2020,7 +2037,7 @@ static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, F
     fputc('\n', stream);
 
     // print loci
-    for (int j = 0; j < bpm->num_loci; j++) {
+    for (j = 0; j < bpm->num_loci; j++) {
         LocusEntry *locus_entry = &bpm->locus_entries[j];
         int norm_id = locus_entry && bpm->norm_lookups && bpm->locus_entries[j].norm_id != 0xFF
                           ? bpm->norm_lookups[bpm->locus_entries[j].norm_id]
@@ -2045,7 +2062,7 @@ static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, F
                     locus_entry->frac_t);
         uint16_t raw_x, raw_y;
         float norm_x, norm_y, ilmn_r, ilmn_theta, baf, lrr;
-        for (int i = 0; i < n; i++) {
+        for (i = 0; i < n; i++) {
             uint8_t genotype;
             get_element(gtc[i]->genotypes, (void *)&genotype, j);
             float genotype_score;
@@ -2119,8 +2136,8 @@ static void gtcs_to_gs(gtc_t **gtc, int n, const bpm_t *bpm, const egt_t *egt, F
 
 static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags) {
     bcf_hdr_t *hdr = bcf_hdr_init("w");
-    int n = faidx_nseq(fai);
-    for (int i = 0; i < n; i++) {
+    int i, n = faidx_nseq(fai);
+    for (i = 0; i < n; i++) {
         const char *seq = faidx_iseq(fai, i);
         int len = faidx_seq_len(fai, seq);
         bcf_hdr_printf(hdr, "##contig=<ID=%s,length=%d>", seq, len);
@@ -2257,7 +2274,8 @@ static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags) {
 }
 
 static int gts_to_gt_arr(int32_t *gt_arr, const uint8_t *gts, int n, int allele_a_idx, int allele_b_idx) {
-    for (int i = 0; i < n; i++) {
+    int i;
+    for (i = 0; i < n; i++) {
         switch (gts[i]) {
         case GT_NC:
             gt_arr[2 * i] = bcf_gt_missing;
@@ -2417,6 +2435,7 @@ static int locus2bcf(const LocusEntry *locus_entry, const ClusterRecord *cluster
 
 static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t **gtc, int n, htsFile *out_fh,
                         bcf_hdr_t *hdr, int flags, int gc_win) {
+    int i, j;
     uint8_t *gts = (uint8_t *)malloc(n * sizeof(uint8_t));
     int32_t *gt_arr = (int32_t *)malloc(n * 2 * sizeof(int32_t));
     int32_t *gq_arr = (int32_t *)malloc(n * sizeof(int32_t));
@@ -2438,7 +2457,7 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
     kstring_t flank = {0, 0, NULL};
     int32_t allele_a_idx, allele_b_idx;
     int n_missing = 0, n_skipped = 0;
-    for (int j = 0; j < bpm->num_loci; j++) {
+    for (j = 0; j < bpm->num_loci; j++) {
         bcf_clear(rec);
         LocusEntry *locus_entry = &bpm->locus_entries[j];
         int norm_id = bpm->norm_lookups && bpm->locus_entries[j].norm_id != 0xFF
@@ -2463,7 +2482,7 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
 
         uint16_t raw_x, raw_y;
         rec->n_sample = n;
-        for (int i = 0; i < n; i++) {
+        for (i = 0; i < n; i++) {
             get_element(gtc[i]->genotypes, (void *)&gts[i], j);
             get_element(gtc[i]->genotype_scores, (void *)&igc_arr[i], j);
             gq_arr[i] = (int)(-10 * log10(1 - igc_arr[i]) + .5);
@@ -2498,7 +2517,7 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
 
         if ((flags & ADJUST_CLUSTERS) && norm_id >= 0 && cluster_record && !bpm->locus_entries[j].intensity_only) {
             adjust_clusters(gts, ilmn_theta_arr, ilmn_r_arr, n, cluster_record);
-            for (int i = 0; i < n; i++) {
+            for (i = 0; i < n; i++) {
                 if (!isnan(ilmn_theta_arr[i]) && !isnan(ilmn_r_arr[i]))
                     get_baf_lrr(ilmn_theta_arr[i], ilmn_r_arr[i], cluster_record->aa_cluster_stats.theta_mean,
                                 cluster_record->ab_cluster_stats.theta_mean,
@@ -2676,10 +2695,10 @@ static void gs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, htsFile 
     // read the header of the table
     kstring_t line = {0, 0, NULL};
     if (hts_getline(gs_fh, KS_SEP_LINE, &line) <= 0) error("Empty file: %s\n", gs_fh->fn);
-    int moff = 0, *off = NULL, ncols = ksplit_core(line.s, '\t', &moff, &off);
+    int i, moff = 0, *off = NULL, ncols = ksplit_core(line.s, '\t', &moff, &off);
     kstring_t str = {0, 0, NULL};
     int *col2sample = (int *)malloc(sizeof(int) * ncols);
-    for (int i = 0; i < ncols; i++) {
+    for (i = 0; i < ncols; i++) {
         char *ptr;
         if (i > 0) kputc(',', &str);
         if ((ptr = strrchr(&line.s[off[i]], '.'))) {
@@ -2919,12 +2938,12 @@ static void gs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, htsFile 
                     break;
                 }
                 if (compute_ilmn_theta_r)
-                    for (int i = 0; i < n; i++)
+                    for (i = 0; i < n; i++)
                         norm_x_y2ilmn_theta_r(norm_x_arr[i], norm_y_arr[i], &ilmn_theta_arr[i], &ilmn_r_arr[i]);
                 if (compute_baf_lrr) {
                     if ((flags & ADJUST_CLUSTERS) && !locus_entry->intensity_only)
                         adjust_clusters(gts, ilmn_theta_arr, ilmn_r_arr, n, cluster_record);
-                    for (int i = 0; i < n; i++) {
+                    for (i = 0; i < n; i++) {
                         if (!isnan(ilmn_theta_arr[i]) && !isnan(ilmn_r_arr[i])) {
                             get_baf_lrr(
                                 ilmn_theta_arr[i], ilmn_r_arr[i], cluster_record->aa_cluster_stats.theta_mean,
@@ -2957,7 +2976,7 @@ static void gs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, htsFile 
                         allele_b.s[0] = snp[3];
                     }
                 } else {
-                    for (int i = 0; i < n; i++) {
+                    for (i = 0; i < n; i++) {
                         switch (gts[i]) {
                         case GT_NC:
                             break;
@@ -3038,7 +3057,7 @@ static void gs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, htsFile 
                 if (allele_a_idx >= 0 && allele_b_idx >= 0) {
                     gts_to_gt_arr(gt_arr, gts, n, allele_a_idx, allele_b_idx);
                 } else {
-                    for (int i = 0; i < n; i++) {
+                    for (i = 0; i < n; i++) {
                         gt_arr[2 * i] = bcf_gt_missing;
                         gt_arr[2 * i + 1] = bcf_gt_missing;
                     }
@@ -3046,7 +3065,7 @@ static void gs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, htsFile 
                 bcf_update_genotypes(hdr, rec, gt_arr, n * 2);
 
                 if (gs_output[GS_IGC]) {
-                    for (int i = 0; i < n; i++) {
+                    for (i = 0; i < n; i++) {
                         gq_arr[i] = (int)(-10 * log10(1 - igc_arr[i]) + .5);
                         if (gq_arr[i] < 0) gq_arr[i] = 0;
                         if (gq_arr[i] > 50) gq_arr[i] = 50;
@@ -3173,9 +3192,9 @@ static const char *usage_text(void) {
 }
 
 static int parse_tags(const char *str) {
-    int flags = 0, n;
+    int i, flags = 0, n;
     char **tags = hts_readlist(str, 0, &n);
-    for (int i = 0; i < n; i++) {
+    for (i = 0; i < n; i++) {
         if (!strcasecmp(tags[i], "GT"))
             flags |= FORMAT_GT;
         else if (!strcasecmp(tags[i], "GQ"))
@@ -3234,6 +3253,7 @@ int run(int argc, char *argv[]) {
     const char *sam_fname = NULL;
     const char *genome_build = GENOME_BUILD_DFLT;
     char *tmp;
+    int i, j;
     int flags = 0;
     int output_type = FT_VCF;
     int clevel = -1;
@@ -3493,7 +3513,7 @@ int run(int argc, char *argv[]) {
 
     // output source sequences in FASTA format to be realigned by bwa mem
     if (fasta_flank) {
-        for (int i = 0; i < bpm->num_loci; i++)
+        for (i = 0; i < bpm->num_loci; i++)
             flank2fasta(bpm->locus_entries[i].ilmn_id, bpm->locus_entries[i].source_seq, out_txt);
     }
 
@@ -3510,7 +3530,7 @@ int run(int argc, char *argv[]) {
     kstring_t str = {0, 0, NULL};
     if ((flags & BPM_LOADED) && (flags & CSV_LOADED)) {
         int32_t norm_id_to_beadset_id[100] = {0};
-        for (int i = 0; i < bpm->num_loci; i++) {
+        for (i = 0; i < bpm->num_loci; i++) {
             uint8_t norm_id = bpm->norm_ids[i];
             if (norm_id_to_beadset_id[norm_id] != 0
                 && norm_id_to_beadset_id[norm_id] != bpm->locus_entries[i].beadset_id)
@@ -3519,7 +3539,7 @@ int run(int argc, char *argv[]) {
             else
                 norm_id_to_beadset_id[norm_id] = bpm->locus_entries[i].beadset_id;
         }
-        for (int i = 0, j = 0; i < 100; i++) {
+        for (i = 0, j = 0; i < 100; i++) {
             if (norm_id_to_beadset_id[i] == 0) continue;
             if (i != j) error("Normalization ID %d not corresponding to any BeadSet ID", j);
             if (i > 0) kputc(',', &str);
@@ -3552,7 +3572,7 @@ int run(int argc, char *argv[]) {
 
     if (gs_fname) flags |= GENOME_STUDIO;
 
-    for (int i = 0; i < nfiles; i++) {
+    for (i = 0; i < nfiles; i++) {
         if (flags & LOAD_IDAT) {
             fprintf(stderr, "Reading IDAT file %s\n", filenames[i]);
             idat_t *idat = idat_init(filenames[i], capacity);
@@ -3611,7 +3631,7 @@ int run(int argc, char *argv[]) {
                 gs_to_vcf(fai, bpm, egt, gs_fh, out_fh, hdr, flags, gc_win);
             } else {
                 if (extra_fname) gtcs_to_tsv((gtc_t **)files, nfiles, out_txt);
-                for (int i = 0; i < nfiles; i++) {
+                for (i = 0; i < nfiles; i++) {
                     gtc_t *gtc = (gtc_t *)files[i];
                     const char *sample_name =
                         (gtc_sample_names && gtc->sample_name) ? gtc->sample_name : gtc->display_name;
@@ -3628,10 +3648,10 @@ int run(int argc, char *argv[]) {
     egt_destroy(egt);
     bpm_destroy(bpm);
     if (pathname) {
-        for (int i = 0; i < nfiles; i++) free(filenames[i]);
+        for (i = 0; i < nfiles; i++) free(filenames[i]);
         free(filenames);
     }
-    for (int i = 0; i < nfiles; i++) {
+    for (i = 0; i < nfiles; i++) {
         if (flags & LOAD_IDAT)
             idat_destroy((idat_t *)files[i]);
         else

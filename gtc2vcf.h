@@ -57,8 +57,8 @@ static inline void read_bytes(hFILE *hfile, void *buffer, size_t nbytes) {
             error("Failed to read %ld bytes from stream\n", nbytes);
         }
     } else {
-        int c = 0;
-        for (int i = 0; i < nbytes; i++) c = hgetc(hfile);
+        int i, c = 0;
+        for (i = 0; i < nbytes; i++) c = hgetc(hfile);
         if (c == EOF) error("Failed to reposition stream forward %ld bytes\n", nbytes);
     }
 }
@@ -189,8 +189,8 @@ static inline void flank_reverse_complement(char *flank) {
     *(left + (right - middle)) = '/';
     memmove(left + (right - middle) + 1, (void *)buf, middle - left - 1);
 
-    size_t len = strlen(flank);
-    for (size_t i = 0; i < len / 2; i++) {
+    size_t i, len = strlen(flank);
+    for (i = 0; i < len / 2; i++) {
         char tmp = flank[i];
         flank[i] = rev_nt(flank[len - i - 1]);
         flank[len - i - 1] = rev_nt(tmp);
@@ -215,8 +215,9 @@ static inline void flank_left_shift(char *flank) {
         memmove(right + 1, middle + 1, len);
     }
 
+    const char *ptr;
     char nt = *(middle + 1);
-    for (const char *ptr = middle + 2; ptr < right; ptr++)
+    for (ptr = middle + 2; ptr < right; ptr++)
         if (*ptr != nt) nt = -1;
     while (nt > 0 && *(left - 1) == nt) {
         memmove(left - 1, left, right - left + 1);
@@ -294,7 +295,8 @@ static inline int get_position(htsFile *hts, sam_hdr_t *sam_hdr, bam1_t *b, cons
                 if (idx == 0) qlen--;
             }
 
-            for (int k = 0; k < n_cigar && qlen > 1; k++) {
+            int k;
+            for (k = 0; k < n_cigar && qlen > 1; k++) {
                 int type = bam_cigar_type(bam_cigar_op(cigar[k]));
                 int len = bam_cigar_oplen(cigar[k]);
                 if ((type & 1) && (type & 2)) { // consume reference sequence ( case M )
@@ -344,7 +346,8 @@ static inline void strupper(char *str) {
 
 static inline float get_gc_ratio(const char *beg, const char *end) {
     int at_cnt = 0, cg_cnt = 0;
-    for (const char *ptr = beg; ptr < end; ptr++) {
+    const char *ptr;
+    for (ptr = beg; ptr < end; ptr++) {
         int c = toupper(*ptr);
         if (c == 'A' || c == 'T') at_cnt++;
         if (c == 'C' || c == 'G') cg_cnt++;
@@ -463,6 +466,7 @@ static inline int alleles_ab_to_vcf(const char **alleles, const char *ref_base, 
 // Petr Danecek's similar implementation in bcftools/plugins/fixref.c
 // https://www.illumina.com/documents/products/technotes/technote_topbot.pdf
 static inline int get_strand_from_top_alleles(char *allele_a, char *allele_b, const char *ref, int win, int len) {
+    int i;
     char ref_base = ref[win];
     int ia = (int)mask_nt(*allele_a);
     int ib = (int)mask_nt(*allele_b);
@@ -482,7 +486,7 @@ static inline int get_strand_from_top_alleles(char *allele_a, char *allele_b, co
         break;
     case 1 | 8: // A and T
     case 2 | 4: // C and G
-        for (int i = 1; i <= win; i++) {
+        for (i = 1; i <= win; i++) {
             int ra = (int)mask_nt(ref[win - i]);
             int rb = (int)mask_nt(ref[win + i]);
             if (ra == 15 || rb == 15 || ra == rb) continue; // N

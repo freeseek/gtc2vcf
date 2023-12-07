@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2023-09-19"
+#define AFFY2VCF_VERSION "2023-12-06"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -134,7 +134,8 @@ static inline int32_t read_string16(hFILE *hfile, wchar_t **buffer) {
     int32_t len = (int32_t)read_long(hfile);
     if (len) {
         *buffer = (wchar_t *)malloc((1 + len) * sizeof(wchar_t));
-        for (int i = 0; i < len; i++) {
+        int i;
+        for (i = 0; i < len; i++) {
             uint16_t cvalue;
             read_bytes(hfile, (void *)&cvalue, sizeof(unsigned short));
             (*buffer)[i] = (wchar_t)ntohs(cvalue);
@@ -283,10 +284,11 @@ static void xda_cel_print(const xda_cel_t *xda_cel, FILE *stream, int verbose) {
     fprintf(stream, "\n[INTENSITY]\n");
     fprintf(stream, "NumberCells=%d\n", xda_cel->num_cells);
     fprintf(stream, "CellHeader=X\tY\tMEAN\tSTDV\tNPIXELS\n");
+    int i;
     if (!verbose)
         fprintf(stream, "... use --verbose to visualize Cell Entries ...\n");
     else
-        for (int i = 0; i < xda_cel->num_cells; i++)
+        for (i = 0; i < xda_cel->num_cells; i++)
             fprintf(stream, "%3d\t%3d\t%.1f\t%.1f\t%3d\n", i % xda_cel->num_cols, i / xda_cel->num_cols,
                     xda_cel->cells[i].mean, xda_cel->cells[i].dev, xda_cel->cells[i].N);
     fprintf(stream, "\n[MASKS]\n");
@@ -295,7 +297,7 @@ static void xda_cel_print(const xda_cel_t *xda_cel, FILE *stream, int verbose) {
     if (!verbose)
         fprintf(stream, "... use --verbose to visualize Masked Entries ...\n");
     else
-        for (int i = 0; i < xda_cel->num_masked_cells; i++)
+        for (i = 0; i < xda_cel->num_masked_cells; i++)
             fprintf(stream, "%d\t%d\n", xda_cel->masked_entries[i].x, xda_cel->masked_entries[i].y);
     fprintf(stream, "\n[OUTLIERS]\n");
     fprintf(stream, "NumberCells=%d\n", xda_cel->num_outlier_cells);
@@ -303,7 +305,7 @@ static void xda_cel_print(const xda_cel_t *xda_cel, FILE *stream, int verbose) {
     if (!verbose)
         fprintf(stream, "... use --verbose to visualize Outlier Entries ...\n");
     else
-        for (int i = 0; i < xda_cel->num_outlier_cells; i++)
+        for (i = 0; i < xda_cel->num_outlier_cells; i++)
             fprintf(stream, "%d\t%d\n", xda_cel->outlier_entries[i].x, xda_cel->outlier_entries[i].y);
     fprintf(stream, "\n[MODIFIED]\n");
     fprintf(stream, "NumberCells=0\n");
@@ -433,6 +435,7 @@ static void agcc_read_parameters(Parameter *parameter, hFILE *hfile, int flags) 
 }
 
 static void agcc_read_data_header(DataHeader *data_header, hFILE *hfile, int flags) {
+    int i;
     read_string8(hfile, &data_header->data_type_identifier);
     read_string8(hfile, &data_header->guid);
     read_string16(hfile, &data_header->datetime);
@@ -440,25 +443,26 @@ static void agcc_read_data_header(DataHeader *data_header, hFILE *hfile, int fla
 
     data_header->n_parameters = (int32_t)read_long(hfile);
     data_header->parameters = (Parameter *)malloc(data_header->n_parameters * sizeof(Parameter));
-    for (int i = 0; i < data_header->n_parameters; i++) agcc_read_parameters(&data_header->parameters[i], hfile, flags);
+    for (i = 0; i < data_header->n_parameters; i++) agcc_read_parameters(&data_header->parameters[i], hfile, flags);
 
     data_header->n_parents = (int32_t)read_long(hfile);
     data_header->parents = (DataHeader *)malloc(data_header->n_parents * sizeof(DataHeader));
-    for (int i = 0; i < data_header->n_parents; i++) agcc_read_data_header(&data_header->parents[i], hfile, flags);
+    for (i = 0; i < data_header->n_parents; i++) agcc_read_data_header(&data_header->parents[i], hfile, flags);
 }
 
 static void agcc_read_data_set(DataSet *data_set, hFILE *hfile, int flags) {
+    int i;
     data_set->pos_first_element = read_long(hfile);
     data_set->pos_next_data_set = read_long(hfile);
     read_string16(hfile, &data_set->name);
 
     data_set->n_parameters = (int32_t)read_long(hfile);
     data_set->parameters = (Parameter *)malloc(data_set->n_parameters * sizeof(Parameter));
-    for (int i = 0; i < data_set->n_parameters; i++) agcc_read_parameters(&data_set->parameters[i], hfile, flags);
+    for (i = 0; i < data_set->n_parameters; i++) agcc_read_parameters(&data_set->parameters[i], hfile, flags);
 
     data_set->n_cols = read_long(hfile);
     data_set->col_headers = (ColHeader *)malloc(data_set->n_cols * sizeof(ColHeader));
-    for (int i = 0; i < data_set->n_cols; i++) {
+    for (i = 0; i < data_set->n_cols; i++) {
         read_string16(hfile, &data_set->col_headers[i].name);
         read_bytes(hfile, (void *)&data_set->col_headers[i].type, sizeof(int8_t));
         data_set->col_headers[i].size = read_long(hfile);
@@ -468,7 +472,7 @@ static void agcc_read_data_set(DataSet *data_set, hFILE *hfile, int flags) {
     data_set->hfile = hfile;
     data_set->col_offsets = (uint32_t *)malloc(data_set->n_cols * sizeof(uint32_t *));
     data_set->n_buffer = 0;
-    for (int i = 0; i < data_set->n_cols; i++) {
+    for (i = 0; i < data_set->n_cols; i++) {
         data_set->col_offsets[i] = data_set->n_buffer;
         data_set->n_buffer += data_set->col_headers[i].size;
     }
@@ -480,6 +484,7 @@ static void agcc_read_data_set(DataSet *data_set, hFILE *hfile, int flags) {
 }
 
 static void agcc_read_data_group(DataGroup *data_group, hFILE *hfile, int flags) {
+    int i;
     data_group->pos_next_data_group = read_long(hfile);
     data_group->pos_first_data_set = read_long(hfile);
     data_group->num_data_sets = read_long(hfile);
@@ -487,13 +492,14 @@ static void agcc_read_data_group(DataGroup *data_group, hFILE *hfile, int flags)
     if (hseek(hfile, data_group->pos_first_data_set, SEEK_SET) < 0)
         error("Fail to seek to position %d in AGCC file\n", data_group->pos_first_data_set);
     data_group->data_sets = (DataSet *)malloc(data_group->num_data_sets * sizeof(DataSet));
-    for (int i = 0; i < data_group->num_data_sets; i++) agcc_read_data_set(&data_group->data_sets[i], hfile, flags);
+    for (i = 0; i < data_group->num_data_sets; i++) agcc_read_data_set(&data_group->data_sets[i], hfile, flags);
     if (data_group->pos_next_data_group)
         if (hseek(hfile, data_group->pos_next_data_group, SEEK_SET) < 0)
             error("Fail to seek to position %d in AGCC file\n", data_group->pos_next_data_group);
 }
 
 static agcc_t *agcc_init(const char *fn, hFILE *hfile, int flags) {
+    int i;
     agcc_t *agcc = (agcc_t *)calloc(1, sizeof(agcc_t));
     agcc->fn = strdup(fn);
     agcc->hfile = hfile;
@@ -514,7 +520,7 @@ static agcc_t *agcc_init(const char *fn, hFILE *hfile, int flags) {
     if (hseek(agcc->hfile, agcc->pos_first_data_group, SEEK_SET) < 0)
         error("Fail to seek to position %d in AGCC %s file\n", agcc->pos_first_data_group, agcc->fn);
     agcc->data_groups = (DataGroup *)malloc(agcc->num_data_groups * sizeof(DataGroup));
-    for (int i = 0; i < agcc->num_data_groups; i++) agcc_read_data_group(&agcc->data_groups[i], agcc->hfile, flags);
+    for (i = 0; i < agcc->num_data_groups; i++) agcc_read_data_group(&agcc->data_groups[i], agcc->hfile, flags);
 
     if (!heof(agcc->hfile))
         error("AGCC reader did not reach the end of file %s at position %ld\n", agcc->fn, htell(agcc->hfile));
@@ -535,7 +541,8 @@ static agcc_t *agcc_init(const char *fn, hFILE *hfile, int flags) {
 }
 
 static void agcc_destroy_parameters(Parameter *parameters, int32_t n_parameters) {
-    for (int i = 0; i < n_parameters; i++) {
+    int i;
+    for (i = 0; i < n_parameters; i++) {
         free(parameters[i].name);
         free(parameters[i].value);
         free(parameters[i].mime_type);
@@ -544,55 +551,61 @@ static void agcc_destroy_parameters(Parameter *parameters, int32_t n_parameters)
 }
 
 static void agcc_destroy_data_header(DataHeader *data_header) {
+    int i;
     free(data_header->data_type_identifier);
     free(data_header->guid);
     free(data_header->datetime);
     free(data_header->locale);
     agcc_destroy_parameters(data_header->parameters, data_header->n_parameters);
-    for (int i = 0; i < data_header->n_parents; i++) agcc_destroy_data_header(&data_header->parents[i]);
+    for (i = 0; i < data_header->n_parents; i++) agcc_destroy_data_header(&data_header->parents[i]);
     free(data_header->parents);
 }
 
 static void agcc_destroy_data_set(DataSet *data_set) {
+    int i;
     free(data_set->name);
     agcc_destroy_parameters(data_set->parameters, data_set->n_parameters);
-    for (int i = 0; i < data_set->n_cols; i++) free(data_set->col_headers[i].name);
+    for (i = 0; i < data_set->n_cols; i++) free(data_set->col_headers[i].name);
     free(data_set->col_headers);
     free(data_set->col_offsets);
     free(data_set->buffer);
 }
 
 static void agcc_destroy_data_group(DataGroup *data_group) {
+    int i;
     free(data_group->name);
-    for (int i = 0; i < data_group->num_data_sets; i++) agcc_destroy_data_set(&data_group->data_sets[i]);
+    for (i = 0; i < data_group->num_data_sets; i++) agcc_destroy_data_set(&data_group->data_sets[i]);
     free(data_group->data_sets);
 }
 
 static void agcc_destroy(agcc_t *agcc) {
     if (!agcc) return;
+    int i;
     free(agcc->fn);
     if (hclose(agcc->hfile) < 0) error("Error closing AGCC file\n");
     agcc_destroy_data_header(&agcc->data_header);
-    for (int i = 0; i < agcc->num_data_groups; i++) agcc_destroy_data_group(&agcc->data_groups[i]);
+    for (i = 0; i < agcc->num_data_groups; i++) agcc_destroy_data_group(&agcc->data_groups[i]);
     free(agcc->data_groups);
     free(agcc->display_name);
     free(agcc);
 }
 
 static void buffer_string16(const uint16_t *value, int32_t n_value, size_t *m_buffer, wchar_t **buffer) {
+    int i;
     hts_expand(wchar_t, n_value / 2 + 1, *m_buffer, *buffer);
-    for (int i = 0; i < n_value / 2; i++) (*buffer)[i] = (wchar_t)ntohs(value[i]);
+    for (i = 0; i < n_value / 2; i++) (*buffer)[i] = (wchar_t)ntohs(value[i]);
     (*buffer)[n_value / 2] = L'\0';
 }
 
 static void agcc_print_parameters(const Parameter *parameters, int32_t n_parameters, FILE *stream) {
+    int i;
     union {
         uint32_t u;
         float f;
     } convert;
     wchar_t *buffer = NULL;
     size_t m_buffer = 0;
-    for (int i = 0; i < n_parameters; i++) {
+    for (i = 0; i < n_parameters; i++) {
         fprintf(stream, "#%%%ls=", parameters[i].name ? parameters[i].name : L"");
         switch (parameters[i].type) {
         case BYTE:
@@ -632,11 +645,12 @@ static void agcc_print_parameters(const Parameter *parameters, int32_t n_paramet
 }
 
 static void agcc_print_data_header(const DataHeader *data_header, FILE *stream) {
+    int i;
     if (data_header->guid) fprintf(stream, "#%%FileIdentifier=%s\n", data_header->guid);
     fprintf(stream, "#%%FileTypeIdentifier=%s\n", data_header->data_type_identifier);
     fprintf(stream, "#%%FileLocale=%ls\n", data_header->locale);
     agcc_print_parameters(data_header->parameters, data_header->n_parameters, stream);
-    for (int i = 0; i < data_header->n_parents; i++) agcc_print_data_header(&data_header->parents[i], stream);
+    for (i = 0; i < data_header->n_parents; i++) agcc_print_data_header(&data_header->parents[i], stream);
 }
 
 typedef void (*col_print_t)(const char *, FILE *stream);
@@ -667,8 +681,9 @@ static void agcc_print_data_set(const DataSet *data_set, FILE *stream, int verbo
     fprintf(stream, "#%%SetName=%ls\n", data_set->name);
     fprintf(stream, "#%%Columns=%d\n", data_set->n_cols);
     fprintf(stream, "#%%Rows=%d\n", data_set->n_rows);
+    int i, j;
     agcc_print_parameters(data_set->parameters, data_set->n_parameters, stream);
-    for (int i = 0; i < data_set->n_cols; i++)
+    for (i = 0; i < data_set->n_cols; i++)
         fprintf(stream, "%ls%c", data_set->col_headers[i].name, i + 1 < data_set->n_cols ? '\t' : '\n');
     if (data_set->n_rows == 0) return;
 
@@ -683,7 +698,7 @@ static void agcc_print_data_set(const DataSet *data_set, FILE *stream, int verbo
 
     char *col_ends = (char *)malloc(data_set->n_cols * sizeof(char *));
     col_print_t *col_prints = (col_print_t *)malloc(data_set->n_cols * sizeof(col_print_t *));
-    for (int i = 0; i < data_set->n_cols; i++) {
+    for (i = 0; i < data_set->n_cols; i++) {
         col_ends[i] = i + 1 < data_set->n_cols ? '\t' : '\n';
         if (wcscmp(data_set->col_headers[i].name, L"ProbeSetName") == 0)
             col_prints[i] = agcc_print_probe_set_name;
@@ -709,9 +724,9 @@ static void agcc_print_data_set(const DataSet *data_set, FILE *stream, int verbo
     }
     if (hseek(data_set->hfile, data_set->pos_first_element, SEEK_SET) < 0)
         error("Fail to seek to position %d in AGCC file\n", data_set->pos_first_element);
-    for (int i = 0; i < data_set->n_rows; i++) {
+    for (i = 0; i < data_set->n_rows; i++) {
         read_bytes(data_set->hfile, (void *)data_set->buffer, data_set->n_buffer);
-        for (int j = 0; j < data_set->n_cols; j++) {
+        for (j = 0; j < data_set->n_cols; j++) {
             col_prints[j](data_set->buffer + data_set->col_offsets[j], stream);
             fputc(col_ends[j], stream);
         }
@@ -722,7 +737,8 @@ static void agcc_print_data_set(const DataSet *data_set, FILE *stream, int verbo
 
 static void agcc_print_data_group(const DataGroup *data_group, FILE *stream, int verbose) {
     fprintf(stream, "#%%GroupName=%ls\n", data_group->name);
-    for (int i = 0; i < data_group->num_data_sets; i++) agcc_print_data_set(&data_group->data_sets[i], stream, verbose);
+    int i;
+    for (i = 0; i < data_group->num_data_sets; i++) agcc_print_data_set(&data_group->data_sets[i], stream, verbose);
 }
 
 static void agcc_print(const agcc_t *agcc, FILE *stream, int verbose) {
@@ -730,11 +746,13 @@ static void agcc_print(const agcc_t *agcc, FILE *stream, int verbose) {
     fprintf(stream, "#%%FileSize=%ld\n", agcc->size);
     fprintf(stream, "#%%Magic=%d\n", agcc->magic);
     fprintf(stream, "#%%Version=%d\n", agcc->version);
+    int i;
     agcc_print_data_header(&agcc->data_header, stream);
-    for (int i = 0; i < agcc->num_data_groups; i++) agcc_print_data_group(&agcc->data_groups[i], stream, verbose);
+    for (i = 0; i < agcc->num_data_groups; i++) agcc_print_data_group(&agcc->data_groups[i], stream, verbose);
 }
 
 static void chps_to_tsv(uint8_t *magic, agcc_t **agcc, int n, FILE *stream) {
+    int i, j, k;
     // AxiomGT1 analysis has also cn-probe-chrXY-ratio_gender_meanX,
     // cn-probe-chrXY-ratio_gender_meanY, cn-probe-chrXY-ratio_gender_ratio,
     // cn-probe-chrXY-ratio_gender while BRLMM-P analysis has also em-cluster-chrX-het-contrast_gender
@@ -756,9 +774,9 @@ static void chps_to_tsv(uint8_t *magic, agcc_t **agcc, int n, FILE *stream) {
                                            L"allele_mad_residuals_mean",
                                            L"allele_mad_residuals_stdev"};
     fputs("chp", stream);
-    for (int j = 0; j < 15; j++) fprintf(stream, "\t%ls", chipsummary[j]);
+    for (j = 0; j < 15; j++) fprintf(stream, "\t%ls", chipsummary[j]);
     fputc('\n', stream);
-    for (int i = 0; i < n; i++) {
+    for (i = 0; i < n; i++) {
         if (magic[i] != 59) continue;
         if (strcmp(agcc[i]->data_header.data_type_identifier, "affymetrix-multi-data-type-analysis") != 0) {
             if (strcmp(agcc[i]->data_header.data_type_identifier, "affymetrix-calvin-intensity") == 0
@@ -773,7 +791,7 @@ static void chps_to_tsv(uint8_t *magic, agcc_t **agcc, int n, FILE *stream) {
         }
         fputs(strrchr(agcc[i]->fn, '/') ? strrchr(agcc[i]->fn, '/') + 1 : agcc[i]->fn, stream);
         DataHeader *data_header = &agcc[i]->data_header;
-        for (int j = 0, k = 0; j < 15; j++) {
+        for (j = 0, k = 0; j < 15; j++) {
             fputc('\t', stream);
             while (!data_header->parameters[k].name
                    || wcsncmp(data_header->parameters[k].name, L"affymetrix-chipsummary-", 23) != 0
@@ -911,6 +929,7 @@ fail:
 
 // https://github.com/HenrikBengtsson/affxparser/blob/master/R/parseDatHeaderString.R
 static void cels_to_tsv(uint8_t *magic, void **files, int n, FILE *stream) {
+    int i, j;
     wchar_t *array_type = NULL;             // affymetrix-array-type
     wchar_t *scanner_type = NULL;           // affymetrix-scanner-type
     wchar_t *scanner_id = NULL;             // affymetrix-scanner-id
@@ -925,8 +944,7 @@ static void cels_to_tsv(uint8_t *magic, void **files, int n, FILE *stream) {
 
     fprintf(stream,
             "cel\tarray_type\tscanner_type\tscanner_id\tscan_date\tfusion_experiment_name\tpixel_rows\tpixel_cols\n");
-    for (int i = 0; i < n; i++) {
-        int j;
+    for (i = 0; i < n; i++) {
         char *ss, *se;
         agcc_t *agcc = (agcc_t *)files[i];
         xda_cel_t *xda_cel = (xda_cel_t *)files[i];
@@ -1121,8 +1139,9 @@ static inline void birdseed_cluster_init(const char *s, const int *off, cluster_
 }
 
 static snp_models_t *snp_models_init(const char *fn) {
+    int i;
     snp_models_t *snp_models = (snp_models_t *)calloc(1, sizeof(snp_models_t));
-    for (int i = 0; i < 2; i++) {
+    for (i = 0; i < 2; i++) {
         snp_models->probeset_id[i] = khash_str2int_init();
     }
 
@@ -1222,9 +1241,10 @@ static snp_models_t *snp_models_init(const char *fn) {
 }
 
 static void snp_models_destroy(snp_models_t *snp_models) {
-    for (int i = 0; i < 2; i++) {
+    int i, j;
+    for (i = 0; i < 2; i++) {
         khash_str2int_destroy(snp_models->probeset_id[i]);
-        for (int j = 0; j < snp_models->n_snps[i]; j++) free(snp_models->snps[i][j].probeset_id);
+        for (j = 0; j < snp_models->n_snps[i]; j++) free(snp_models->snps[i][j].probeset_id);
         free(snp_models->snps[i]);
     }
     free(snp_models);
@@ -1298,9 +1318,9 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
     int allele_a_idx = -1;
     int allele_b_idx = -1;
 
-    int moff = 0, *off = NULL;
+    int i, moff = 0, *off = NULL;
     int ncols = ksplit_core(str.s, ',', &moff, &off);
-    for (int i = 0; i < ncols; i++) {
+    for (i = 0; i < ncols; i++) {
         if (strcmp(&str.s[off[i]], "\"Probe Set ID\"") == 0)
             probe_set_id_idx = i;
         else if (strcmp(&str.s[off[i]], "\"Affy SNP ID\"") == 0)
@@ -1394,7 +1414,7 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
             if (out_txt) {
                 // "Ref Allele" and "Alt Allele" will not be updated
                 fprintf(out_txt, "\"%s\"", probeset_id);
-                for (int i = 1; i < ncols; i++) {
+                for (i = 1; i < ncols; i++) {
                     if (i == flank_idx) {
                         fprintf(out_txt, ",\"%s\"", flank);
                     } else if (i == allele_a_idx) {
@@ -1481,8 +1501,9 @@ static annot_t *annot_init(const char *fn, const char *sam_fn, const char *out_f
 }
 
 static void annot_destroy(annot_t *annot) {
+    int i;
     khash_str2int_destroy(annot->probeset_id);
-    for (int i = 0; i < annot->n_records; i++) {
+    for (i = 0; i < annot->n_records; i++) {
         free(annot->records[i].probeset_id);
         free(annot->records[i].affy_snp_id);
         free(annot->records[i].dbsnp_rs_id);
@@ -1531,12 +1552,13 @@ static void varitr_init_common(varitr_t *varitr) {
 }
 
 static varitr_t *varitr_init_cc(bcf_hdr_t *hdr, agcc_t **agcc, int n) {
+    int i;
     varitr_t *varitr = (varitr_t *)calloc(1, sizeof(varitr_t));
     varitr->nsmpl = n;
     varitr->data_sets = (DataSet **)malloc(n * sizeof(DataSet *));
     varitr->nrows = (int *)calloc(n, sizeof(int));
     varitr->is_brlmm_p = (int *)malloc(n * sizeof(int));
-    for (int i = 0; i < n; i++) {
+    for (i = 0; i < n; i++) {
         if (strcmp(agcc[i]->data_header.data_type_identifier, "affymetrix-multi-data-type-analysis") != 0)
             error("AGCC file %s does not contain multi data type analysis as \n", agcc[i]->fn);
         if (agcc[i]->num_data_groups == 0 || wcscmp(agcc[i]->data_groups[0].name, L"MultiData") != 0)
@@ -1575,7 +1597,7 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn, const cha
     varitr_t *varitr = (varitr_t *)calloc(1, sizeof(varitr_t));
 
     kstring_t str = {0, 0, NULL};
-    int moff = 0, *off = NULL, ncols;
+    int i, moff = 0, *off = NULL, ncols;
 
     if (calls_fn) {
         varitr->calls_fp = unheader(calls_fn, &str);
@@ -1583,7 +1605,7 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn, const cha
         if (strcmp(&str.s[off[0]], "probeset_id"))
             error("Malformed first line from calls file: %s\n%s\n", calls_fn, str.s);
         varitr->nsmpl = ncols - 1;
-        for (int i = 1; i < ncols; i++) {
+        for (i = 1; i < ncols; i++) {
             char *ptr = strrchr(&str.s[off[i]], '.');
             if (ptr && strcmp(ptr + 1, "CEL") == 0) *ptr = '\0';
             bcf_hdr_add_sample(hdr, &str.s[off[i]]);
@@ -1597,7 +1619,7 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn, const cha
             error("Malformed first line from confidences file: %s\n%s\n", confidences_fn, str.s);
         if (!varitr->calls_fp) {
             varitr->nsmpl = ncols - 1;
-            for (int i = 1; i < ncols; i++) {
+            for (i = 1; i < ncols; i++) {
                 char *ptr = strrchr(&str.s[off[i]], '.');
                 if (ptr && strcmp(ptr + 1, "CEL") == 0) *ptr = '\0';
                 bcf_hdr_add_sample(hdr, &str.s[off[i]]);
@@ -1612,7 +1634,7 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn, const cha
             error("Malformed first line from summary file: %s\n%s\n", summary_fn, str.s);
         if (!varitr->calls_fp && !varitr->confidences_fp) {
             varitr->nsmpl = ncols - 1;
-            for (int i = 1; i < ncols; i++) {
+            for (i = 1; i < ncols; i++) {
                 char *ptr = strrchr(&str.s[off[i]], '.');
                 if (ptr && strcmp(ptr + 1, "CEL") == 0) *ptr = '\0';
                 bcf_hdr_add_sample(hdr, &str.s[off[i]]);
@@ -1637,10 +1659,10 @@ static inline void check_probe_set_id(char *dest, const char *src) {
 }
 
 static int varitr_loop(varitr_t *varitr, void *probeset_ids) {
-    int ret = 0;
+    int i, ret = 0;
     varitr->probeset_id[0] = '\0';
     if (varitr->data_sets) {
-        for (int i = 0; i < varitr->nsmpl; i++) {
+        for (i = 0; i < varitr->nsmpl; i++) {
             DataSet *data_set = varitr->data_sets[i];
             uint32_t n;
             char probeset_id[MAX_LENGTH_PROBE_SET_ID + 1];
@@ -1695,7 +1717,7 @@ static int varitr_loop(varitr_t *varitr, void *probeset_ids) {
                 ncols = ksplit_core(str.s, '\t', &moff, &off);
                 if (ncols != 1 + varitr->nsmpl)
                     error("Expected %d columns but %d columns found in the calls file\n", 1 + varitr->nsmpl, ncols);
-                for (int i = 1; i < 1 + varitr->nsmpl; i++) {
+                for (i = 1; i < 1 + varitr->nsmpl; i++) {
                     int gt = strtol(&str.s[off[i]], &tmp, 0);
                     if (*tmp || gt < -4 || gt > 14)
                         error("Could not parse genotype %s found in the calls file\n", &str.s[off[i]]);
@@ -1713,7 +1735,7 @@ static int varitr_loop(varitr_t *varitr, void *probeset_ids) {
                 if (ncols != 1 + varitr->nsmpl)
                     error("Expected %d columns but %d columns found in the confidences file\n", 1 + varitr->nsmpl,
                           ncols);
-                for (int i = 1; i < 1 + varitr->nsmpl; i++) varitr->conf_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
+                for (i = 1; i < 1 + varitr->nsmpl; i++) varitr->conf_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
             } while (probeset_ids && !khash_str2int_has_key(probeset_ids, &str.s[off[0]]));
             check_probe_set_id(varitr->probeset_id, &str.s[off[0]]);
         }
@@ -1761,7 +1783,7 @@ static int varitr_loop(varitr_t *varitr, void *probeset_ids) {
                 if (len != len_b || strncmp(&str.s[off[0]], &str_b.s[off_b[0]], len - 2) != 0)
                     error("Mismatching %s and %s Probe Set IDs found in the summary file\n", &str.s[off[0]],
                           &str_b.s[off_b[0]]);
-                for (int i = 1; i < 1 + varitr->nsmpl; i++) {
+                for (i = 1; i < 1 + varitr->nsmpl; i++) {
                     varitr->norm_x_arr[i - 1] = strtof(&str.s[off[i]], &tmp);
                     if (*tmp) error("Could not parse intensity value %s found in the summary file\n", &str.s[off[i]]);
                     varitr->norm_y_arr[i - 1] = strtof(&str_b.s[off_b[i]], &tmp);
@@ -1809,8 +1831,8 @@ static void varitr_destroy(varitr_t *varitr) {
 
 static bcf_hdr_t *hdr_init(const faidx_t *fai, int flags) {
     bcf_hdr_t *hdr = bcf_hdr_init("w");
-    int n = faidx_nseq(fai);
-    for (int i = 0; i < n; i++) {
+    int i, n = faidx_nseq(fai);
+    for (i = 0; i < n; i++) {
         const char *seq = faidx_iseq(fai, i);
         int len = faidx_seq_len(fai, seq);
         bcf_hdr_printf(hdr, "##contig=<ID=%s,length=%d>", seq, len);
@@ -1994,7 +2016,8 @@ static void adjust_clusters(const int *gts, const float *x, const float *y, int 
     snp->ab.k = 0.2f;
     snp->bb.k = 0.2f;
 
-    for (int i = 0; i < n; i++) {
+    int i;
+    for (i = 0; i < n; i++) {
         switch (gts[i]) {
         case GT_AA:
             snp->aa.k++;
@@ -2077,7 +2100,8 @@ static void compute_baf_lrr(const float *norm_x, const float *norm_y, int n, con
         ab_r = (aa_r + bb_r) * 0.5f;
     }
 
-    for (int i = 0; i < n; i++) {
+    int i;
+    for (i = 0; i < n; i++) {
         float ilmn_theta = atanf(norm_y[i] / norm_x[i]) * (float)M_2_PI;
         float ilmn_r = norm_x[i] + norm_y[i];
         get_baf_lrr(ilmn_theta, ilmn_r, aa_theta, ab_theta, bb_theta, aa_r, ab_r, bb_r, NAN, &baf[i], &lrr[i]);
@@ -2089,7 +2113,7 @@ static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_
     if (bcf_hdr_write(out_fh, hdr) < 0) error("Unable to write to output VCF file\n");
     if (bcf_hdr_sync(hdr) < 0) error_errno("[%s] Failed to update header",
                                            __func__); // updates the number of samples
-    int nsmpl = bcf_hdr_nsamples(hdr);
+    int i, nsmpl = bcf_hdr_nsamples(hdr);
     if ((flags & ADJUST_CLUSTERS) && (nsmpl < 100))
         fprintf(stderr, "Warning: adjusting clusters with %d sample(s) is not recommended\n", nsmpl);
 
@@ -2103,7 +2127,7 @@ static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_
     float *baf_arr = (float *)malloc(nsmpl * sizeof(float));
     float *lrr_arr = (float *)malloc(nsmpl * sizeof(float));
 
-    int i = 0, n_missing = 0, n_no_snp_models = 0, n_skipped = 0;
+    int n_missing = 0, n_no_snp_models = 0, n_skipped = 0;
     for (i = 0; i < annot->n_records; i++) {
         // identify variants to use for next VCF record
         int idx;
@@ -2204,7 +2228,7 @@ static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_
 
         if (varitr) {
             if ((varitr->data_sets || varitr->calls_fp) && flags & FORMAT_GT) {
-                for (int i = 0; i < nsmpl; i++) {
+                for (i = 0; i < nsmpl; i++) {
                     switch (varitr->gts[i]) {
                     case GT_AA:
                         gt_arr[2 * i] = bcf_gt_unphased(allele_a_idx);
@@ -2243,7 +2267,7 @@ static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_
 
         if (snp_models) {
             int rets[2], idxs[2];
-            for (int i = 0; i < 2; i++) {
+            for (i = 0; i < 2; i++) {
                 rets[i] = khash_str2int_get(snp_models->probeset_id[i], record->probeset_id, &idxs[i]);
             }
             static const char *hap_info_str[] = {
@@ -2367,9 +2391,9 @@ static const char *usage_text(void) {
 }
 
 static int parse_tags(const char *str) {
-    int flags = 0, n;
+    int i, flags = 0, n;
     char **tags = hts_readlist(str, 0, &n);
-    for (int i = 0; i < n; i++) {
+    for (i = 0; i < n; i++) {
         if (!strcasecmp(tags[i], "GT"))
             flags |= FORMAT_GT;
         else if (!strcasecmp(tags[i], "CONF"))
@@ -2420,6 +2444,7 @@ int run(int argc, char *argv[]) {
     const char *output_fname = "-";
     const char *sam_fname = NULL;
     char *tmp;
+    int i;
     int flags = 0;
     int output_type = FT_VCF;
     int clevel = -1;
@@ -2614,7 +2639,7 @@ int run(int argc, char *argv[]) {
             annot_init(csv_fname, sam_fname, ((sam_fname && !ref_fname) || fasta_flank) ? output_fname : NULL, flags);
     }
 
-    for (int i = 0; i < nfiles; i++) {
+    for (i = 0; i < nfiles; i++) {
         hFILE *hfile = hopen(filenames[i], "rb");
         if (hfile == NULL) error("Could not open %s: %s\n", filenames[i], strerror(errno));
         if (hpeek(hfile, (void *)&magic[i], 1) < 1) {
@@ -2698,10 +2723,10 @@ int run(int argc, char *argv[]) {
     }
 
     if (pathname) {
-        for (int i = 0; i < nfiles; i++) free(filenames[i]);
+        for (i = 0; i < nfiles; i++) free(filenames[i]);
         free(filenames);
     }
-    for (int i = 0; i < nfiles; i++) {
+    for (i = 0; i < nfiles; i++) {
         switch (magic[i]) {
         case 59:
             agcc_destroy((agcc_t *)files[i]);
