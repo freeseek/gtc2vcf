@@ -18,25 +18,25 @@ Download manifest files
 
 Download HumanCNV370v1 manifest and cluster files from [Illumina](http://support.illumina.com/downloads/humancnv370-duo_v10_product_files.html) and [GEO](http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL6986)
 ```
-wget ftp://webdata:webdata@ussd-ftp.illumina.com/downloads/ProductFiles/HumanCNV370/HumanCNV370-Duo/humancnv370v1_c.bpm
-wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/ProductFiles/HumanCNV370/HumanCNV370-Duo/HumanCNV370v1_C.egt
-wget https://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL6nnn/GPL6986/suppl/GPL6986_HumanCNV370v1_C.csv.gz
+wget ftp://webdata:webdata@ftp.illumina.com/downloads/ProductFiles/HumanCNV370/HumanCNV370-Duo/humancnv370v1_c.bpm
+wget ftp://webdata2:webdata2@ftp.illumina.com/downloads/ProductFiles/HumanCNV370/HumanCNV370-Duo/HumanCNV370v1_C.egt
+wget http://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL6nnn/GPL6986/suppl/GPL6986_HumanCNV370v1_C.csv.gz
 gunzip GPL6986_HumanCNV370v1_C.csv.gz
 /bin/mv GPL6986_HumanCNV370v1_C.csv HumanCNV370v1_C.csv
 ```
 
 Download HumanOmni2.5-4v1 manifest and cluster files from [Illumina](http://support.illumina.com/downloads/humanomni2-5-quad_product_files.html)
 ```
-wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/MyIllumina/94afb35e-7c11-45cc-8a65-d868af527c54/HumanOmni2.5-4v1_H.bpm
-wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/MyIllumina/f003e017-1761-4348-958f-03997a30cf67/HumanOmni2.5-4v1_H.egt
-wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/MyIllumina/d5578cf6-bb3b-4b4b-98d3-21edc5bcbd45/HumanOmni2.5-4v1_H.csv
+wget ftp://webdata2:webdata2@ftp.illumina.com/MyIllumina/94afb35e-7c11-45cc-8a65-d868af527c54/HumanOmni2.5-4v1_H.bpm
+wget ftp://webdata2:webdata2@ftp.illumina.com/MyIllumina/f003e017-1761-4348-958f-03997a30cf67/HumanOmni2.5-4v1_H.egt
+wget ftp://webdata2:webdata2@ftp.illumina.com/MyIllumina/d5578cf6-bb3b-4b4b-98d3-21edc5bcbd45/HumanOmni2.5-4v1_H.csv
 ```
 
-Download HumanOmni25M-8v1-1 manifest and cluster files from [Illumina](ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/productfiles/humanomni25) and [GEO](http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL20641)
+Download HumanOmni25M-8v1-1 manifest and cluster files from [Illumina](ftp://webdata2:webdata2@ftp.illumina.com/downloads/productfiles/humanomni25) and [GEO](http://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GPL20641)
 ```
-wget https://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL20nnn/GPL20641/suppl/GPL20641_HumanOmni2.5M-8v1-1_B.bpm.gz
-wget ftp://webdata2:webdata2@ussd-ftp.illumina.com/downloads/productfiles/humanomni25/humanomni2-5m-8v1-1_b.egt
-wget https://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL20nnn/GPL20641/suppl/GPL20641_HumanOmni25M-8v1-1_B.csv.gz
+wget http://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL20nnn/GPL20641/suppl/GPL20641_HumanOmni2.5M-8v1-1_B.bpm.gz
+wget ftp://webdata2:webdata2@ftp.illumina.com/downloads/productfiles/humanomni25/humanomni2-5m-8v1-1_b.egt
+wget http://ftp.ncbi.nlm.nih.gov/geo/platforms/GPL20nnn/GPL20641/suppl/GPL20641_HumanOmni25M-8v1-1_B.csv.gz
 gunzip GPL20641_HumanOmni2.5M-8v1-1_B.bpm.gz
 gunzip GPL20641_HumanOmni25M-8v1-1_B.csv.gz
 /bin/mv GPL20641_HumanOmni2.5M-8v1-1_B.bpm HumanOmni25M-8v1-1_B.bpm

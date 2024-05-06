@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2023 Giulio Genovese
+   Copyright (c) 2018-2024 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -34,7 +34,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2023-12-06"
+#define GTC2VCF_VERSION "2024-05-05"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -71,7 +71,7 @@
  ****************************************/
 
 // read or skip a fixed length array
-static inline void read_array(hFILE *hfile, void **arr, size_t *m_arr, size_t nmemb, size_t size, size_t term) {
+static void read_array(hFILE *hfile, void **arr, size_t *m_arr, size_t nmemb, size_t size, size_t term) {
     if (arr) {
         if (!m_arr) {
             *arr = malloc((nmemb + term) * size);
@@ -93,7 +93,7 @@ static inline void read_array(hFILE *hfile, void **arr, size_t *m_arr, size_t nm
 }
 
 // read or skip a length-prefixed array
-static inline void read_pfx_array(hFILE *hfile, void **arr, size_t *m_arr, size_t item_size) {
+static void read_pfx_array(hFILE *hfile, void **arr, size_t *m_arr, size_t item_size) {
     int32_t n;
     if (hread(hfile, (void *)&n, 4) < 4) {
         error("Failed to read 4 bytes from stream\n");
@@ -103,7 +103,7 @@ static inline void read_pfx_array(hFILE *hfile, void **arr, size_t *m_arr, size_
 
 // read or skip a length-prefixed string
 // http://en.wikipedia.org/wiki/LEB128#Decode_unsigned_integer
-static inline void read_pfx_string(hFILE *hfile, char **str, size_t *m_str) {
+static void read_pfx_string(hFILE *hfile, char **str, size_t *m_str) {
     uint8_t byte;
     size_t n = 0, shift = 0;
     while (1) {
@@ -121,7 +121,7 @@ static inline void read_pfx_string(hFILE *hfile, char **str, size_t *m_str) {
 }
 
 // check whether file is compressed with gzip
-static inline int is_gzip(hFILE *hfile) {
+static int is_gzip(hFILE *hfile) {
     uint8_t buffer[2];
     if (hpeek(hfile, (void *)buffer, 2) < 2) error("Failed to read 2 bytes from stream\n");
     return (buffer[0] == 0x1f && buffer[1] == 0x8b);
@@ -155,7 +155,7 @@ static buffer_array_t *buffer_array_init(hFILE *hfile, size_t capacity, size_t i
     return arr;
 }
 
-static inline int get_element(buffer_array_t *arr, void *dst, size_t item_idx) {
+static int get_element(buffer_array_t *arr, void *dst, size_t item_idx) {
     if (!arr || item_idx >= arr->item_num) {
         return -1;
     } else if (item_idx - arr->item_offset < arr->item_capacity) {
@@ -271,11 +271,11 @@ static void locusentry_read(LocusEntry *locus_entry, hFILE *hfile) {
         error("Locus version %d in manifest file not supported\n", locus_entry->version);
     read_pfx_string(hfile, &locus_entry->ilmn_id, NULL);
     read_pfx_string(hfile, &locus_entry->name, NULL);
-    read_pfx_string(hfile, NULL, NULL);
-    read_pfx_string(hfile, NULL, NULL);
-    read_pfx_string(hfile, NULL, NULL);
+    read_pfx_string(hfile, NULL, NULL); // ASOA
+    read_pfx_string(hfile, NULL, NULL); // ASOB
+    read_pfx_string(hfile, NULL, NULL); // LSO
     read_bytes(hfile, (void *)&locus_entry->index, sizeof(int32_t));
-    read_pfx_string(hfile, NULL, NULL);
+    read_pfx_string(hfile, NULL, NULL); // IllumicodeSeq
     read_pfx_string(hfile, &locus_entry->ilmn_strand, NULL);
     read_pfx_string(hfile, &locus_entry->snp, NULL);
     read_pfx_string(hfile, &locus_entry->chrom, NULL);
@@ -302,7 +302,7 @@ static void locusentry_read(LocusEntry *locus_entry, hFILE *hfile) {
     }
 
     if (locus_entry->version >= 6) {
-        read_bytes(hfile, NULL, 1);
+        read_bytes(hfile, NULL, 1); // MarkerInCNVRegion
         read_bytes(hfile, (void *)&locus_entry->exp_clusters, sizeof(int8_t));
         read_bytes(hfile, (void *)&locus_entry->intensity_only, sizeof(int8_t));
         read_bytes(hfile, (void *)&locus_entry->assay_type, sizeof(uint8_t));
@@ -408,7 +408,8 @@ static bpm_t *bpm_init(const char *fn, int eof_check, int make_dict) {
         // To mimic the flawed byte-wrapping behavior from GenomeStudio, AutoCall, and
         // IAAP, this value is allowed to overflow beyond 255, which happens with some
         // probes in the Omni5 arrays
-        locus_entry.norm_id = bpm->norm_ids[idx] + 100 * locus_entry.assay_type;
+        bpm->norm_ids[idx] += 100 * locus_entry.assay_type;
+        locus_entry.norm_id = bpm->norm_ids[idx];
         memcpy(&bpm->locus_entries[idx], &locus_entry, sizeof(LocusEntry));
     }
     bpm->norm_lookups = bpm_norm_lookups(bpm);
@@ -891,7 +892,7 @@ typedef struct {
     int32_t num_records;
     ClusterRecord *cluster_records;
     char **names; // Names of records from manifest
-    char **names2index;
+    void *names2index;
 } egt_t;
 
 static void clusterscore_read(ClusterScore *clusterscore, hFILE *hfile) {
@@ -1064,25 +1065,31 @@ static void egt_to_csv(const egt_t *egt, FILE *stream, int verbose) {
 // http://github.com/snewhouse/glu-genetics/blob/master/glu/lib/illumina.py
 // http://github.com/HenrikBengtsson/illuminaio/blob/master/R/readIDAT.R
 
-#define NUM_SNPS_READ 1000
-#define ILLUMINA_ID 102
-#define SD 103
-#define MEAN 104
-#define NBEADS 107
-#define MID_BLOCK 200
-#define RED_GREEN 400
-#define IDAT_SNP_MANIFEST 401
-#define SENTRIX_BARCODE 402
-#define CHIP_TYPE 403
-#define SENTRIX_POSITION 404
-#define OPA 405
-#define IDAT_SAMPLE_NAME 406
-#define DESCRIPTION 407
-#define IDAT_SAMPLE_PLATE 408
-#define IDAT_SAMPLE_WELL 409
-#define UNKNOWN_1 410
-#define UNKNOWN_2 510
-#define RUN_INFO 300
+#define NUM_SNPS_READ 1000 // ID_N_CORES
+// #define ... 100 // ID_BACKGROUNDS - not used
+// #define ... 101 // ID_BACKGROUND_DEVS - not used
+#define ILLUMINA_ID 102 // ID_BEAD_TYPES
+#define SD 103          // ID_DEVS
+#define MEAN 104        // ID_MEANS
+// #define ... 105 // ID_MEDIANS - not used
+// #define ... 106 // ID_N_BEADS - not used
+#define NBEADS 107 // ID_N_GOOD_BEADS
+// #define ... 108 // ID_TRIMMED_MEANS - not used
+#define MID_BLOCK 200         // ID_ILLUMICODES
+#define RUN_INFO 300          // ID_PROCESS_HISTORY
+#define RED_GREEN 400         // ID_TENTH_PERCENTILE
+#define IDAT_SNP_MANIFEST 401 // ID_SAMPLE_BEADSET
+#define SENTRIX_BARCODE 402   // ID_BARCODE
+#define CHIP_TYPE 403         // ID_SENTRIX_FORMAT
+#define SENTRIX_POSITION 404  // ID_SECTION_LABEL
+#define BEADSET 405           // ID_BEADSET
+#define IDAT_SAMPLE_NAME 406  // ID_DNA
+#define DESCRIPTION 407       // ID_OPA
+#define IDAT_SAMPLE_PLATE 408 // ID_DNA_PLATE
+#define IDAT_SAMPLE_WELL 409  // ID_WELL
+#define IDAT_SAMPLE_COUNT 410 // ID_SAMPLE_COUNT
+// #define ... 411 // ID_DX - not used
+#define IDAT_VLN 510 // ID_VLN
 
 typedef struct {
     const char *chip_type;
@@ -1105,11 +1112,12 @@ static chip_type_t chip_types[] = {
     {"1-95um_multi-swath_for_8x2-5M", 2389000, 2389000, "CCPMBiobankMEGA2_20002558X345183"},
     {"1-95um_multi-swath_for_8x2-5M", 2508689, 2508689, "GDA-8v1-0"},
     {"1-95um_multi-swath_for_8x2-5M", 2550870, 2550870, "HumanOmni2.5-8v1"},
-    {"1-95um_multi-swath_for_8x2-5M", 2575219, 2575219, "HumanOmni2.5-8v1"},
     {"1-95um_multi-swath_for_8x2-5M", 2563064, 2563064, "HumanOmni25M-8v1-1"},
+    {"1-95um_multi-swath_for_8x2-5M", 2575219, 2575219, "HumanOmni2.5-8v1"},
     {"1-95um_multi-swath_for_8x2-5M", 2605775, 2605775, "HumanOmni25M-8v1-1"},
     {"BeadChip 12x1", 55300, 55300, "humanmethylation27_270596_v1-2 ???"},
     {"BeadChip 12x1Q", 191668, 191668, "CanineHD"},
+    {"BeadChip 12x1Q", 299260, 299260, "HumanCytoSNP-12v2-1"},
     {"BeadChip 12x8", 301084, 301084, "HumanCore-12v1-0"},
     {"BeadChip 12x8", 304138, 304138, "HumanExome-12v1-1"},
     {"BeadChip 12x8", 567727, 567727, "HumanCoreExome-12-v1-0"},
@@ -1144,6 +1152,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 24x1x4", 716279, 716279, "InfiniumOmniExpress-24v1-2"},
     {"BeadChip 24x1x4", 718963, 718963, "HumanOmniExpress-24-v1-0"},
     {"BeadChip 24x1x4", 719234, 719234, "HumanOmniExpress-24-v1-0"},
+    {"BeadChip 24x1x4", 729110, 729110, "ASA-24v1-0"},
     {"BeadChip 24x1x4", 733354, 733354, "GSA-24v2-0"},
     {"BeadChip 24x1x4", 749019, 749019, "DeCodeGenetics_V3_20032937X331991"},
     {"BeadChip 24x1x4", 751614, 751614, "GSAMD-24v3-0-EA_20034606"},
@@ -1156,6 +1165,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 2x20", 561686, 54936, "HumanHap550v3"},
     {"BeadChip 2x6Q", 1224000, 180026, "Human1M-Duov3"},
     {"BeadChip 2x6Q", 1224629, 180026, "Human1M-Duov3"},
+    {"BeadChip 48x4", 730546, 730546, "GSA-MD-48v4-0_20098041"},
     {"BeadChip 4x10", 2623923, 1300482, "HumanOmni2.5-4v1"},
     {"BeadChip 4x10", 2623923, 1323441, "HumanOmni2.5-4v1"},
     {"BeadChip 4x10", 2624666, 1300941, "HumanOmni2.5-4v1"},
@@ -1193,35 +1203,38 @@ typedef struct {
     uint16_t *id;
     int64_t *toc;
     int32_t num_snps;
-    size_t capacity;
-    buffer_array_t *ilmn_id;
-    buffer_array_t *sd;
-    buffer_array_t *mean;
-    buffer_array_t *nbeads;
-    buffer_array_t *mid_block;
+    int32_t num_mid_blocks;
+    int32_t *ilmn_id;
+    uint16_t *sd;
+    uint16_t *mean;
+    uint8_t *nbeads;
+    const uint16_t *trimmed_mean; // only used for historical purposes
+    uint8_t *mid_block;
     uint8_t red_green[4];
     char *snp_manifest;
     char *sentrix_barcode;
     char *chip_type;
     char *sentrix_position;
-    char *opa;
+    char *beadset;
     char *sample_name;
     char *description;
     char *sample_plate;
     char *sample_well;
-    char *unknown1;
-    char *unknown2;
+    int32_t sample_count;
+    char *vln;
     RunInfo *run_infos;
     int32_t m_run_infos;
     const char *chip_type_guess;
     const char *imaging_date;
     const char *scanner_data;
+    void *ilmn_id2index;
 } idat_t;
+
+KHASH_MAP_INIT_INT(32, int32_t)
 
 static int idat_read(idat_t *idat, uint16_t id) {
     int i;
-    for (i = 0; i < idat->number_toc_entries && id != idat->id[i]; i++)
-        ;
+    for (i = 0; i < idat->number_toc_entries && id != idat->id[i]; i++);
     if (i == idat->number_toc_entries) return -1;
     if (hseek(idat->hfile, idat->toc[i], SEEK_SET) < 0)
         error("Fail to seek to position %ld in IDAT %s file\n", idat->toc[i], idat->fn);
@@ -1231,19 +1244,37 @@ static int idat_read(idat_t *idat, uint16_t id) {
         read_bytes(idat->hfile, (void *)&idat->num_snps, sizeof(int32_t));
         break;
     case ILLUMINA_ID:
-        idat->ilmn_id = buffer_array_init(idat->hfile, idat->capacity, sizeof(int32_t));
+        idat->ilmn_id = (int32_t *)malloc(idat->num_snps * sizeof(int32_t));
+        read_bytes(idat->hfile, (void *)idat->ilmn_id, idat->num_snps * sizeof(int32_t));
+        int ret;
+        idat->ilmn_id2index = kh_init(32);
+        khash_t(32) *hash = (khash_t(32) *)idat->ilmn_id2index;
+        for (i = 0; i < idat->num_snps; i++) {
+            khiter_t k = kh_put(32, hash, idat->ilmn_id[i], &ret);
+            if (ret < 0) error("Unable to insert Illumina ID %d in hash table\n", idat->ilmn_id[i]);
+            if (ret > 0)
+                kh_val(hash, k) = kh_size(hash) - 1;
+            else
+                error("Duplicate Illumina ID %d in hash table\n", idat->ilmn_id[i]);
+        }
         break;
     case SD:
-        idat->sd = buffer_array_init(idat->hfile, idat->capacity, sizeof(uint16_t));
+        idat->sd = (uint16_t *)malloc(idat->num_snps * sizeof(uint16_t));
+        read_bytes(idat->hfile, (void *)idat->sd, idat->num_snps * sizeof(uint16_t));
         break;
     case MEAN:
-        idat->mean = buffer_array_init(idat->hfile, idat->capacity, sizeof(uint16_t));
+        idat->mean = (uint16_t *)malloc(idat->num_snps * sizeof(uint16_t));
+        read_bytes(idat->hfile, (void *)idat->mean, idat->num_snps * sizeof(uint16_t));
+        idat->trimmed_mean = idat->mean;
         break;
     case NBEADS:
-        idat->nbeads = buffer_array_init(idat->hfile, idat->capacity, sizeof(uint8_t));
+        idat->nbeads = (uint8_t *)malloc(idat->num_snps * sizeof(uint8_t));
+        read_bytes(idat->hfile, (void *)idat->nbeads, idat->num_snps * sizeof(uint8_t));
         break;
     case MID_BLOCK:
-        idat->mid_block = buffer_array_init(idat->hfile, idat->capacity, sizeof(uint8_t));
+        read_bytes(idat->hfile, (void *)&idat->num_mid_blocks, sizeof(int32_t));
+        idat->mid_block = (uint8_t *)malloc(idat->num_mid_blocks * sizeof(uint8_t));
+        read_bytes(idat->hfile, (void *)idat->mid_block, idat->num_mid_blocks * sizeof(uint8_t));
         break;
     case RED_GREEN:
         read_bytes(idat->hfile, (void *)&idat->red_green, 4 * sizeof(uint8_t));
@@ -1260,8 +1291,8 @@ static int idat_read(idat_t *idat, uint16_t id) {
     case SENTRIX_POSITION:
         read_pfx_string(idat->hfile, &idat->sentrix_position, NULL);
         break;
-    case OPA:
-        read_pfx_string(idat->hfile, &idat->opa, NULL);
+    case BEADSET:
+        read_pfx_string(idat->hfile, &idat->beadset, NULL);
         break;
     case IDAT_SAMPLE_NAME:
         read_pfx_string(idat->hfile, &idat->sample_name, NULL);
@@ -1275,11 +1306,11 @@ static int idat_read(idat_t *idat, uint16_t id) {
     case IDAT_SAMPLE_WELL:
         read_pfx_string(idat->hfile, &idat->sample_well, NULL);
         break;
-    case UNKNOWN_1:
-        read_pfx_string(idat->hfile, &idat->unknown1, NULL);
+    case IDAT_SAMPLE_COUNT:
+        read_bytes(idat->hfile, (void *)&idat->sample_count, sizeof(int32_t));
         break;
-    case UNKNOWN_2:
-        read_pfx_string(idat->hfile, &idat->unknown2, NULL);
+    case IDAT_VLN:
+        read_pfx_string(idat->hfile, &idat->vln, NULL);
         break;
     case RUN_INFO:
         read_bytes(idat->hfile, (void *)&idat->m_run_infos, sizeof(int32_t));
@@ -1299,7 +1330,7 @@ static int idat_read(idat_t *idat, uint16_t id) {
     return 0;
 }
 
-static idat_t *idat_init(const char *fn, size_t capacity) {
+static idat_t *idat_init(const char *fn, int load_arrays) {
     idat_t *idat = (idat_t *)calloc(1, sizeof(idat_t));
     idat->fn = strdup(fn);
     idat->hfile = hopen(idat->fn, "rb");
@@ -1323,14 +1354,23 @@ static idat_t *idat_init(const char *fn, size_t capacity) {
         read_bytes(idat->hfile, (void *)&idat->toc[i], sizeof(int64_t));
     }
 
-    idat->capacity = capacity;
-    for (i = 0; i < idat->number_toc_entries; i++) idat_read(idat, idat->id[i]);
+    for (i = 0; i < idat->number_toc_entries; i++) {
+        if (!load_arrays && idat->id[i] <= MID_BLOCK) {
+            if (idat->id[i] == MID_BLOCK) {
+                if (hseek(idat->hfile, idat->toc[i], SEEK_SET) < 0)
+                    error("Fail to seek to position %ld in IDAT %s file\n", idat->toc[i], idat->fn);
+                read_bytes(idat->hfile, (void *)&idat->num_mid_blocks, sizeof(int32_t));
+            }
+            continue;
+        }
+        idat_read(idat, idat->id[i]);
+    }
 
     if (idat->chip_type) {
         const chip_type_t *ptr;
         for (ptr = chip_types; ptr->chip_type; ptr++) {
             if (strcmp(idat->chip_type, ptr->chip_type) == 0 && ptr->num_snps == idat->num_snps
-                && ptr->num_mid_blocks == idat->mid_block->item_num)
+                && ptr->num_mid_blocks == idat->num_mid_blocks)
                 idat->chip_type_guess = ptr->chip_type_guess;
         }
     }
@@ -1354,13 +1394,12 @@ static void idat_destroy(idat_t *idat) {
     free(idat->sentrix_barcode);
     free(idat->chip_type);
     free(idat->sentrix_position);
-    free(idat->opa);
+    free(idat->beadset);
     free(idat->sample_name);
     free(idat->description);
     free(idat->sample_plate);
     free(idat->sample_well);
-    free(idat->unknown1);
-    free(idat->unknown2);
+    free(idat->vln);
     int i;
     for (i = 0; i < idat->m_run_infos; i++) {
         free(idat->run_infos[i].run_time);
@@ -1370,11 +1409,12 @@ static void idat_destroy(idat_t *idat) {
         free(idat->run_infos[i].code_version);
     }
     free(idat->run_infos);
-    buffer_array_destroy(idat->ilmn_id);
-    buffer_array_destroy(idat->sd);
-    buffer_array_destroy(idat->mean);
-    buffer_array_destroy(idat->nbeads);
-    buffer_array_destroy(idat->mid_block);
+    free(idat->ilmn_id);
+    free(idat->sd);
+    free(idat->mean);
+    free(idat->nbeads);
+    free(idat->mid_block);
+    if (idat->ilmn_id2index) kh_destroy(32, idat->ilmn_id2index);
     free(idat);
 }
 
@@ -1386,41 +1426,28 @@ static void idat_to_csv(const idat_t *idat, FILE *stream, int verbose) {
     fprintf(stream, "IDAT file version,%ld\n", idat->version);
     fprintf(stream, "Number of TOC entries,%d\n", idat->number_toc_entries);
     fprintf(stream, "Probes Count,%d\n", idat->num_snps);
-    fprintf(stream, "Mid Blocks Count,%d\n", idat->mid_block->item_num);
+    fprintf(stream, "Mid Blocks Count,%d\n", idat->num_mid_blocks);
     fprintf(stream, "Red Green,%02x %02x %02x %02x\n", idat->red_green[0], idat->red_green[1], idat->red_green[2],
             idat->red_green[3]);
     fprintf(stream, "SNP Manifest,%s\n", idat->snp_manifest ? idat->snp_manifest : "");
     fprintf(stream, "Sentrix Barcode,%s\n", idat->sentrix_barcode);
     fprintf(stream, "Chip Type,%s\n", idat->chip_type);
     fprintf(stream, "Sentrix Position,%s\n", idat->sentrix_position);
-    fprintf(stream, "OPA,%s\n", idat->opa ? idat->opa : "");
+    fprintf(stream, "BeadSet,%s\n", idat->beadset ? idat->beadset : "");
     fprintf(stream, "Sample Name,%s\n", idat->sample_name ? idat->sample_name : "");
     fprintf(stream, "Description,%s\n", idat->description ? idat->description : "");
     fprintf(stream, "Sample Plate,%s\n", idat->sample_plate ? idat->sample_plate : "");
     fprintf(stream, "Sample Well,%s\n", idat->sample_well ? idat->sample_well : "");
-    fprintf(stream, "Unknown 1,%s\n", idat->unknown1 ? idat->unknown1 : "");
-    fprintf(stream, "Unknown 2,%s\n", idat->unknown2 ? idat->unknown2 : "");
+    fprintf(stream, "Sample Count,%d\n", idat->sample_count);
+    fprintf(stream, "Vln,%s\n", idat->vln ? idat->vln : "");
     fprintf(stream, "Chip Prefix (Guess),%s\n", idat->chip_type_guess ? idat->chip_type_guess : "Unknown");
     fprintf(stream, "[Assay]\n");
     fprintf(stream, "IlmnID,Sd,Mean,Nbeads\n");
     if (verbose) {
-        for (i = 0; i < idat->num_snps; i++) {
-            int32_t ilmn_id;
-            get_element(idat->ilmn_id, (void *)&ilmn_id, i);
-            int16_t sd;
-            get_element(idat->sd, (void *)&sd, i);
-            int16_t mean;
-            get_element(idat->mean, (void *)&mean, i);
-            int8_t nbeads;
-            get_element(idat->nbeads, (void *)&nbeads, i);
-            fprintf(stream, "%d,%d,%d,%d\n", ilmn_id, sd, mean, nbeads);
-        }
+        for (i = 0; i < idat->num_snps; i++)
+            fprintf(stream, "%d,%d,%d,%d\n", idat->ilmn_id[i], idat->sd[i], idat->mean[i], idat->nbeads[i]);
         fprintf(stream, "[Mid Blocks]\n");
-        for (i = 0; i < idat->mid_block->item_num; i++) {
-            int8_t mid_block;
-            get_element(idat->mid_block, (void *)&mid_block, i);
-            fprintf(stream, "%d\n", mid_block);
-        }
+        for (i = 0; i < idat->num_mid_blocks; i++) fprintf(stream, "%d\n", idat->mid_block[i]);
     } else {
         fprintf(stream, "... use --verbose to visualize Assay data ...\n");
         fprintf(stream, "[Mid Blocks]\n");
@@ -1437,22 +1464,21 @@ static void idats_to_tsv(idat_t **idats, int n, FILE *stream) {
     fprintf(stream,
             "idat\tnumber_probes\tnumber_mid_blocks\tred_green\tmanifest_file\tsentrix_"
             "barcode\tchip_type\t"
-            "sentrix_position\topa\tsample_name\tdescription\tsample_plate\tsample_"
-            "well\tunknown1\tunknown2\t"
+            "sentrix_position\tbeadset\tsample_name\tdescription\tsample_plate\tsample_"
+            "well\tsample_count\tvln\t"
             "chip_type_guess\tscan_date\tscanner_data\n");
     int i;
     for (i = 0; i < n; i++) {
         idat_t *idat = idats[i];
         fprintf(stream,
                 "%s\t%d\t%d\t%02x %02x %02x "
-                "%02x\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
-                strrchr(idat->fn, '/') ? strrchr(idat->fn, '/') + 1 : idat->fn, idat->num_snps,
-                idat->mid_block->item_num, idat->red_green[0], idat->red_green[1], idat->red_green[2],
-                idat->red_green[3], idat->snp_manifest ? idat->snp_manifest : "", idat->sentrix_barcode,
-                idat->chip_type, idat->sentrix_position, idat->opa ? idat->opa : "",
-                idat->sample_name ? idat->sample_name : "", idat->description ? idat->description : "",
-                idat->sample_plate ? idat->sample_plate : "", idat->sample_well ? idat->sample_well : "",
-                idat->unknown1 ? idat->unknown1 : "", idat->unknown2 ? idat->unknown2 : "",
+                "%02x\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%d\t%s\t%s\t%s\t%s\n",
+                strrchr(idat->fn, '/') ? strrchr(idat->fn, '/') + 1 : idat->fn, idat->num_snps, idat->num_mid_blocks,
+                idat->red_green[0], idat->red_green[1], idat->red_green[2], idat->red_green[3],
+                idat->snp_manifest ? idat->snp_manifest : "", idat->sentrix_barcode, idat->chip_type,
+                idat->sentrix_position, idat->beadset ? idat->beadset : "", idat->sample_name ? idat->sample_name : "",
+                idat->description ? idat->description : "", idat->sample_plate ? idat->sample_plate : "",
+                idat->sample_well ? idat->sample_well : "", idat->sample_count, idat->vln ? idat->vln : "",
                 idat->chip_type_guess ? idat->chip_type_guess : "Unknown", idat->imaging_date ? idat->imaging_date : "",
                 idat->scanner_data ? idat->scanner_data : "");
     }
@@ -1467,8 +1493,8 @@ static void idats_to_tsv(idat_t **idats, int n, FILE *stream) {
 // http://github.com/Illumina/BeadArrayFiles/blob/develop/module/GenotypeCalls.py
 
 #define NUM_SNPS 1
-#define PLOIDY 2
-#define PLOIDY_TYPE 3
+#define PLOIDY 2      // AutoConvert 2.0
+#define PLOIDY_TYPE 3 // AutoConvert 2.0
 #define GTC_SAMPLE_NAME 10
 #define GTC_SAMPLE_PLATE 11
 #define GTC_SAMPLE_WELL 12
@@ -1492,11 +1518,11 @@ static void idats_to_tsv(idat_t **idats, int n, FILE *stream) {
 #define GC10 1009
 #define DX 1010
 #define SAMPLE_DATA 1011
-#define B_ALLELE_FREQS 1012
-#define LOGR_RATIOS 1013
-#define PERCENTILES_X 1014
-#define PERCENTILES_Y 1015
-#define SLIDE_IDENTIFIER 1016
+#define B_ALLELE_FREQS 1012   // AutoConvert 2.0
+#define LOGR_RATIOS 1013      // AutoConvert 2.0
+#define PERCENTILES_X 1014    // AutoConvert 2.0
+#define PERCENTILES_Y 1015    // AutoConvert 2.0
+#define SLIDE_IDENTIFIER 1016 // AutoConvert 2.0
 
 static const char *code2genotype[] = {
     "NC",       "AA",       "AB",       "BB",       "NULL",     "A",        "B",        "AAA",
@@ -1514,7 +1540,12 @@ typedef struct {
     float scale_y;
     float shear;
     float theta;
-    float reserved[6];
+    float cvx;
+    float cvy;
+    float nn12;
+    float rr12;
+    float taa;
+    float tbb;
 } XForm;
 
 typedef char BaseCall[2];
@@ -1587,8 +1618,7 @@ typedef struct {
 
 static int gtc_read(gtc_t *gtc, uint16_t id) {
     int i;
-    for (i = 0; i < gtc->number_toc_entries && id != gtc->id[i]; i++)
-        ;
+    for (i = 0; i < gtc->number_toc_entries && id != gtc->id[i]; i++);
     if (i == gtc->number_toc_entries) return -1;
     if (id != NUM_SNPS && id != PLOIDY && id != PLOIDY_TYPE) {
         if (hseek(gtc->hfile, gtc->toc[i], SEEK_SET) < 0)
@@ -1603,7 +1633,7 @@ static int gtc_read(gtc_t *gtc, uint16_t id) {
         gtc->ploidy = gtc->toc[i];
         break;
     case PLOIDY_TYPE:
-        gtc->ploidy = gtc->toc[i];
+        gtc->ploidy_type = gtc->toc[i];
         break;
     case GTC_SAMPLE_NAME:
         read_pfx_string(gtc->hfile, &gtc->sample_name, NULL);
@@ -1732,8 +1762,8 @@ static gtc_t *gtc_init(const char *fn, size_t capacity) {
     gtc->sin_theta = (float *)malloc(gtc->m_normalization_transforms * sizeof(float));
     gtc->cos_theta = (float *)malloc(gtc->m_normalization_transforms * sizeof(float));
     for (i = 0; i < gtc->m_normalization_transforms; i++) {
-        gtc->sin_theta[i] = sinf(gtc->normalization_transforms[i].theta);
-        gtc->cos_theta[i] = cosf(gtc->normalization_transforms[i].theta);
+        gtc->sin_theta[i] = (float)sin((double)gtc->normalization_transforms[i].theta);
+        gtc->cos_theta[i] = (float)cos((double)gtc->normalization_transforms[i].theta);
     }
 
     return gtc;
@@ -1787,19 +1817,21 @@ static void gtc_to_csv(const gtc_t *gtc, FILE *stream, int verbose) {
     fprintf(stream, "Sample name,%s\n", gtc->sample_name ? gtc->sample_name : "");
     fprintf(stream, "Sample plate,%s\n", gtc->sample_plate ? gtc->sample_plate : "");
     fprintf(stream, "Sample well,%s\n", gtc->sample_well ? gtc->sample_well : "");
-    fprintf(stream, "Cluster file,%s\n", gtc->cluster_file);
-    fprintf(stream, "SNP manifest,%s\n", gtc->snp_manifest);
-    fprintf(stream, "Imaging date,%s\n", gtc->imaging_date);
-    fprintf(stream, "AutoCall date,%s\n", gtc->autocall_date);
+    fprintf(stream, "Cluster file,%s\n", gtc->cluster_file ? gtc->cluster_file : "");
+    fprintf(stream, "SNP manifest,%s\n", gtc->snp_manifest ? gtc->snp_manifest : "");
+    fprintf(stream, "Imaging date,%s\n", gtc->imaging_date ? gtc->imaging_date : "");
+    fprintf(stream, "AutoCall date,%s\n", gtc->autocall_date ? gtc->autocall_date : "");
     fprintf(stream, "AutoCall version,%s\n", gtc->autocall_version);
     fprintf(stream, "Number of normalization transforms,%ld\n", gtc->m_normalization_transforms);
     fprintf(stream, "Number of controls X,%ld\n", gtc->m_controls_x);
     fprintf(stream, "Number of controls Y,%ld\n", gtc->m_controls_y);
-    fprintf(stream, "Name of the scanner,%s\n", gtc->scanner_data.scanner_name);
+    fprintf(stream, "Name of the scanner,%s\n", gtc->scanner_data.scanner_name ? gtc->scanner_data.scanner_name : "");
     fprintf(stream, "Pmt Green,%d\n", gtc->scanner_data.pmt_green);
     fprintf(stream, "Pmt Red,%d\n", gtc->scanner_data.pmt_red);
-    fprintf(stream, "Version of the scanner software used,%s\n", gtc->scanner_data.scanner_version);
-    fprintf(stream, "Name of the scanner user,%s\n", gtc->scanner_data.imaging_user);
+    fprintf(stream, "Version of the scanner software used,%s\n",
+            gtc->scanner_data.scanner_version ? gtc->scanner_data.scanner_version : "");
+    fprintf(stream, "Name of the scanner user,%s\n",
+            gtc->scanner_data.imaging_user ? gtc->scanner_data.imaging_user : "");
     fprintf(stream, "Call Rate,%f\n", gtc->call_rate);
     fprintf(stream, "Computed Gender,%c\n", gtc->gender);
     fprintf(stream, "LogR deviation,%f\n", gtc->logr_dev);
@@ -1833,23 +1865,36 @@ static void gtc_to_csv(const gtc_t *gtc, FILE *stream, int verbose) {
             get_element(gtc->genotype_scores, (void *)&genotype_score, i);
             get_element(gtc->b_allele_freqs, (void *)&b_allele_freq, i);
             get_element(gtc->logr_ratios, (void *)&logr_ratio, i);
-            fprintf(stream, "%d,%d,%s,%c%c,%f,%f,%f\n", raw_x, raw_y, code2genotype[genotype], base_call[0],
+            fprintf(stream, "%d,%d,%s,%c%c,%.10f,%.10f,%.10f\n", raw_x, raw_y, code2genotype[genotype], base_call[0],
                     base_call[1], genotype_score, b_allele_freq, logr_ratio);
         }
     } else {
         fprintf(stream, "... use --verbose to visualize assay data ...\n");
     }
     fprintf(stream, "[Normalization Transforms]\n");
-    fprintf(stream, "Version,Offset X,Offset Y,Scale X,Scale Y,Shear,Theta\n");
+    fprintf(stream, "Version,Offset X,Offset Y,Scale X,Scale Y,Shear,Theta,CVX,CVY,NN12,RR12,TAA,TBB\n");
     if (verbose) {
-        for (i = 0; i < gtc->m_normalization_transforms; i++)
-            fprintf(stream, "%d,%f,%f,%f,%f,%f,%f\n", gtc->normalization_transforms[i].version,
+        for (i = 0; i < gtc->m_normalization_transforms; i++) {
+            fprintf(stream, "%d,%.10f,%.10f,%.10f,%.10f,%.10f,%.10f,", gtc->normalization_transforms[i].version,
                     gtc->normalization_transforms[i].offset_x, gtc->normalization_transforms[i].offset_y,
                     gtc->normalization_transforms[i].scale_x, gtc->normalization_transforms[i].scale_y,
                     gtc->normalization_transforms[i].shear, gtc->normalization_transforms[i].theta);
+            fprintf(stream, "%.10f,%.10f,%.10f,%.10f,%.10f,%.10f\n", gtc->normalization_transforms[i].cvx,
+                    gtc->normalization_transforms[i].cvy, gtc->normalization_transforms[i].nn12,
+                    gtc->normalization_transforms[i].rr12, gtc->normalization_transforms[i].taa,
+                    gtc->normalization_transforms[i].tbb);
+        }
     } else {
         fprintf(stream, "... use --verbose to visualize assay data ...\n");
     }
+    //    fprintf(stream, "[Controls]\n");
+    //    fprintf(stream, "Raw X,Raw Y\n");
+    //    if (verbose) {
+    //        for (i = 0; i < gtc->m_controls_x; i++)
+    //            fprintf(stream, "%d,%d\n", gtc->controls_x[i], gtc->controls_y[i]);
+    //    } else {
+    //        fprintf(stream, "... use --verbose to visualize controls data ...\n");
+    //    }
 }
 
 static void gtcs_to_tsv(gtc_t **gtcs, int n, FILE *stream) {
@@ -1873,14 +1918,17 @@ static void gtcs_to_tsv(gtc_t **gtcs, int n, FILE *stream) {
                 "s\t%s\t%f\t%c\t%f\t%f\t%d\t%f\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%d\t%s\n",
                 strrchr(gtc->fn, '/') ? strrchr(gtc->fn, '/') + 1 : gtc->fn, gtc->num_snps, gtc->ploidy,
                 gtc->ploidy_type, gtc->sample_name ? gtc->sample_name : "", gtc->sample_plate ? gtc->sample_plate : "",
-                gtc->sample_well ? gtc->sample_well : "", gtc->cluster_file, gtc->snp_manifest, gtc->imaging_date,
-                gtc->autocall_date, gtc->autocall_version, gtc->m_normalization_transforms, gtc->m_controls_x,
-                gtc->m_controls_y, gtc->scanner_data.scanner_name, gtc->scanner_data.pmt_green,
-                gtc->scanner_data.pmt_red, gtc->scanner_data.scanner_version, gtc->scanner_data.imaging_user,
-                gtc->call_rate, gtc->gender, gtc->logr_dev, gtc->p10gc, gtc->dx, gtc->sample_data.p50gc,
-                gtc->sample_data.num_calls, gtc->sample_data.num_no_calls, gtc->sample_data.num_intensity_only,
-                gtc->percentiles_x[0], gtc->percentiles_x[1], gtc->percentiles_x[2], gtc->percentiles_y[0],
-                gtc->percentiles_y[1], gtc->percentiles_y[2], gtc->sentrix_id ? gtc->sentrix_id : "");
+                gtc->sample_well ? gtc->sample_well : "", gtc->cluster_file ? gtc->cluster_file : "",
+                gtc->snp_manifest ? gtc->snp_manifest : "", gtc->imaging_date ? gtc->imaging_date : "",
+                gtc->autocall_date ? gtc->autocall_date : "", gtc->autocall_version ? gtc->autocall_version : "",
+                gtc->m_normalization_transforms, gtc->m_controls_x, gtc->m_controls_y,
+                gtc->scanner_data.scanner_name ? gtc->scanner_data.scanner_name : "", gtc->scanner_data.pmt_green,
+                gtc->scanner_data.pmt_red, gtc->scanner_data.scanner_version ? gtc->scanner_data.scanner_version : "",
+                gtc->scanner_data.imaging_user ? gtc->scanner_data.imaging_user : "", gtc->call_rate, gtc->gender,
+                gtc->logr_dev, gtc->p10gc, gtc->dx, gtc->sample_data.p50gc, gtc->sample_data.num_calls,
+                gtc->sample_data.num_no_calls, gtc->sample_data.num_intensity_only, gtc->percentiles_x[0],
+                gtc->percentiles_x[1], gtc->percentiles_x[2], gtc->percentiles_y[0], gtc->percentiles_y[1],
+                gtc->percentiles_y[2], gtc->sentrix_id ? gtc->sentrix_id : "");
     }
 }
 
@@ -1952,7 +2000,7 @@ static inline void raw_x_y2norm_x_y(uint16_t raw_x, uint16_t raw_y, float offset
 
 // compute Theta and R from raw intensities
 static inline void norm_x_y2ilmn_theta_r(float norm_x, float norm_y, float *ilmn_theta, float *ilmn_r) {
-    *ilmn_theta = atanf(norm_y / norm_x) * (float)M_2_PI;
+    *ilmn_theta = (float)(atan2((double)norm_y, (double)norm_x) * M_2_PI);
     *ilmn_r = norm_x + norm_y;
 }
 
@@ -2007,7 +2055,7 @@ static inline char rev_allele(char allele) {
     static const char allele_complement[128] = {
         0, 0,   0, 0,   0,   0, 0, 0,   0, 0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         0, 0,   0, 0,   0,   0, 0, 0,   0, 0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        0, 'T', 0, 'G', 'I', 0, 0, 'C', 0, 'D', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'A', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 'T', 0, 'G', 'D', 0, 0, 'C', 0, 'I', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 'A', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     };
     if (allele > 95) return 0;
     return allele_complement[(int)allele];
@@ -2449,8 +2497,6 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
     int32_t *raw_x_arr = (int32_t *)malloc(n * sizeof(int32_t));
     int32_t *raw_y_arr = (int32_t *)malloc(n * sizeof(int32_t));
 
-    if (bcf_hdr_write(out_fh, hdr) < 0) error("Unable to write to output VCF file\n");
-
     bcf1_t *rec = bcf_init();
     kstring_t allele_a = {0, 0, NULL};
     kstring_t allele_b = {0, 0, NULL};
@@ -2564,7 +2610,6 @@ static void gtcs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, gtc_t 
 
     bcf_destroy(rec);
     bcf_hdr_destroy(hdr);
-    if (hts_close(out_fh) < 0) error("Close failed: %s\n", out_fh->fn);
 }
 
 #define GS_GT 0
@@ -2691,7 +2736,7 @@ static int tsv_parse_delimiter(tsv_t *tsv, bcf1_t *rec, char *str, int delimiter
 }
 
 static void gs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, htsFile *gs_fh, htsFile *out_fh, bcf_hdr_t *hdr,
-                      int flags, int gc_win) {
+                      const char *output_fname, char *index_fname, int write_index, int flags, int gc_win) {
     // read the header of the table
     kstring_t line = {0, 0, NULL};
     if (hts_getline(gs_fh, KS_SEP_LINE, &line) <= 0) error("Empty file: %s\n", gs_fh->fn);
@@ -2818,6 +2863,10 @@ static void gs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, htsFile 
                        "##INFO=<ID=FRAC_T,Number=1,Type=Float,Description=\"Fraction of the T "
                        "nucleotide in the top genomic sequence\">");
 
+    if (bcf_hdr_write(out_fh, hdr) < 0) error("Unable to write to output VCF file\n");
+    if (init_index2(out_fh, hdr, output_fname, &index_fname, write_index) < 0)
+        error("Error: failed to initialise index for %s\n", output_fname);
+
     uint8_t *gts = (uint8_t *)malloc(n * sizeof(uint8_t));
     char *top_strand_alleles = (char *)malloc(n * 2 * sizeof(char));
     const char *strand_alleles = top_strand_alleles;
@@ -2896,8 +2945,6 @@ static void gs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, htsFile 
         && (gs_output[GS_R] || gs_output[GS_THETA] || (egt && (gs_output[GS_BAF] || gs_output[GS_LRR])));
     int compute_baf_lrr = ((gs_input[GS_NORMX] && gs_input[GS_NORMY]) || (gs_input[GS_R] || gs_input[GS_THETA])) && egt
                           && (gs_output[GS_BAF] || gs_output[GS_LRR]);
-
-    if (bcf_hdr_write(out_fh, hdr) < 0) error("Unable to write to output VCF file\n");
 
     bcf1_t *rec = bcf_init();
     kstring_t allele_a = {0, 0, NULL};
@@ -3115,8 +3162,7 @@ static void gs_to_vcf(faidx_t *fai, const bpm_t *bpm, const egt_t *egt, htsFile 
 
     bcf_destroy(rec);
     bcf_hdr_destroy(hdr);
-    if (hts_close(out_fh) < 0) error("Close failed: %s\n", out_fh->fn);
-    if (hts_close(gs_fh) < 0) error("Close failed: %s\n", gs_fh->fn);
+    if (hts_close(gs_fh) < 0) error("Error: close failed: %s\n", gs_fh->fn);
 }
 
 /****************************************
@@ -3164,6 +3210,7 @@ static const char *usage_text(void) {
            "        --threads <int>               number of extra output compression threads [0]\n"
            "    -x, --extra <file>                write GTC metadata to a file\n"
            "    -v, --verbose                     print verbose information\n"
+           "    -W, --write-index[=FMT]           Automatically index the output files [off]\n"
            "\n"
            "Manifest options:\n"
            "        --beadset-order               output BeadSetID normalization order (requires --bpm and --csv)\n"
@@ -3252,6 +3299,7 @@ int run(int argc, char *argv[]) {
     const char *extra_fname = NULL;
     const char *sam_fname = NULL;
     const char *genome_build = GENOME_BUILD_DFLT;
+    char *index_fname;
     char *tmp;
     int i, j;
     int flags = 0;
@@ -3265,6 +3313,7 @@ int run(int argc, char *argv[]) {
     int eof_check = 1;
     int n_threads = 0;
     int record_cmd_line = 1;
+    int write_index = 0;
     int binary_to_csv = 0;
     int beadset_order = 0;
     int fasta_flank = 0;
@@ -3272,35 +3321,23 @@ int run(int argc, char *argv[]) {
     htsFile *out_fh = NULL;
     FILE *out_txt = NULL;
 
-    static struct option loptions[] = {{"list-tags", no_argument, NULL, 'l'},
-                                       {"tags", required_argument, NULL, 't'},
-                                       {"bpm", required_argument, NULL, 'b'},
-                                       {"csv", required_argument, NULL, 'c'},
-                                       {"egt", required_argument, NULL, 'e'},
-                                       {"fasta-ref", required_argument, NULL, 'f'},
-                                       {"set-cache-size", required_argument, NULL, 1},
-                                       {"gc-window-size", required_argument, NULL, 2},
-                                       {"gtcs", required_argument, NULL, 'g'},
-                                       {"idat", no_argument, NULL, 'i'},
-                                       {"capacity", required_argument, NULL, 3},
-                                       {"adjust-clusters", no_argument, NULL, 4},
-                                       {"use-gtc-sample-names", no_argument, NULL, 5},
-                                       {"do-not-check-bpm", no_argument, NULL, 6},
-                                       {"do-not-check-eof", no_argument, NULL, 7},
-                                       {"genome-studio", required_argument, NULL, 8},
-                                       {"no-version", no_argument, NULL, 9},
-                                       {"output", required_argument, NULL, 'o'},
-                                       {"output-type", required_argument, NULL, 'O'},
-                                       {"threads", required_argument, NULL, 10},
-                                       {"extra", required_argument, NULL, 'x'},
-                                       {"verbose", no_argument, NULL, 'v'},
-                                       {"beadset-order", no_argument, NULL, 11},
-                                       {"fasta-flank", no_argument, NULL, 12},
-                                       {"sam-flank", required_argument, NULL, 's'},
-                                       {"genome-build", required_argument, NULL, 13},
-                                       {NULL, 0, NULL, 0}};
+    static struct option loptions[] = {
+        {"list-tags", no_argument, NULL, 'l'},          {"tags", required_argument, NULL, 't'},
+        {"bpm", required_argument, NULL, 'b'},          {"csv", required_argument, NULL, 'c'},
+        {"egt", required_argument, NULL, 'e'},          {"fasta-ref", required_argument, NULL, 'f'},
+        {"set-cache-size", required_argument, NULL, 1}, {"gc-window-size", required_argument, NULL, 2},
+        {"gtcs", required_argument, NULL, 'g'},         {"idat", no_argument, NULL, 'i'},
+        {"capacity", required_argument, NULL, 3},       {"adjust-clusters", no_argument, NULL, 4},
+        {"use-gtc-sample-names", no_argument, NULL, 5}, {"do-not-check-bpm", no_argument, NULL, 6},
+        {"do-not-check-eof", no_argument, NULL, 7},     {"genome-studio", required_argument, NULL, 8},
+        {"no-version", no_argument, NULL, 9},           {"output", required_argument, NULL, 'o'},
+        {"output-type", required_argument, NULL, 'O'},  {"threads", required_argument, NULL, 10},
+        {"extra", required_argument, NULL, 'x'},        {"verbose", no_argument, NULL, 'v'},
+        {"beadset-order", no_argument, NULL, 12},       {"fasta-flank", no_argument, NULL, 13},
+        {"sam-flank", required_argument, NULL, 's'},    {"genome-build", required_argument, NULL, 14},
+        {"write-index", optional_argument, NULL, 'W'},         {NULL, 0, NULL, 0}};
     int c;
-    while ((c = getopt_long(argc, argv, "h?lt:b:c:e:f:g:io:O:x:vs:", loptions, NULL)) >= 0) {
+    while ((c = getopt_long(argc, argv, "h?lt:b:c:e:f:g:io:O:x:vs:W::", loptions, NULL)) >= 0) {
         switch (c) {
         case 'l':
             list_tags();
@@ -3398,17 +3435,21 @@ int run(int argc, char *argv[]) {
         case 'v':
             flags |= VERBOSE;
             break;
-        case 11:
+        case 12:
             beadset_order = 1;
             break;
-        case 12:
+        case 13:
             fasta_flank = 1;
             break;
         case 's':
             sam_fname = optarg;
             break;
-        case 13:
+        case 14:
             genome_build = optarg;
+            break;
+        case 'W':
+            if (!(write_index = write_index_parse(optarg)))
+                error("Unsupported index format '%s'\n", optarg);
             break;
         case 'h':
         case '?':
@@ -3531,7 +3572,7 @@ int run(int argc, char *argv[]) {
     if ((flags & BPM_LOADED) && (flags & CSV_LOADED)) {
         int32_t norm_id_to_beadset_id[100] = {0};
         for (i = 0; i < bpm->num_loci; i++) {
-            uint8_t norm_id = bpm->norm_ids[i];
+            uint8_t norm_id = bpm->norm_ids[i] % 100;
             if (norm_id_to_beadset_id[norm_id] != 0
                 && norm_id_to_beadset_id[norm_id] != bpm->locus_entries[i].beadset_id)
                 error("Normalization ID %d corresponds to multiple BeadSet IDs %d and %d\n", norm_id,
@@ -3575,14 +3616,15 @@ int run(int argc, char *argv[]) {
     for (i = 0; i < nfiles; i++) {
         if (flags & LOAD_IDAT) {
             fprintf(stderr, "Reading IDAT file %s\n", filenames[i]);
-            idat_t *idat = idat_init(filenames[i], capacity);
+            idat_t *idat = idat_init(filenames[i], nfiles == 1);
             files[i] = (void *)idat;
         } else {
             fprintf(stderr, "Reading GTC file %s\n", filenames[i]);
             gtc_t *gtc = gtc_init(filenames[i], capacity);
             // GenCall fills the GTC SNP manifest with the BPM file name rather than
             // the BPM manifest name
-            if (bpm && bpm->fn && bpm_check && strcmp(bpm->manifest_name, gtc->snp_manifest)
+            if (bpm && bpm->fn && bpm_check
+                && strncmp(bpm->manifest_name, gtc->snp_manifest, strlen(bpm->manifest_name))
                 && strcmp(strrchr(bpm->fn, '/') ? strrchr(bpm->fn, '/') + 1 : bpm->fn, gtc->snp_manifest))
                 error(
                     "Manifest name %s in BPM file %s does not match manifest name %s in GTC "
@@ -3628,7 +3670,7 @@ int run(int argc, char *argv[]) {
                 htsFile *gs_fh = hts_open(gs_fname, "r");
                 bcf_hdr_printf(hdr, "##GenomeStudio=%s",
                                strrchr(gs_fname, '/') ? strrchr(gs_fname, '/') + 1 : gs_fname);
-                gs_to_vcf(fai, bpm, egt, gs_fh, out_fh, hdr, flags, gc_win);
+                gs_to_vcf(fai, bpm, egt, gs_fh, out_fh, hdr, output_fname, index_fname, write_index, flags, gc_win);
             } else {
                 if (extra_fname) gtcs_to_tsv((gtc_t **)files, nfiles, out_txt);
                 for (i = 0; i < nfiles; i++) {
@@ -3638,8 +3680,20 @@ int run(int argc, char *argv[]) {
                     if (bcf_hdr_add_sample(hdr, sample_name) < 0)
                         error("GTC files must correspond to different samples\n");
                 }
+                if (bcf_hdr_write(out_fh, hdr) < 0) error("Unable to write to output VCF file\n");
+                if (init_index2(out_fh, hdr, output_fname, &index_fname, write_index) < 0)
+                    error("Error: failed to initialise index for %s\n", output_fname);
                 gtcs_to_vcf(fai, bpm, egt, (gtc_t **)files, nfiles, out_fh, hdr, flags, gc_win);
             }
+            if (write_index) {
+                if (bcf_idx_save(out_fh) < 0) {
+                    if (hts_close(out_fh) != 0)
+                        error("Close failed %s\n", strcmp(output_fname, "-") ? output_fname : "stdout");
+                    error("Error: cannot write to index %s\n", index_fname);
+                }
+                free(index_fname);
+            }
+            if (hts_close(out_fh) != 0) error("Close failed %s\n", strcmp(output_fname, "-") ? output_fname : "stdout");
         }
     }
 

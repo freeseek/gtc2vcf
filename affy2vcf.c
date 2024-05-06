@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2023 Giulio Genovese
+   Copyright (c) 2018-2024 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -35,7 +35,7 @@
 #include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2023-12-06"
+#define AFFY2VCF_VERSION "2024-05-05"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -849,50 +849,42 @@ static void parse_dat_header(char *dat_header, char *str[12], int n_str[12]) {
     n_str[0] = se - ss;
 
     ss = se + 5;
-    for (se = ss + 4; isspace(*se) && se >= ss; se--)
-        ;
+    for (se = ss + 4; isspace(*se) && se >= ss; se--);
     str[1] = ss;
     n_str[1] = se - ss + 1;
 
     ss = ss + 9;
-    for (se = ss + 4; isspace(*se) && se >= ss; se--)
-        ;
+    for (se = ss + 4; isspace(*se) && se >= ss; se--);
     str[2] = ss;
     n_str[2] = se - ss + 1;
 
     ss = ss + 9;
-    for (se = ss + 2; isspace(*se) && se >= ss; se--)
-        ;
+    for (se = ss + 2; isspace(*se) && se >= ss; se--);
     str[3] = ss;
     n_str[3] = se - ss + 1;
 
     ss = ss + 7;
-    for (se = ss + 2; isspace(*se) && se >= ss; se--)
-        ;
+    for (se = ss + 2; isspace(*se) && se >= ss; se--);
     str[4] = ss;
     n_str[4] = se - ss + 1;
 
     ss = ss + 6;
-    for (se = ss + 2; isspace(*se) && se >= ss; se--)
-        ;
+    for (se = ss + 2; isspace(*se) && se >= ss; se--);
     str[5] = ss;
     n_str[5] = se - ss + 1;
 
     ss = ss + 3;
-    for (se = ss + 6; isspace(*se) && se >= ss; se--)
-        ;
+    for (se = ss + 6; isspace(*se) && se >= ss; se--);
     str[6] = ss;
     n_str[6] = se - ss + 1;
 
     ss = ss + 7;
-    for (se = ss + 3; isspace(*se) && se >= ss; se--)
-        ;
+    for (se = ss + 3; isspace(*se) && se >= ss; se--);
     str[7] = ss;
     n_str[7] = se - ss + 1;
 
     ss = ss + 4;
-    for (se = ss + 17; isspace(*se) && se >= ss; se--)
-        ;
+    for (se = ss + 17; isspace(*se) && se >= ss; se--);
     str[8] = ss;
     n_str[8] = se - ss + 1;
 
@@ -905,8 +897,7 @@ static void parse_dat_header(char *dat_header, char *str[12], int n_str[12]) {
     ss = se + 2;
     se = strstr(ss, "\x14 ");
     if (!se) goto fail;
-    for (se--; isspace(*se) && se >= ss; se--)
-        ;
+    for (se--; isspace(*se) && se >= ss; se--);
     str[10] = ss;
     n_str[10] = se - ss + 1;
 
@@ -2079,9 +2070,9 @@ static void compute_baf_lrr(const float *norm_x, const float *norm_y, int n, con
     float aa_theta, ab_theta, bb_theta, aa_r, ab_r, bb_r;
 
     if (is_birdseed) {
-        aa_theta = atanf(snp->aa.ym / snp->aa.xm) * (float)M_2_PI;
-        ab_theta = atanf(snp->ab.ym / snp->ab.xm) * (float)M_2_PI;
-        bb_theta = atanf(snp->bb.ym / snp->bb.xm) * (float)M_2_PI;
+        aa_theta = atan2f(snp->aa.ym, snp->aa.xm) * (float)M_2_PI;
+        ab_theta = atan2f(snp->ab.ym, snp->ab.xm) * (float)M_2_PI;
+        bb_theta = atan2f(snp->bb.ym, snp->bb.xm) * (float)M_2_PI;
         aa_r = snp->aa.xm + snp->aa.ym;
         ab_r = snp->ab.xm + snp->ab.ym;
         bb_r = snp->bb.xm + snp->bb.ym;
@@ -2102,7 +2093,7 @@ static void compute_baf_lrr(const float *norm_x, const float *norm_y, int n, con
 
     int i;
     for (i = 0; i < n; i++) {
-        float ilmn_theta = atanf(norm_y[i] / norm_x[i]) * (float)M_2_PI;
+        float ilmn_theta = atan2f(norm_y[i], norm_x[i]) * (float)M_2_PI;
         float ilmn_r = norm_x[i] + norm_y[i];
         get_baf_lrr(ilmn_theta, ilmn_r, aa_theta, ab_theta, bb_theta, aa_r, ab_r, bb_r, NAN, &baf[i], &lrr[i]);
     }
@@ -2110,9 +2101,6 @@ static void compute_baf_lrr(const float *norm_x, const float *norm_y, int n, con
 
 static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_models_t *snp_models, varitr_t *varitr,
                     htsFile *out_fh, bcf_hdr_t *hdr, int flags, int gc_win) {
-    if (bcf_hdr_write(out_fh, hdr) < 0) error("Unable to write to output VCF file\n");
-    if (bcf_hdr_sync(hdr) < 0) error_errno("[%s] Failed to update header",
-                                           __func__); // updates the number of samples
     int i, nsmpl = bcf_hdr_nsamples(hdr);
     if ((flags & ADJUST_CLUSTERS) && (nsmpl < 100))
         fprintf(stderr, "Warning: adjusting clusters with %d sample(s) is not recommended\n", nsmpl);
@@ -2359,6 +2347,7 @@ static const char *usage_text(void) {
            "        --threads <int>             number of extra output compression threads [0]\n"
            "    -x, --extra <file>              write CHP metadata to a file (requires CHP files)\n"
            "    -v, --verbose                   print verbose information\n"
+           "    -W, --write-index[=FMT]         Automatically index the output files [off]\n"
            "\n"
            "Manifest options:\n"
            "        --fasta-flank               output flank sequence in FASTA format (requires --csv)\n"
@@ -2443,6 +2432,7 @@ int run(int argc, char *argv[]) {
     const char *pathname = NULL;
     const char *output_fname = "-";
     const char *sam_fname = NULL;
+    char *index_fname;
     char *tmp;
     int i;
     int flags = 0;
@@ -2452,6 +2442,7 @@ int run(int argc, char *argv[]) {
     int gc_win = (int)strtol(GC_WIN_DFLT, NULL, 0);
     int n_threads = 0;
     int record_cmd_line = 1;
+    int write_index = 0;
     int fasta_flank = 0;
     faidx_t *fai = NULL;
     FILE *out_txt = NULL;
@@ -2467,20 +2458,21 @@ int run(int argc, char *argv[]) {
                                        {"confidences", required_argument, NULL, 5},
                                        {"summary", required_argument, NULL, 6},
                                        {"snp", required_argument, NULL, 7},
-                                       {"chps", required_argument, NULL, 10},
-                                       {"cel", no_argument, NULL, 11},
-                                       {"adjust-clusters", no_argument, NULL, 12},
+                                       {"chps", required_argument, NULL, 11},
+                                       {"cel", no_argument, NULL, 12},
+                                       {"adjust-clusters", no_argument, NULL, 13},
                                        {"no-version", no_argument, NULL, 8},
                                        {"output", required_argument, NULL, 'o'},
                                        {"output-type", required_argument, NULL, 'O'},
                                        {"threads", required_argument, NULL, 9},
                                        {"extra", required_argument, NULL, 'x'},
                                        {"verbose", no_argument, NULL, 'v'},
-                                       {"fasta-flank", no_argument, NULL, 13},
+                                       {"fasta-flank", no_argument, NULL, 14},
                                        {"sam-flank", required_argument, NULL, 's'},
+                                       {"write-index", optional_argument, NULL, 'W'},
                                        {NULL, 0, NULL, 0}};
     int c;
-    while ((c = getopt_long(argc, argv, "h?lt:c:f:x:o:O:vs:", loptions, NULL)) >= 0) {
+    while ((c = getopt_long(argc, argv, "h?lt:c:f:x:o:O:vs:W::", loptions, NULL)) >= 0) {
         switch (c) {
         case 'l':
             list_tags();
@@ -2523,13 +2515,13 @@ int run(int argc, char *argv[]) {
             snp_fname = optarg;
             flags |= SNP_LOADED;
             break;
-        case 10:
+        case 11:
             pathname = optarg;
             break;
-        case 11:
+        case 12:
             flags |= LOAD_CEL;
             break;
-        case 12:
+        case 13:
             flags |= ADJUST_CLUSTERS;
             break;
         case 8:
@@ -2573,11 +2565,15 @@ int run(int argc, char *argv[]) {
         case 'v':
             flags |= VERBOSE;
             break;
-        case 13:
+        case 14:
             fasta_flank = 1;
             break;
         case 's':
             sam_fname = optarg;
+            break;
+        case 'W':
+            if (!(write_index = write_index_parse(optarg)))
+                error("Unsupported index format '%s'\n", optarg);
             break;
         case 'h':
         case '?':
@@ -2599,6 +2595,7 @@ int run(int argc, char *argv[]) {
     void **files = (void **)malloc(nfiles * sizeof(void *));
 
     if (csv_fname) {
+        if (flags & LOAD_CEL) error("Cannot use --csv with --cel as CEL files cannot be converted\n%s", usage_text());
         if (fasta_flank && sam_fname)
             error("Only one of --fasta-flank or --sam-flank options can be used at once\n%s", usage_text());
         if (!fasta_flank && !sam_fname && !ref_fname)
@@ -2692,13 +2689,27 @@ int run(int argc, char *argv[]) {
             varitr = varitr_init_cc(hdr, (agcc_t **)files, nfiles);
         else if (calls_fname || confidences_fname || summary_fname)
             varitr = varitr_init_txt(hdr, calls_fname, confidences_fname, summary_fname);
+        if (bcf_hdr_write(out_fh, hdr) < 0) error("Unable to write to output VCF file\n");
+        if (init_index2(out_fh, hdr, output_fname, &index_fname, write_index) < 0)
+            error("Error: failed to initialise index for %s\n", output_fname);
+        if (bcf_hdr_sync(hdr) < 0)
+            error_errno("[%s] Failed to update header",
+                        __func__); // updates the number of samples
         process(fai, annot, probeset_ids, snp_models, varitr, out_fh, hdr, flags, gc_win);
         if (varitr) varitr_destroy(varitr);
         if (snp_models) snp_models_destroy(snp_models);
         if (probeset_ids) khash_str2int_destroy_free(probeset_ids);
         fai_destroy(fai);
         bcf_hdr_destroy(hdr);
-        hts_close(out_fh);
+        if (write_index) {
+            if (bcf_idx_save(out_fh) < 0) {
+                if (hts_close(out_fh) != 0)
+                    error("Close failed %s\n", strcmp(output_fname, "-") ? output_fname : "stdout");
+                error("Error: cannot write to index %s\n", index_fname);
+            }
+            free(index_fname);
+        }
+        if (hts_close(out_fh) != 0) error("Close failed %s\n", strcmp(output_fname, "-") ? output_fname : "stdout");
         annot_destroy(annot);
     }
 
