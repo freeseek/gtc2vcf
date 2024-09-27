@@ -62,9 +62,9 @@ Consortium Products
 
 | array                                                                    | date       | bpm                                      | egt | csv                                      |
 |--------------------------------------------------------------------------|------------|------------------------------------------|-----|------------------------------------------|
-| [ASA-24v1-0-Consort_20022506](<Consortium Asian Screening Array>)        | 1/23/2018  | ASA-24v1-0-Consort_20022506_A2.bpm       | NA  | ASA-24v1-0-Consort_20022506_A2.csv       |
-| [CGCA-24v1-0_20034773](<Consortium Chinese Genotyping Array>)            | 5/13/2020  | CGCA-24v1-0_20034773_A1.bpm              | NA  | CGCA-24v1-0_20034773_A1.csv              |
-| [DrugDevConsortium-24v1-2_20024394](<Consortium Drug Dev Array>)         | 3/14/2018  | DrugDevConsortium-24v1-2_20024394_A1.bpm | NA  | DrugDevConsortium-24v1-2_20024394_A1.csv |
-| [GDAConfluence_20032938X375356](<Global Diversity Array/GDA-Confluence>) | 3/11/2021  | GDAConfluence_20032938X375356_A2.bpm     | NA  | GDAConfluence_20032938X375356_A2.csv     |
-| [NeuroBooster_20042459](<Global Diversity Array/GDA-Neuro Booster>)      | 7/16/2020  | NeuroBooster_20042459_A2.bpm             | NA  | NeuroBooster_20042459_A2.bpm             |
-| [H3Africa_2017_20021485_A2.csv](<H3Africa/v1>)                           | 10/27/2017 | H3Africa_2017_20021485`_A2.bpm           | NA  | H3Africa_2017_20021485_A2.csv            |
+| [ASA-24v1-0-Consort_20022506](<ftp://webdata:webdata@ftp.illumina.com/Public_Docs/Genotyping_Array_Support_Files/Consortium Asian Screening Array>)        | 1/23/2018  | ASA-24v1-0-Consort_20022506_A2.bpm       | NA  | ASA-24v1-0-Consort_20022506_A2.csv       |
+| [CGCA-24v1-0_20034773](<ftp://webdata:webdata@ftp.illumina.com/Public_Docs/Genotyping_Array_Support_Files/Consortium Chinese Genotyping Array>)            | 5/13/2020  | CGCA-24v1-0_20034773_A1.bpm              | NA  | CGCA-24v1-0_20034773_A1.csv              |
+| [DrugDevConsortium-24v1-2_20024394](<ftp://webdata:webdata@ftp.illumina.com/Public_Docs/Genotyping_Array_Support_Files/Consortium Drug Dev Array>)         | 3/14/2018  | DrugDevConsortium-24v1-2_20024394_A1.bpm | NA  | DrugDevConsortium-24v1-2_20024394_A1.csv |
+| [GDAConfluence_20032938X375356](<ftp://webdata:webdata@ftp.illumina.com/Public_Docs/Genotyping_Array_Support_Files/Global Diversity Array/GDA-Confluence>) | 3/11/2021  | GDAConfluence_20032938X375356_A2.bpm     | NA  | GDAConfluence_20032938X375356_A2.csv     |
+| [NeuroBooster_20042459](<ftp://webdata:webdata@ftp.illumina.com/Public_Docs/Genotyping_Array_Support_Files/Global Diversity Array/GDA-Neuro Booster>)      | 7/16/2020  | NeuroBooster_20042459_A2.bpm             | NA  | NeuroBooster_20042459_A2.bpm             |
+| [H3Africa_2017_20021485_A2.csv](<ftp://webdata:webdata@ftp.illumina.com/Public_Docs/Genotyping_Array_Support_Files/H3Africa/v1>)                           | 10/27/2017 | H3Africa_2017_20021485`_A2.bpm           | NA  | H3Africa_2017_20021485_A2.csv            |

@@ -238,9 +238,9 @@
 #include <htslib/hfile.h>
 #include <htslib/khash.h>
 #include <htslib/ksort.h>
+#include <htslib/khash_str2int.h>
 #include "bcftools.h"
-#include "htslib/khash_str2int.h"
-#define IDAT2GTC_VERSION "2024-05-05"
+#define IDAT2GTC_VERSION "2024-09-27"
 
 #define AUTOCALL_DATE_FORMAT_DFLT "%m/%d/%y %#I:%M %p" // equivalent to "MM/dd/yyyy h:mm tt"
 #define AUTOCALL_VERSION_DFLT "3.0.0"
@@ -523,6 +523,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 24x1x4", 749019, 749019, "DeCodeGenetics_V3_20032937X331991"},
     {"BeadChip 24x1x4", 751614, 751614, "GSAMD-24v3-0-EA_20034606"},
     {"BeadChip 24x1x4", 766804, 766804, "JSA-24v1-0"},
+    {"BeadChip 24x1x4", 776509, 776509, "ASA-24v1-0"},
     {"BeadChip 24x1x4", 780343, 780343, "GSAMD-24v2-0_20024620"},
     {"BeadChip 24x1x4", 780509, 780509, "GSAMD-24v2-0_20024620"},
     {"BeadChip 24x1x4", 818205, 818205, "GSA-24v2-0"},
@@ -1953,7 +1954,10 @@ static void matlab_robustfit1(int n, const float *x, const float *y, double (*ma
     double *r = (double *)malloc(n * sizeof(double));
     double *w = (double *)malloc(n * sizeof(double));
     double b, m, b0 = 0.0, m0 = 0.0;
-    if (matlab_linsolve1(n, x, y, &b, &m)) error("Error while running linsolve1\n");
+    if (matlab_linsolve1(n, x, y, &b, &m))
+        error(
+            "Error while running linsolve1\nFailed to normalize and gencall\nThis typically happens when the wrong "
+            "manifest file is used\n");
     // [Q,R] = qr([ones(n,1),x],0);
     // R = [-sqrt(n), -sum(x)/sqrt(n); 0, sqrt(sum(x.^2)-sum(x)^2/n)]
     // E = X/R = [-ones(n,1)/sqrt(n), (sum(x)/n-x)/sqrt(sum(x.^2)-sum(x)^2/n)]
@@ -2003,7 +2007,7 @@ static void matlab_robustfit1(int n, const float *x, const float *y, double (*ma
 // from GoldenGate to larger Infinium arrays this solution did not scale anymore. This led to a reimplementation in C as
 // the C# version was not fast enough. For this reason AutoConvert, an almost entirely C# executable, requires this
 // specific function as unmanaged C code while IAAP and ACLI have their equivalent version in C#, maybe because by then
-// computer had become fast enough
+// computers had become fast enough
 
 int elementsInBin[12];
 int *binData[12];
@@ -2200,7 +2204,7 @@ static int *closest_points(int nref, float *xref, float *yref, int n, float *x, 
 
 // the input array does need to be sorted
 static float percentile(int n, const float *vals, int percentile) {
-    if (n == 0) NAN;
+    if (n == 0) return NAN;
     int i1 = n * percentile / 100;
     float f = (float)(n * percentile) / 100.0f - (float)i1;
     if (f < 0.5f) {
@@ -2957,21 +2961,21 @@ static float matlab_smf(float x, float a, float b) {
     return 1;
 }
 
-// https://www.mathworks.com/help/stats/normpdf.html
+// http://www.mathworks.com/help/stats/normpdf.html
 static double matlab_normpdf_vleft(float x, float mu, float sigma) {
     if (sigma <= 0.0f) return NAN;
     if (x < mu) return 0.5 * M_2_SQRTPI * M_SQRT1_2 / (double)sigma;
     return exp(-0.5 * sqr((double)((x - mu) / sigma))) * 0.5 * M_2_SQRTPI * M_SQRT1_2 / (double)sigma;
 }
 
-// https://www.mathworks.com/help/stats/normpdf.html
+// http://www.mathworks.com/help/stats/normpdf.html
 static double matlab_normpdf_vright(float x, float mu, float sigma) {
     if (sigma <= 0.0f) return NAN;
     if (x > mu) return 0.5 * M_2_SQRTPI * M_SQRT1_2 / (double)sigma;
     return exp(-0.5 * sqr((double)((x - mu) / sigma))) * 0.5 * M_2_SQRTPI * M_SQRT1_2 / (double)sigma;
 }
 
-// https://www.mathworks.com/help/stats/normpdf.html
+// http://www.mathworks.com/help/stats/normpdf.html
 static double matlab_normpdf(float x, float mu, float sigma) {
     if (sigma <= 0.0f) return NAN;
     return exp(-0.5 * sqr((double)((x - mu) / sigma))) * 0.5 * M_2_SQRTPI * M_SQRT1_2 / (double)sigma;
@@ -2981,7 +2985,7 @@ static double matlab_normpdf(float x, float mu, float sigma) {
  * GENOTYPE CALLING ROUTINES            *
  ****************************************/
 
-// compute normalized intensities (https://github.com/Illumina/BeadArrayFiles/blob/develop/docs/GTC_File_Format_v5.pdf)
+// compute normalized intensities (http://github.com/Illumina/BeadArrayFiles/blob/develop/docs/GTC_File_Format_v5.pdf)
 // a separate implementation from Illumina can be found in function Transform from class NormalizationTransform
 static inline void raw_x_y2norm_x_y(uint16_t raw_x, uint16_t raw_y, float offset_x, float offset_y, float cos_theta,
                                     float sin_theta, float shear, float scale_x, float scale_y, float *norm_x,
@@ -3286,7 +3290,7 @@ static float compute_score_call_prelim(float r, float t, const ClusterRecord *cl
     return score_call_prelim;
 }
 
-// https://www.mathworks.com/help/fuzzy/gbellmf.html
+// http://www.mathworks.com/help/fuzzy/gbellmf.html
 static double matlab_gbellmf(double x, double a, double b, double c) {
     double tmp = sqr((x - c) / a);
     if (tmp == 0.0 && b == 0.0) return 0.5;
@@ -3837,7 +3841,7 @@ static const char *usage_text(void) {
     return "\n"
            "About: convert Illumina IDAT files for Infinium arrays to GTC files.\n"
            "(version " IDAT2GTC_VERSION
-           " https://github.com/freeseek/idat2vcf)\n"
+           " http://github.com/freeseek/idat2vcf)\n"
            "[ Kermani, B. G. Artificial intelligence and global normalization methods for\n"
            "  genotyping. U.S. Patents No. 7,035,740 (2005-09-29) and 7,467,117 (2006-10-05) ]\n"
            "[ Peiffer, D. A. et al. High-resolution genomic profiling of chromosomal aberrations\n"
@@ -4088,8 +4092,8 @@ int run(int argc, char *argv[]) {
             case 3:
                 gentrain_version = 3;
                 gender.version = 2;
-                // we did reimplement the bug of estimating the autosomal call rate including loci with 0 cluster scores
-                // as missing
+                // we did not reimplement the bug of estimating the autosomal call rate including loci with 0 cluster
+                // scores as missing
                 gender.call_rate_threshold = 0.97;
                 gtc_file_version = 5;
                 sample_name = 0;
@@ -4181,13 +4185,16 @@ int run(int argc, char *argv[]) {
         error("Option --grn-idats requires option --red-idats\n%s", usage_text());
     if (grn_idat_fname == NULL && red_idat_fname != NULL)
         error("Option --red-idats requires option --grn-idats\n%s", usage_text());
-    if (idat_pathname == NULL && grn_idat_fname == NULL && red_idat_fname == NULL && argc - optind % 2 == 1)
-        error(
-            "If options --idats/--grn-idats/--red-idats are not used, input an alternating list of green and red "
-            "IDATs\n%s",
-            usage_text());
+    if (idat_pathname == NULL && grn_idat_fname == NULL && red_idat_fname == NULL) {
+        if (snp_map_fname == NULL && argc - optind == 0) error("No IDAT files provided as input\n%s", usage_text());
+        if (argc - optind % 2 == 1)
+            error(
+                "If options --idats/--grn-idats/--red-idats are not used, input an alternating list of green and red "
+                "IDATs\n%s",
+                usage_text());
+    }
 
-    fprintf(stderr, "idat2gtc " IDAT2GTC_VERSION " https://github.com/freeseek/gtc2vcf\n");
+    fprintf(stderr, "idat2gtc " IDAT2GTC_VERSION " http://github.com/freeseek/gtc2vcf\n");
     fprintf(stderr, "Using normalization algorithm version %s\n", gentrain_version == 2 ? "1.1.2" : "1.2.0");
 
     if (strcmp(output_pathname, ".") != 0) mkdir_p("%s/", output_pathname);

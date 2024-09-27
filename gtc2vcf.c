@@ -29,12 +29,12 @@
 #include <sys/resource.h>
 #include <htslib/vcf.h>
 #include <htslib/kseq.h>
+#include <htslib/khash_str2int.h>
 #include "bcftools.h"
 #include "tsv2vcf.h"
-#include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2024-05-05"
+#define GTC2VCF_VERSION "2024-09-27"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -1157,6 +1157,7 @@ static chip_type_t chip_types[] = {
     {"BeadChip 24x1x4", 749019, 749019, "DeCodeGenetics_V3_20032937X331991"},
     {"BeadChip 24x1x4", 751614, 751614, "GSAMD-24v3-0-EA_20034606"},
     {"BeadChip 24x1x4", 766804, 766804, "JSA-24v1-0"},
+    {"BeadChip 24x1x4", 776509, 776509, "ASA-24v1-0"},
     {"BeadChip 24x1x4", 780343, 780343, "GSAMD-24v2-0_20024620"},
     {"BeadChip 24x1x4", 780509, 780509, "GSAMD-24v2-0_20024620"},
     {"BeadChip 24x1x4", 818205, 818205, "GSA-24v2-0"},
@@ -1985,7 +1986,7 @@ static bpm_t *sam_csv_init(const char *fn, bpm_t *bpm, const char *genome_build,
  * INTENSITIES COMPUTATIONS             *
  ****************************************/
 
-// compute normalized intensities (https://github.com/Illumina/BeadArrayFiles/blob/develop/docs/GTC_File_Format_v5.pdf)
+// compute normalized intensities (http://github.com/Illumina/BeadArrayFiles/blob/develop/docs/GTC_File_Format_v5.pdf)
 static inline void raw_x_y2norm_x_y(uint16_t raw_x, uint16_t raw_y, float offset_x, float offset_y, float cos_theta,
                                     float sin_theta, float shear, float scale_x, float scale_y, float *norm_x,
                                     float *norm_y) {
@@ -2391,9 +2392,9 @@ static int locus2bcf(const LocusEntry *locus_entry, const ClusterRecord *cluster
         strupper(flank->s);
         if ((strcasecmp(locus_entry->ilmn_strand, locus_entry->source_strand) != 0) != strand)
             flank_reverse_complement(flank->s);
-        flank_left_shift(flank->s);
+        int shift = flank_left_shift(flank->s);
 
-        ref_is_del = get_indel_alleles(allele_a, allele_b, flank->s, ref, win, len);
+        ref_is_del = get_indel_alleles(allele_a, allele_b, flank->s, ref, win, len, shift);
         if (ref_is_del == 0) {
             rec->pos--;
             ref_base[0] = ref[win - 1];
@@ -3175,7 +3176,7 @@ static const char *usage_text(void) {
     return "\n"
            "About: convert Illumina GTC files containing intensity data into VCF. "
            "(version " GTC2VCF_VERSION
-           " https://github.com/freeseek/gtc2vcf)\n"
+           " http://github.com/freeseek/gtc2vcf)\n"
            "Usage: bcftools +gtc2vcf [options] [<A.gtc> ...]\n"
            "\n"
            "Plugin options:\n"
@@ -3335,7 +3336,7 @@ int run(int argc, char *argv[]) {
         {"extra", required_argument, NULL, 'x'},        {"verbose", no_argument, NULL, 'v'},
         {"beadset-order", no_argument, NULL, 12},       {"fasta-flank", no_argument, NULL, 13},
         {"sam-flank", required_argument, NULL, 's'},    {"genome-build", required_argument, NULL, 14},
-        {"write-index", optional_argument, NULL, 'W'},         {NULL, 0, NULL, 0}};
+        {"write-index", optional_argument, NULL, 'W'},  {NULL, 0, NULL, 0}};
     int c;
     while ((c = getopt_long(argc, argv, "h?lt:b:c:e:f:g:io:O:x:vs:W::", loptions, NULL)) >= 0) {
         switch (c) {
@@ -3448,8 +3449,7 @@ int run(int argc, char *argv[]) {
             genome_build = optarg;
             break;
         case 'W':
-            if (!(write_index = write_index_parse(optarg)))
-                error("Unsupported index format '%s'\n", optarg);
+            if (!(write_index = write_index_parse(optarg))) error("Unsupported index format '%s'\n", optarg);
             break;
         case 'h':
         case '?':
@@ -3495,7 +3495,7 @@ int run(int argc, char *argv[]) {
     flags |= parse_tags(tag_list);
 
     // beginning of plugin run
-    fprintf(stderr, "gtc2vcf " GTC2VCF_VERSION " https://github.com/freeseek/gtc2vcf\n");
+    fprintf(stderr, "gtc2vcf " GTC2VCF_VERSION " http://github.com/freeseek/gtc2vcf\n");
 
     int nfiles = 0;
     char **filenames = NULL;

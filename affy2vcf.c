@@ -31,11 +31,11 @@
 #include <arpa/inet.h>
 #include <htslib/vcf.h>
 #include <htslib/kseq.h>
+#include <htslib/khash_str2int.h>
 #include "bcftools.h"
-#include "htslib/khash_str2int.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2024-05-05"
+#define AFFY2VCF_VERSION "2024-09-27"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -918,7 +918,7 @@ fail:
     error("DAT header malformed\n");
 }
 
-// https://github.com/HenrikBengtsson/affxparser/blob/master/R/parseDatHeaderString.R
+// http://github.com/HenrikBengtsson/affxparser/blob/master/R/parseDatHeaderString.R
 static void cels_to_tsv(uint8_t *magic, void **files, int n, FILE *stream) {
     int i, j;
     wchar_t *array_type = NULL;             // affymetrix-array-type
@@ -2164,7 +2164,7 @@ static void process(faidx_t *fai, const annot_t *annot, void *probeset_ids, snp_
         if (strchr(flank.s, '-')) {
             kputc('D', &allele_a);
             kputc('I', &allele_b);
-            int ref_is_del = get_indel_alleles(&allele_a, &allele_b, flank.s, ref, win, len);
+            int ref_is_del = get_indel_alleles(&allele_a, &allele_b, flank.s, ref, win, len, 0);
             if (ref_is_del < 0) {
                 if (flags & VERBOSE) fprintf(stderr, "Unable to determine alleles for indel %s\n", record->probeset_id);
                 n_missing++;
@@ -2318,7 +2318,7 @@ static const char *usage_text(void) {
     return "\n"
            "About: convert Affymetrix apt-probeset-genotype output files to VCF. "
            "(version " AFFY2VCF_VERSION
-           " https://github.com/freeseek/gtc2vcf)\n"
+           " http://github.com/freeseek/gtc2vcf)\n"
            "Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> [<A.chp> ...]\n"
            "\n"
            "Plugin options:\n"
@@ -2572,8 +2572,7 @@ int run(int argc, char *argv[]) {
             sam_fname = optarg;
             break;
         case 'W':
-            if (!(write_index = write_index_parse(optarg)))
-                error("Unsupported index format '%s'\n", optarg);
+            if (!(write_index = write_index_parse(optarg))) error("Unsupported index format '%s'\n", optarg);
             break;
         case 'h':
         case '?':
@@ -2613,7 +2612,7 @@ int run(int argc, char *argv[]) {
     }
 
     // beginning of plugin run
-    fprintf(stderr, "affy2vcf " AFFY2VCF_VERSION " https://github.com/freeseek/gtc2vcf\n");
+    fprintf(stderr, "affy2vcf " AFFY2VCF_VERSION " http://github.com/freeseek/gtc2vcf\n");
 
     if (nfiles > 0 && !(flags & LOAD_CEL)) flags |= CALLS_LOADED | CONFIDENCES_LOADED | SUMMARY_LOADED;
 

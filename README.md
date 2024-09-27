@@ -1,7 +1,7 @@
 gtc2vcf
 =======
 
-A set of tools to convert Illumina and Affymetrix DNA microarray intensity data files into VCF files <b>without</b> using Microsoft Windows. You can use the final output to run the pipeline to detect [mosaic chromosomal alterations](https://github.com/freeseek/mocha). If you use this tool in your publication, please cite this website. For any feedback or questions, contact the [author](mailto:giulio.genovese@gmail.com)
+A set of tools to convert Illumina and Affymetrix DNA microarray intensity data files into VCF files <b>without</b> using Microsoft Windows. You can use the final output to run the pipeline to detect [mosaic chromosomal alterations](http://github.com/freeseek/mocha). If you use this tool in your publication, please cite this website. For any feedback or questions, contact the [author](mailto:giulio.genovese@gmail.com)
 
 ![](gtc2vcf.png)
 
@@ -15,6 +15,7 @@ A set of tools to convert Illumina and Affymetrix DNA microarray intensity data 
    * [Convert Affymetrix CEL files to CHP files](#convert-affymetrix-cel-files-to-chp-files)
    * [Convert Affymetrix CHP files to VCF](#convert-affymetrix-chp-files-to-vcf)
    * [Using an alternative genome reference](#using-an-alternative-genome-reference)
+   * [Detect contamination](#detect-contamination)
    * [Plot variants](#plot-variants)
    * [Illumina GenCall](#illumina-gencall)
       * [Illumina AutoConvert](#illumina-autoconvert)
@@ -151,11 +152,11 @@ Preparation steps
 mkdir -p $HOME/bin $HOME/GRCh3{7,8} && cd /tmp
 ```
 
-We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download [here](http://software.broadinstitute.org/software/gtc2vcf). However, notice that you will require BCFtools version 1.20 or newer. You can also download a previous version of the plugin through [bioconda](https://anaconda.org/bioconda/bcftools-gtc2vcf-plugin)
+We recommend compiling the source code but, wherever this is not possible, Linux x86_64 pre-compiled binaries are available for download [here](http://software.broadinstitute.org/software/gtc2vcf). However, notice that you will require BCFtools version 1.20 or newer. You can also download a previous version of the plugin through [bioconda](http://anaconda.org/bioconda/bcftools-gtc2vcf-plugin)
 
-Download latest version of [HTSlib](https://github.com/samtools/htslib) and [BCFtools](https://github.com/samtools/bcftools) (if not downloaded already)
+Download latest version of [HTSlib](http://github.com/samtools/htslib) and [BCFtools](http://github.com/samtools/bcftools) (if not downloaded already)
 ```
-wget https://github.com/samtools/bcftools/releases/download/1.20/bcftools-1.20.tar.bz2
+wget http://github.com/samtools/bcftools/releases/download/1.20/bcftools-1.20.tar.bz2
 tar xjvf bcftools-1.20.tar.bz2
 ```
 
@@ -163,7 +164,7 @@ Download and compile plugins code (make sure you are using gcc version 5 or newe
 ```
 cd bcftools-1.20/
 /bin/rm -f plugins/{idat2gtc.c,gtc2vcf.{c,h},affy2vcf.c}
-wget -P plugins https://raw.githubusercontent.com/freeseek/gtc2vcf/master/{idat2gtc.c,gtc2vcf.{c,h},affy2vcf.c}
+wget -P plugins http://raw.githubusercontent.com/freeseek/gtc2vcf/master/{idat2gtc.c,gtc2vcf.{c,h},affy2vcf.c}
 make
 /bin/cp bcftools plugins/{idat2gtc,gtc2vcf,affy2vcf}.so $HOME/bin/
 ```
@@ -190,10 +191,10 @@ samtools faidx $HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
 bwa index $HOME/GRCh38/GCA_000001405.15_GRCh38_no_alt_analysis_set.fna
 ```
 
-Affymetrix provides the [Analysis Power Tools (APT)](https://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-analysis-partners-programs/affymetrix-developers-network/affymetrix-power-tools.html) for free which allow to call genotypes from raw intensity data using an algorithm derived from [BRLMM-P](http://tools.thermofisher.com/content/sfs/brochures/brlmmp_whitepaper.pdf)
+Affymetrix provides the [Analysis Power Tools (APT)](http://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-analysis-partners-programs/affymetrix-developers-network/affymetrix-power-tools.html) for free which allow to call genotypes from raw intensity data using an algorithm derived from [BRLMM-P](http://tools.thermofisher.com/content/sfs/brochures/brlmmp_whitepaper.pdf)
 ```
 mkdir -p $HOME/bin && cd /tmp
-wget https://downloads.thermofisher.com/APT/APT_2.11.8/apt_2.11.8_linux_64_x86_binaries.zip
+wget http://downloads.thermofisher.com/APT/APT_2.11.8/apt_2.11.8_linux_64_x86_binaries.zip
 unzip -ojd $HOME/bin apt_2.11.8_linux_64_x86_binaries.zip apt_2.11.8_linux_64_x86_binaries/bin/apt-probeset-genotype
 chmod a+x $HOME/bin/apt-probeset-genotype
 ```
@@ -231,7 +232,7 @@ bcftools +idat2gtc \
 ```
 The output is equivalent to the output of the Illumina GenCall algorithm while being significantly faster
 
-If you do not have the manifest and cluster files for the Illumina IDAT files you are trying to convert, make sure to check the links [here][Illumina.md]
+If you do not have the manifest and cluster files for the Illumina IDAT files you are trying to convert, make sure to check the links [here](Illumina.md)
 
 If you run the command with the option `--autocall-date ""` then the output should be deterministic and using the `--preset` option you can generate output equivalent to the output you obtain with any of the following:
 
@@ -245,7 +246,7 @@ If you similarly patch those tools to make them generate deterministic output, y
 Convert Illumina GTC files to VCF
 =================================
 
-Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's [BeadArrayFiles](https://github.com/Illumina/BeadArrayFiles) library and [GTCtoVCF](https://github.com/Illumina/GTCtoVCF) script. Specifications for IDAT files were obtained through Henrik Bengtsson's [illuminaio](https://github.com/HenrikBengtsson/illuminaio) package
+Specifications for Illumina BPM, EGT, and GTC files were obtained through Illumina's [BeadArrayFiles](http://github.com/Illumina/BeadArrayFiles) library and [GTCtoVCF](http://github.com/Illumina/GTCtoVCF) script. Specifications for IDAT files were obtained through Henrik Bengtsson's [illuminaio](http://github.com/HenrikBengtsson/illuminaio) package
 ```
 bpm_manifest_file="..."
 csv_manifest_file="..."
@@ -264,7 +265,7 @@ bcftools +gtc2vcf \
   bcftools sort -Ou -T ./bcftools. | \
   bcftools norm --no-version -o $out_prefix.bcf -Ob -c x -f $ref --write-index
 ```
-Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d exact` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Normalized intensities cannot be computed without the BPM manifest file. Indel alleles cannot be inferred and will be skipped without the CSV manifest file. Information about genotype cluster centers will be included in the VCF if the EGT cluster file is provided. You can use gtc2vcf to convert one GTC file at a time, but we strongly advise to convert multiple files at once as single sample VCF files will consume a lot of storage space. If you convert hundreds of GTC files at once, you can use the `--adjust-clusters` option which will recenter the genotype clusters rather than using those provided in the EGT cluster file and will compute less noisy LRR values. If you use the `--adjust-clusters` option and you are using the output for calling [mosaic chromosomal alterations](https://github.com/freeseek/mocha), then it is safe to turn the median BAF/LRR adjustments off during that step (i.e. use `--adjust-BAF-LRR -1`)
+Heavy random access to the reference will be needed, so it is important that enough extra memory be available for the operating system to cache the reference or else the task can run excruciatingly slowly. Notice that the gtc2vcf bcftools plugin will drop unlocalized variants. The final VCF might contain duplicates. If this is an issue `bcftools norm -d exact` can be used to remove such variants. At least one of the BPM or the CSV manifest files has to be provided. Normalized intensities cannot be computed without the BPM manifest file. Indel alleles cannot be inferred and will be skipped without the CSV manifest file. Information about genotype cluster centers will be included in the VCF if the EGT cluster file is provided. You can use gtc2vcf to convert one GTC file at a time, but we strongly advise to convert multiple files at once as single sample VCF files will consume a lot of storage space. If you convert hundreds of GTC files at once, you can use the `--adjust-clusters` option which will recenter the genotype clusters rather than using those provided in the EGT cluster file and will compute less noisy LRR values. If you use the `--adjust-clusters` option and you are using the output for calling [mosaic chromosomal alterations](http://github.com/freeseek/mocha), then it is safe to turn the median BAF/LRR adjustments off during that step (i.e. use `--adjust-BAF-LRR -1`)
 
 Optionally, between the conversion and the sorting step you can include a `bcftools reheader --samples <file>` command to assign new names to the samples where `<file>` contains `old_name new_name\n` pairs separated by whitespaces, each on a separate line, with `old_name` being the GTC file name without the `.gtc` extension in this case
 
@@ -273,7 +274,7 @@ When running the conversion, the gtc2vcf plugin will double check that the SNP m
 Convert Affymetrix CEL files to CHP files
 =========================================
 
-Affymetrix provides a best practice workflow for genotyping data generated using [SNP6](https://www.affymetrix.com/support/developer/powertools/changelog/VIGNETTE-snp6-on-axiom.html) and [Axiom](https://www.affymetrix.com/support/developer/powertools/changelog/VIGNETTE-Axiom-probeset-genotype.html) arrays. As an example, the following command will run the genotyping for the Affymetrix SNP6 array:
+Affymetrix provides a best practice workflow for genotyping data generated using [SNP6](http://www.affymetrix.com/support/developer/powertools/changelog/VIGNETTE-snp6-on-axiom.html) and [Axiom](http://www.affymetrix.com/support/developer/powertools/changelog/VIGNETTE-Axiom-probeset-genotype.html) arrays. As an example, the following command will run the genotyping for the Affymetrix SNP6 array:
 ```
 path_to_output_folder="..."
 cel_list_file="..."
@@ -290,7 +291,7 @@ apt-probeset-genotype \
   --write-models \
   --read-models-brlmmp GenomeWideSNP_6.generic_prior.txt
 ```
-Affymetrix provides Library and NetAffx Annotation files for their arrays ([here](http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays), [here](http://media.affymetrix.com/analysis/downloads/lf/genotyping), and [here](https://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-data-analysis/genechip-array-annotation-files.html))
+Affymetrix provides Library and NetAffx Annotation files for their arrays ([here](http://www.affymetrix.com/support/technical/byproduct.affx?cat=dnaarrays), [here](http://media.affymetrix.com/analysis/downloads/lf/genotyping), and [here](http://www.thermofisher.com/us/en/home/life-science/microarray-analysis/microarray-data-analysis/genechip-array-annotation-files.html))
 
 As an example, the following commands will obtain the files necessary to run the genotyping for the Affymetrix SNP6 array:
 ```
@@ -331,7 +332,7 @@ Optionally, between the conversion and the sorting step you can include a `bcfto
 Using an alternative genome reference
 =====================================
 
-Illumina provides [GRCh38/hg38](https://support.illumina.com/bulletins/2017/04/infinium-human-genotyping-manifests-and-support-files--with-anno.html) manifests for many of its genotyping arrays. However, if your genotyping array is not supported for the newer reference by Illumina, you can use the `--fasta-flank` and `--sam-flank` options to realign the flank sequences from the manifest files you have and recompute the marker positions. This approach uses [flank sequence](https://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html) and [strand](https://support.illumina.com/bulletins/2017/06/how-to-interpret-dna-strand-and-allele-information-for-infinium-.html) information to identify the marker [coordinates](https://support.illumina.com/bulletins/2016/06/-infinium-genotyping-array-manifest-files-what-does-chr-or-mapinfo---mean.html). It will need a sequence aligner such as `bwa` to realign the sequences and it seems to reproduce the coordinates provided from Illumina more than 99.9% of the times. Mapping information will follow the [implicit dbSNP standard](https://github.com/Illumina/GTCtoVCF#manifests). Occasionally the flank sequence provided by Illumina is incorrect and it is impossible to recover the correct marker coordinate from the flank sequence alone
+Illumina provides [GRCh38/hg38](http://support.illumina.com/bulletins/2017/04/infinium-human-genotyping-manifests-and-support-files--with-anno.html) manifests for many of its genotyping arrays. However, if your genotyping array is not supported for the newer reference by Illumina, you can use the `--fasta-flank` and `--sam-flank` options to realign the flank sequences from the manifest files you have and recompute the marker positions. This approach uses [flank sequence](http://support.illumina.com/bulletins/2016/05/infinium-genotyping-manifest-column-headings.html) and [strand](http://support.illumina.com/bulletins/2017/06/how-to-interpret-dna-strand-and-allele-information-for-infinium-.html) information to identify the marker [coordinates](http://support.illumina.com/bulletins/2016/06/-infinium-genotyping-array-manifest-files-what-does-chr-or-mapinfo---mean.html). It will need a sequence aligner such as `bwa` to realign the sequences and it seems to reproduce the coordinates provided from Illumina more than 99.9% of the times. Mapping information will follow the [implicit dbSNP standard](http://github.com/Illumina/GTCtoVCF#manifests). Occasionally the flank sequence provided by Illumina is incorrect and it is impossible to recover the correct marker coordinate from the flank sequence alone
 
 You first have to generate an alignment file for the flank sequences from a CSV manifest file
 ```
@@ -358,9 +359,23 @@ HumanOmni1-Quad_v1-0_H
 ```
 We advise to either contact Illumina to demand a fixed version or to use gtc2vcf to realign the flank sequences
 
-Also, Illumina assigns chromosomal positions to indels by first left aligning the flank sequences in an incoherent way (see [here](https://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py)). Apparently this is incoherent enough that Illumina also cannot get the coordinates of homopolymer indels right. For example, chromosome 13 ClinVar indel [rs80359507](https://www.ncbi.nlm.nih.gov/clinvar/variation/37959) is assigned to position 32913838 in the manifest file for the GSA-24v2-0 array, but it is assigned to position 32913837 in the manifest file for GSA-24v3-0 array (GRCh37 coordinates). If you want to trust genotypes at homopolymer indels, we advise to use gtc2vcf to realign the flank sequences
+Also, Illumina assigns chromosomal positions to indels by first left aligning the flank sequences in an incoherent way (see [here](http://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py)). Apparently this is incoherent enough that Illumina also cannot get the coordinates of homopolymer indels right. For example, chromosome 13 ClinVar indel [rs80359507](http://www.ncbi.nlm.nih.gov/clinvar/variation/37959) is assigned to position 32913838 in the manifest file for the GSA-24v2-0 array, but it is assigned to position 32913837 in the manifest file for GSA-24v3-0 array (GRCh37 coordinates). If you want to trust genotypes at homopolymer indels, we advise to use gtc2vcf to realign the flank sequences
+
+We also found numerous examples of markers from Illumina manifest files that are mapped to the wrong chromosome, such as markers rs10465468, rs12401272, rs185597746, rs188145685 which are localized over XY in the Illumina manifest files for the GSA-24v2-0 array and the GSA-24v3-0 array but their flank sequences map to chromosome Y. If you trust the flank sequences better than the coordinates from the Illumina manifest files, we advise to use gtc2vcf to realign the flank sequences
 
 The same functionality exists for the affy2vcf tool to convert Affymetrix data
+
+Detect contamination
+====================
+
+To detect contamination we use a model similar to what employed by [BAFRegress](http://genome.sph.umich.edu/wiki/BAFRegress) and described in [Jun et al. 2012](http://doi.org/10.1016/j.ajhg.2012.09.004) which estimates BAF deviations at homozygous sites towards reference population means. The model needs allele frequencies which can be inferred from the BCFtools/gtc2vcf output:
+```
+bcftools +BAFregress $out_prefix.bcf
+```
+or they can be inferred from a separate resource:
+```
+bcftools +BAFregress --af 1kGP_high_coverage_Illumina.sites.bcf --tag AF $out_prefix.bcf
+```
 
 Plot variants
 =============
@@ -373,7 +388,7 @@ sudo apt install r-cran-optparse r-cran-ggplot2 r-cran-data.table r-cran-gridext
 Download R scripts
 ```
 /bin/rm -f $HOME/bin/gtc2vcf_plot.R
-wget -P $HOME/bin https://raw.githubusercontent.com/freeseek/gtc2vcf/master/gtc2vcf_plot.R
+wget -P $HOME/bin http://raw.githubusercontent.com/freeseek/gtc2vcf/master/gtc2vcf_plot.R
 chmod a+x $HOME/bin/gtc2vcf_plot.R
 ```
 
@@ -405,18 +420,18 @@ Illumina GenCall
 ================
 
 To genotype raw Illumina IDAT intensity files using Illumina GenCall algorithms, Illumina over the course of the year has provided several command line interfaces written in the .NET language:
-- [AutoConvert](https://support.illumina.com/array/array_software/beeline/downloads.html) (2011)
-- [AutoConvert 2.0](https://support.illumina.com/array/array_software/beeline/downloads.html)) (2017)
-- [IAAP CLI](https://support.illumina.com/array/array_software/illumina-array-analysis-platform.html) (2019)
+- [AutoConvert](http://support.illumina.com/array/array_software/beeline/downloads.html) (2011)
+- [AutoConvert 2.0](http://support.illumina.com/array/array_software/beeline/downloads.html)) (2017)
+- [IAAP CLI](http://support.illumina.com/array/array_software/illumina-array-analysis-platform.html) (2019)
 - [Array Analysis CLI](http://support.illumina.com/array/array_software/ima-array-analysis-cli/downloads.html) (2023)
-We provide instructions to install and run these interfaces. The `sed -i -e ':a' -e 'N' -e '$!ba'` installation commands are used to prevent the interfaces from timestamping the output GTC files by removing the [System.DateTime](https://learn.microsoft.com/en-us/dotnet/api/system.datetime) calls and accesses to the [CreationTime](https://learn.microsoft.com/en-us/dotnet/api/system.io.filesysteminfo.creationtime) property from the binaries, with the goal of making each execution completely reproducible. AutoConvert 2.0, IAAP-CLI, and Array Analysis CLI binaries will both perform version 1.2.0 of the normalization step and seem to produce the exact same results while AutoConvert will only perform version 1.1.2 of the normalization step yielding somewhat different results. If you want to run these binaries but fail to download them, contact the [author](mailto:giulio.genovese@gmail.com) for troubleshooting
+We provide instructions to install and run these interfaces. The `sed -i -e ':a' -e 'N' -e '$!ba'` installation commands are used to prevent the interfaces from timestamping the output GTC files by removing the [System.DateTime](http://learn.microsoft.com/en-us/dotnet/api/system.datetime) calls and accesses to the [CreationTime](http://learn.microsoft.com/en-us/dotnet/api/system.io.filesysteminfo.creationtime) property from the binaries, with the goal of making each execution completely reproducible. AutoConvert 2.0, IAAP-CLI, and Array Analysis CLI binaries will both perform version 1.2.0 of the normalization step and seem to produce the exact same results while AutoConvert will only perform version 1.1.2 of the normalization step yielding somewhat different results. If you want to run these binaries but fail to download them, contact the [author](mailto:giulio.genovese@gmail.com) for troubleshooting
 
-Illumina also provides the [Beeline](https://support.illumina.com/array/array_software/beeline.html) software for free and this includes the AutoConvert.exe command line executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, except for one small mathmatical function (findClosestSitesToPointsAlongAxis) which is included within a Windows PE32+ library (MathRoutines.dll). As this is [unmanaged code](http://www.mono-project.com/docs/advanced/embedding/), to be run on Linux with [Mono](https://www.mono-project.com/) it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the [normalization](https://doi.org/10.1093/bioinformatics/btm443) of the raw intensities when sampling [400 candidate homozygotes](https://dnatech.genomecenter.ucdavis.edu/wp-content/uploads/2013/06/illumina_gt_normalization.pdf) before calling genotypes.
+Illumina also provides the [Beeline](http://support.illumina.com/array/array_software/beeline.html) software for free and this includes the AutoConvert.exe command line executable which allows to call genotypes from raw intensity data using Illumina's proprietary GenCall algorithm. AutoConvert is almost entirely written in Mono/.Net language, except for one small mathmatical function (findClosestSitesToPointsAlongAxis) which is included within a Windows PE32+ library (MathRoutines.dll). As this is [unmanaged code](http://www.mono-project.com/docs/advanced/embedding/), to be run on Linux with [Mono](http://www.mono-project.com/) it needs to be embedded in an equivalent Linux ELF64 library (libMathRoutines.dll.so) as shown below. This function is run as part of the [normalization](http://doi.org/10.1093/bioinformatics/btm443) of the raw intensities when sampling [400 candidate homozygotes](http://dnatech.genomecenter.ucdavis.edu/wp-content/uploads/2013/06/illumina_gt_normalization.pdf) before calling genotypes.
 
 Illumina AutoConvert
 --------------------
 
-To run Illumina AutoConvert (version 1.6.3.1) you will need to fix the hardcoded Windows [backlashes](https://en.wikipedia.org/wiki/Backslash) into UNIX [slashes](https://en.wikipedia.org/wiki/Slash_(punctuation), as shown below
+To run Illumina AutoConvert (version 1.6.3.1) you will need to fix the hardcoded Windows [backlashes](http://en.wikipedia.org/wiki/Backslash) into UNIX [slashes](http://en.wikipedia.org/wiki/Slash_(punctuation), as shown below
 ```
 mkdir -p $HOME/bin && cd /tmp
 wget http://support.illumina.com/content/dam/illumina-support/documents/downloads/software/beeline/autoconvert-software-v1-6-3-installer.zip
@@ -458,7 +473,7 @@ mono $HOME/bin/AutoConvert/AutoConvert.exe \
 Illumina AutoConvert 2.0
 ------------------------
 
-To run Illumina AutoConvert 2.0 (version 2.0.1.179) you will need to separately download an additional Mono/.Net library (Heatmap.dll) from [GenomeStudio](https://support.illumina.com/array/array_software/genomestudio.html) or the [polyploid clustering module](https://support.illumina.com/downloads/genomestudio_polyploid_clustering_module_v1-0_software.html) and include it in your binary directory, most likely due to differences in which Mono and .Net resolve library dependencies, as shown below
+To run Illumina AutoConvert 2.0 (version 2.0.1.179) you will need to separately download an additional Mono/.Net library (Heatmap.dll) from [GenomeStudio](http://support.illumina.com/array/array_software/genomestudio.html) or the [polyploid clustering module](http://support.illumina.com/downloads/genomestudio_polyploid_clustering_module_v1-0_software.html) and include it in your binary directory, most likely due to differences in which Mono and .Net resolve library dependencies, as shown below
 ```
 mkdir -p $HOME/bin && cd /tmp
 wget http://support.illumina.com/content/dam/illumina-support/documents/downloads/software/beeline/autoconvert-software-v2-0-1-installer.zip
@@ -508,12 +523,12 @@ mono $HOME/bin/AutoConvert\ 2.0/AutoConvert.exe \
   $egt_cluster_file
 ```
 
-Make sure that the IDAT files have the same name prefix as the IDAT folder name. The software might require up to 8GB of RAM to run. Illumina provides manifest (BPM) and cluster (EGT) files for their arrays [here](https://support.illumina.com/array/downloads.html). Notice that if you provide the wrong BPM file, you will get an error such as: `Normalization failed!  Unable to normalize!` and if you provide the wrong EGT file, you will get an error such as `System.Exception: Unrecoverable Error...Exiting! Unable to find manifest entry ######## in the cluster file!`
+Make sure that the IDAT files have the same name prefix as the IDAT folder name. The software might require up to 8GB of RAM to run. Illumina provides manifest (BPM) and cluster (EGT) files for their arrays [here](http://support.illumina.com/array/downloads.html). Notice that if you provide the wrong BPM file, you will get an error such as: `Normalization failed!  Unable to normalize!` and if you provide the wrong EGT file, you will get an error such as `System.Exception: Unrecoverable Error...Exiting! Unable to find manifest entry ######## in the cluster file!`
 
 Illumina Array Analysis Platform Genotyping Command Line Interface
 ------------------------------------------------------------------
 
-Illumina provides the [Illumina Array Analysis Platform Genotyping Command Line Interface](https://support.illumina.com/array/array_software/illumina-array-analysis-platform.html) software for free for research use and this includes the iaap-cli 1.1.0 which runs natively on Linux
+Illumina provides the [Illumina Array Analysis Platform Genotyping Command Line Interface](http://support.illumina.com/array/array_software/illumina-array-analysis-platform.html) software for free for research use and this includes the iaap-cli 1.1.0 which runs natively on Linux
 ```
 mkdir -p $HOME/bin && cd /tmp
 wget ftp://webdata2:webdata2@ftp.illumina.com/downloads/software/iaap/iaap-cli-linux-x64-1.1.0.tar.gz

@@ -27,7 +27,7 @@
 
 options(error = function() {traceback(3); q()})
 
-gtc2vcf_plot_version <- '2024-05-05'
+gtc2vcf_plot_version <- '2024-09-27'
 
 suppressPackageStartupMessages(library(optparse))
 suppressPackageStartupMessages(library(data.table))
@@ -55,7 +55,7 @@ parser <- add_option(parser, c('--minimal'), action = 'store_true', default = FA
 parser <- add_option(parser, c('--zcall'), action = 'store_true', default = FALSE, help = 'plot ZCall thresholds')
 args <- parse_args(parser, commandArgs(trailingOnly = TRUE), convert_hyphens_to_underscores = TRUE)
 
-write(paste('gtc2vcf_plot.R', gtc2vcf_plot_version, 'https://github.com/freeseek/gtc2vcf'), stderr())
+write(paste('gtc2vcf_plot.R', gtc2vcf_plot_version, 'http://github.com/freeseek/gtc2vcf'), stderr())
 
 # make sure VCF is passed
 if (is.null(args$vcf)) {print_help(parser); stop('option --vcf is required')}

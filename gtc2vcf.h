@@ -154,12 +154,14 @@ static inline int bcf_hdr_name2id_flexible(const bcf_hdr_t *hdr, char *chr) {
 
 static inline char rev_nt(char iupac) {
     static const char iupac_complement[128] = {
-        0,   0,   0,   0,   0,   0,   0,   0, 0,   0,   0,   0,   0,   0, 0, 0,   0,   0,   0,   0,   0,   0,
-        0,   0,   0,   0,   0,   0,   0,   0, 0,   0,   0,   0,   0,   0, 0, 0,   0,   0,   0,   0,   0,   0,
-        0,   '-', 0,   '/', 0,   0,   0,   0, 0,   0,   0,   0,   0,   0, 0, 0,   0,   0,   0,   0,   0,   'T',
-        'V', 'G', 'H', 0,   0,   'C', 'D', 0, 0,   'M', 0,   'K', 'N', 0, 0, 0,   'Y', 'S', 'A', 0,   'B', 'W',
-        0,   'R', 0,   ']', 0,   '[', 0,   0, 0,   'T', 'V', 'G', 'H', 0, 0, 'C', 'D', 0,   0,   'M', 0,   'K',
-        'N', 0,   0,   0,   'Y', 'S', 'A', 0, 'B', 'W', 0,   'R', 0,   0, 0, 0,   0,   0,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x2B, 0x2C, '-',  0x2E, '/',
+        0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
+        0x40, 'T',  'V',  'G',  'H',  0x45, 0x46, 'C',  'D',  0x49, 0x4A, 'M',  0x4C, 'K',  'N',  0x4F,
+        0x50, 0x51, 'Y',  'S',  'A',  0x55, 'B',  'W',  0x58, 'R',  0x5A, ']',  0x5C, '[',  0x5E, 0x5F,
+        0x60, 't',  'v',  'g',  'h',  0x65, 0x66, 'c',  'd',  0x69, 0x6A, 'm',  0x6C, 'k',  'n',  0x6F,
+        0x70, 0x71, 'y',  's',  'a',  0x75, 'b',  'w',  0x78, 'r',  0x7A, 0x7B, 0x7C, 0x7D, 0x7E, 0x7F,
     };
     return iupac_complement[(int)(iupac & 0x7F)];
 }
@@ -200,12 +202,13 @@ static inline void flank_reverse_complement(char *flank) {
 
 // this is the weird way Illumina left shifts indels
 // http://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py
-static inline void flank_left_shift(char *flank) {
+static inline int flank_left_shift(char *flank) {
     char *left = strchr(flank, '[');
     char *middle = strchr(flank, '/');
     char *right = strchr(flank, ']');
     if (!left || !middle || !right) error("Flank sequence is malformed: %s\n", flank);
 
+    int n = 0;
     int len = (int)(right - middle) - 1;
     while ((left - flank >= len) && (strncmp(left - len, middle + 1, len) == 0)) {
         memmove(left - len, left, right - left + 1);
@@ -213,6 +216,7 @@ static inline void flank_left_shift(char *flank) {
         middle -= len;
         right -= len;
         memmove(right + 1, middle + 1, len);
+        n += len;
     }
 
     const char *ptr;
@@ -225,7 +229,9 @@ static inline void flank_left_shift(char *flank) {
         left--;
         middle--;
         right--;
+        n++;
     }
+    return n;
 }
 
 // returns 1 if the first sequence is the best alignment, and 2 if the second sequence is
@@ -378,9 +384,9 @@ static inline int len_common_prefix(const char *s1, const char *s2, size_t n) {
 // http://github.com/Illumina/GTCtoVCF/blob/develop/BPMRecord.py
 // For an insertion relative to the reference, the position of the base immediately 5' to the
 // insertion (on the plus strand) is given. For a deletion relative to the reference, the
-// position of the most 5' deleted based (on the plus strand) is given.
+// position of the most 5' deleted base (on the plus strand) is given
 static inline int get_indel_alleles(kstring_t *allele_a, kstring_t *allele_b, const char *flank, const char *ref,
-                                    int win, int len) {
+                                    int win, int len, int shift) {
     const char *left = strchr(flank, '[');
     const char *middle = strchr(flank, '/');
     const char *right = strchr(flank, ']');
@@ -388,19 +394,23 @@ static inline int get_indel_alleles(kstring_t *allele_a, kstring_t *allele_b, co
 
     int del_left = len_common_suffix(left - 1, &ref[win], left - flank);
     int del_right = len_common_prefix(right + 1, &ref[win] + 1, strlen(right + 1));
-    int ins_match = strncmp(middle + 1, &ref[win], right - middle - 1) == 0;
+    int ins_match = strncmp(middle + 1, &ref[win], right - middle - 1) == 0; // same as indel_sequence_match
     int ins_left = len_common_suffix(left - 1, &ref[win] - 1, left - flank);
     int ins_right = len_common_prefix(right + 1, &ref[win] + (right - middle) - 1, strlen(right + 1));
     int ref_is_del = (del_left >= ins_left) && (del_right >= ins_right);
     if ((ref_is_del && del_left * del_right == 0) || (!ref_is_del && (!ins_match || ins_left * ins_right == 0))) {
-        ref_is_del = -1;
-    } else {
-        int allele_b_is_del = allele_b->s[0] == 'D';
-        allele_a->l = allele_b->l = 0;
-        kputc(ref[win - 1 + ref_is_del], allele_a);
-        kputc(ref[win - 1 + ref_is_del], allele_b);
-        kputsn(ref_is_del ? middle + 1 : &ref[win], right - middle - 1, allele_b_is_del ? allele_a : allele_b);
+        // computes it again but with shifted coordinates to better match Illumina's _calculate_is_deletion()
+        del_left = len_common_suffix(left - 1, &ref[win - shift], left - flank);
+        del_right = len_common_prefix(right + 1, &ref[win - shift] + 1, strlen(right + 1));
+        ref_is_del = (del_left >= ins_left) && (del_right >= ins_right);
+        if ((ref_is_del && del_left * del_right == 0) || (!ref_is_del && (!ins_match || ins_left * ins_right == 0)))
+            return -1;
     }
+    int allele_b_is_del = allele_b->s[0] == 'D';
+    allele_a->l = allele_b->l = 0;
+    kputc(ref[win - 1 + ref_is_del], allele_a);
+    kputc(ref[win - 1 + ref_is_del], allele_b);
+    kputsn(ref_is_del ? middle + 1 : &ref[win], right - middle - 1, allele_b_is_del ? allele_a : allele_b);
     return ref_is_del;
 }
 
@@ -464,7 +474,7 @@ static inline int alleles_ab_to_vcf(const char **alleles, const char *ref_base, 
 }
 
 // Petr Danecek's similar implementation in bcftools/plugins/fixref.c
-// https://www.illumina.com/documents/products/technotes/technote_topbot.pdf
+// http://www.illumina.com/documents/products/technotes/technote_topbot.pdf
 static inline int get_strand_from_top_alleles(char *allele_a, char *allele_b, const char *ref, int win, int len) {
     int i;
     char ref_base = ref[win];
