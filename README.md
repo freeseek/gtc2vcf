@@ -164,9 +164,9 @@ Download and compile plugins code (make sure you are using gcc version 5 or newe
 ```
 cd bcftools-1.20/
 /bin/rm -f plugins/{idat2gtc.c,gtc2vcf.{c,h},affy2vcf.c}
-wget -P plugins http://raw.githubusercontent.com/freeseek/gtc2vcf/master/{idat2gtc.c,gtc2vcf.{c,h},affy2vcf.c}
+wget -P plugins http://raw.githubusercontent.com/freeseek/gtc2vcf/master/{idat2gtc.c,gtc2vcf.{c,h},affy2vcf.c,BAFregress.c}
 make
-/bin/cp bcftools plugins/{idat2gtc,gtc2vcf,affy2vcf}.so $HOME/bin/
+/bin/cp bcftools plugins/{idat2gtc,gtc2vcf,affy2vcf,BAFregress}.so $HOME/bin/
 ```
 
 Make sure the directory with the plugins is available to BCFtools
