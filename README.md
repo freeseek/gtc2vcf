@@ -85,7 +85,7 @@ Affymetrix data tool:
 Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> [<A.chp> ...]
 
 Plugin options:
-    -l, --list-tags                 list available FORMAT tags with description for  VCF output
+    -l, --list-tags                 list available FORMAT tags with description for VCF output
     -t, --tags LIST                 list of output FORMAT tags [GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE]
     -c, --csv <file>                CSV manifest file (can be gzip compressed)
     -f, --fasta-ref <file>          reference sequence in fasta format

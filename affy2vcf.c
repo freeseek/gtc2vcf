@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2024-09-27"
+#define AFFY2VCF_VERSION "2024-12-13"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
@@ -1591,6 +1591,7 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn, const cha
     int i, moff = 0, *off = NULL, ncols;
 
     if (calls_fn) {
+        fprintf(stderr, "Reading genotype calls file %s\n", calls_fn);
         varitr->calls_fp = unheader(calls_fn, &str);
         ncols = ksplit_core(str.s, '\t', &moff, &off);
         if (strcmp(&str.s[off[0]], "probeset_id"))
@@ -1604,6 +1605,7 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn, const cha
     }
 
     if (confidences_fn) {
+        fprintf(stderr, "Reading genotype confidences file %s\n", confidences_fn);
         varitr->confidences_fp = unheader(confidences_fn, &str);
         ncols = ksplit_core(str.s, '\t', &moff, &off);
         if (strcmp(&str.s[off[0]], "probeset_id"))
@@ -1619,6 +1621,7 @@ static varitr_t *varitr_init_txt(bcf_hdr_t *hdr, const char *calls_fn, const cha
     }
 
     if (summary_fn) {
+        fprintf(stderr, "Reading allelic intensities file %s\n", summary_fn);
         varitr->summary_fp = unheader(summary_fn, &str);
         ncols = ksplit_core(str.s, '\t', &moff, &off);
         if (strcmp(&str.s[off[0]], "probeset_id"))
@@ -2322,7 +2325,7 @@ static const char *usage_text(void) {
            "Usage: bcftools +affy2vcf [options] --csv <file> --fasta-ref <file> [<A.chp> ...]\n"
            "\n"
            "Plugin options:\n"
-           "    -l, --list-tags                 list available FORMAT tags with description for  VCF output\n"
+           "    -l, --list-tags                 list available FORMAT tags with description for VCF output\n"
            "    -t, --tags LIST                 list of output FORMAT tags [" TAG_LIST_DFLT
            "]\n"
            "    -c, --csv <file>                CSV manifest file (can be gzip compressed)\n"

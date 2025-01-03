@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2024 Giulio Genovese
+   Copyright (c) 2018-2025 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -34,7 +34,7 @@
 #include "tsv2vcf.h"
 #include "gtc2vcf.h"
 
-#define GTC2VCF_VERSION "2024-09-27"
+#define GTC2VCF_VERSION "2025-01-03"
 
 #define GT_NC 0
 #define GT_AA 1
@@ -3574,11 +3574,13 @@ int run(int argc, char *argv[]) {
         for (i = 0; i < bpm->num_loci; i++) {
             uint8_t norm_id = bpm->norm_ids[i] % 100;
             if (norm_id_to_beadset_id[norm_id] != 0
-                && norm_id_to_beadset_id[norm_id] != bpm->locus_entries[i].beadset_id)
-                error("Normalization ID %d corresponds to multiple BeadSet IDs %d and %d\n", norm_id,
-                      norm_id_to_beadset_id[norm_id], bpm->locus_entries[i].beadset_id);
-            else
-                norm_id_to_beadset_id[norm_id] = bpm->locus_entries[i].beadset_id;
+                && norm_id_to_beadset_id[norm_id] != bpm->locus_entries[i].beadset_id) {
+                if (norm_id > 4) // exception for possible overflow with Omni5 arrays
+                    error("Normalization ID %d corresponds to multiple BeadSet IDs %d and %d\n", norm_id,
+                          norm_id_to_beadset_id[norm_id], bpm->locus_entries[i].beadset_id);
+                if (bpm->norm_ids[i] < 100) continue;
+            }
+            norm_id_to_beadset_id[norm_id] = bpm->locus_entries[i].beadset_id;
         }
         for (i = 0, j = 0; i < 100; i++) {
             if (norm_id_to_beadset_id[i] == 0) continue;
