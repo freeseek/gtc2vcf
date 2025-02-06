@@ -295,12 +295,12 @@ Affymetrix provides Library and NetAffx Annotation files for their arrays ([here
 
 As an example, the following commands will obtain the files necessary to run the genotyping for the Affymetrix SNP6 array:
 ```
-wget http://www.affymetrix.com/Auth/support/downloads/library_files/genomewidesnp6_libraryfile.zip
-wget http://www.affymetrix.com/Auth/analysis/downloads/lf/genotyping/GenomeWideSNP_6/SNP6_supplemental_axiom_analysis_files.zip
-wget http://www.affymetrix.com/Auth/analysis/downloads/na35/genotyping/GenomeWideSNP_6.na35.annot.csv.zip
+wget http://tools.thermofisher.com/content/sfs/supportfiles/genomewidesnp6_libraryfile.zip
+wget http://tools.thermofisher.com/content/sfs/supportfiles/SNP6_supplemental_axiom_analysis_files.zip
+wget http://tools.thermofisher.com/content/sfs/supportfiles/GenomeWideSNP_6-na35-annot-csv.zip
 unzip -oj genomewidesnp6_libraryfile.zip CD_GenomeWideSNP_6_rev3/Full/GenomeWideSNP_6/LibFiles/GenomeWideSNP_6.{cdf,chrXprobes,chrYprobes,specialSNPs}
 unzip -o SNP6_supplemental_axiom_analysis_files.zip GenomeWideSNP_6.{generic_prior.txt,apt-probeset-genotype.AxiomGT1.xml,AxiomGT1.sketch}
-unzip -o GenomeWideSNP_6.na35.annot.csv.zip GenomeWideSNP_6.na35.annot.csv
+unzip -o GenomeWideSNP_6-na35-annot-csv.zip GenomeWideSNP_6.na35.annot.csv
 ```
 
 Note: If the program exits due to different chip types or probe counts with error message such as `Wrong CEL ChipType: expecting: 'GenomeWideSNP_6' and #######.CEL is: 'GenomeWideEx_6'` then make sure you included the option `--chip-type GenomeWideEx_6 --chip-type GenomeWideSNP_6` or `--force` to the command line to solve the problem
