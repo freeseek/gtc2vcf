@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (C) 2024 Giulio Genovese
+   Copyright (C) 2024-2025 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -34,7 +34,7 @@
 #include <htslib/ksort.h>
 #include "bcftools.h"
 
-#define BAFREGRESS_VERSION "2024-07-09"
+#define BAFREGRESS_VERSION "2025-08-19"
 
 #define GT_NC 0
 #define GT_AA 1

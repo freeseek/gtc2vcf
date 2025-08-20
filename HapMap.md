@@ -45,7 +45,7 @@ gunzip GPL20641_HumanOmni25M-8v1-1_B.csv.gz
 
 Download GenomeWideEx_6 and GenomeWideSNP_6 library and annotation files from [Affymetrix](http://www.affymetrix.com/support/technical/byproduct.affx?product=genomewidesnp_6)
 ```
-wget http://www.affymetrix.com/Auth/support/downloads/library_files/genomewidesnp6_libraryfile.zip
+wget http://tools.thermofisher.com/content/sfs/supportfiles/genomewidesnp6_libraryfile.zip
 wget http://www.affymetrix.com/Auth/analysis/downloads/lf/genotyping/GenomeWideSNP_6/SNP6_supplemental_axiom_analysis_files.zip
 wget http://www.affymetrix.com/Auth/analysis/downloads/na35/genotyping/GenomeWideSNP_6.na35.annot.csv.zip
 unzip -oj genomewidesnp6_libraryfile.zip CD_GenomeWideSNP_6_rev3/Full/GenomeWideSNP_6/LibFiles/GenomeWideSNP_6.{cdf,chr{X,Y}probes,specialSNPs}

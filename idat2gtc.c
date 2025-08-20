@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2024 Giulio Genovese
+   Copyright (c) 2024-2025 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -240,7 +240,7 @@
 #include <htslib/ksort.h>
 #include <htslib/khash_str2int.h>
 #include "bcftools.h"
-#define IDAT2GTC_VERSION "2024-09-27"
+#define IDAT2GTC_VERSION "2025-08-19"
 
 #define AUTOCALL_DATE_FORMAT_DFLT "%m/%d/%y %#I:%M %p" // equivalent to "MM/dd/yyyy h:mm tt"
 #define AUTOCALL_VERSION_DFLT "3.0.0"
@@ -3334,7 +3334,8 @@ static void get_base_call(const char *snp, const char *ilmn_strand, uint8_t geno
 }
 
 // a separate implementation from Illumina can be found in function MakeCalls from class AutoCallPollerThread
-static void make_calls(gtc_t *gtc, const bpm_t *bpm, const egt_t *egt, float gencall_cutoff) {
+static void make_calls(gtc_t *gtc, const bpm_t *bpm, const egt_t *egt, float gencall_cutoff,
+                       int allow_missing_clusters) {
     int i, n = bpm->num_loci;
     gtc->sample_data.num_calls = 0;
     gtc->sample_data.num_intensity_only = 0;
@@ -3355,20 +3356,30 @@ static void make_calls(gtc_t *gtc, const bpm_t *bpm, const egt_t *egt, float gen
 
             int idx;
             int ret = khash_str2int_get(egt->names2index, locus_entry->name, &idx);
-            if (ret < 0) error("Illumina probe %s not found in cluster file\n", locus_entry->name);
-            ClusterRecord *cluster_record = &egt->cluster_records[idx];
-            float min_dispersion_r = 0.1f;
-            if (cluster_record->aa_cluster_stats.r_dev < min_dispersion_r)
-                cluster_record->aa_cluster_stats.r_dev = min_dispersion_r;
-            if (cluster_record->ab_cluster_stats.r_dev < min_dispersion_r)
-                cluster_record->ab_cluster_stats.r_dev = min_dispersion_r;
-            if (cluster_record->bb_cluster_stats.r_dev < min_dispersion_r)
-                cluster_record->bb_cluster_stats.r_dev = min_dispersion_r;
-            uint8_t genotype;
-            float score_call_prelim = compute_score_call_prelim(ilmn_r, ilmn_theta, cluster_record, &genotype);
-            float score_call = (float)gencall_score_map(score_call_prelim);
-            gtc->genotype_scores[i] = isnan(score_call) ? 0.0f : score_call;
-            gtc->genotypes[i] = genotype;
+            if (ret < 0) {
+                if (allow_missing_clusters) {
+                    fprintf(stderr, "Warning: Illumina probe %s not found in cluster file\n", locus_entry->name);
+                    gtc->genotype_scores[i] = 0.0f;
+                    gtc->genotypes[i] = 0;
+                } else {
+                    error("Illumina probe %s not found in cluster file\nUse --allow-missing-clusters to allow this\n",
+                          locus_entry->name);
+                }
+            } else {
+                ClusterRecord *cluster_record = &egt->cluster_records[idx];
+                float min_dispersion_r = 0.1f;
+                if (cluster_record->aa_cluster_stats.r_dev < min_dispersion_r)
+                    cluster_record->aa_cluster_stats.r_dev = min_dispersion_r;
+                if (cluster_record->ab_cluster_stats.r_dev < min_dispersion_r)
+                    cluster_record->ab_cluster_stats.r_dev = min_dispersion_r;
+                if (cluster_record->bb_cluster_stats.r_dev < min_dispersion_r)
+                    cluster_record->bb_cluster_stats.r_dev = min_dispersion_r;
+                uint8_t genotype;
+                float score_call_prelim = compute_score_call_prelim(ilmn_r, ilmn_theta, cluster_record, &genotype);
+                float score_call = (float)gencall_score_map(score_call_prelim);
+                gtc->genotype_scores[i] = isnan(score_call) ? 0.0f : score_call;
+                gtc->genotypes[i] = genotype;
+            }
         } else {
             gtc->genotype_scores[i] = 0.0f;
             gtc->genotypes[i] = 0;
@@ -3418,7 +3429,7 @@ static void estimate_gender(gtc_t *gtc, const bpm_t *bpm, const egt_t *egt, cons
             strncasecmp(locus_entry->chrom, "CHR", 3) == 0 ? locus_entry->chrom + 3 : locus_entry->chrom;
         int idx;
         int ret = khash_str2int_get(egt->names2index, locus_entry->name, &idx);
-        if (ret < 0) error("Illumina probe %s not found in cluster file\n", locus_entry->name);
+        if (ret < 0) continue;
         ClusterRecord *cluster_record = &egt->cluster_records[idx];
         int norm_id = bpm->norm_lookups[bpm->norm_ids[i]];
         XForm *xform = &gtc->normalization_transforms[norm_id];
@@ -3505,7 +3516,7 @@ static void calculate_baf_lrr(gtc_t *gtc, const bpm_t *bpm, const egt_t *egt) {
         LocusEntry *locus_entry = &bpm->locus_entries[i];
         int idx;
         int ret = khash_str2int_get(egt->names2index, locus_entry->name, &idx);
-        if (ret < 0) error("Illumina probe %s not found in cluster file\n", locus_entry->name);
+        if (ret < 0) continue;
         ClusterRecord *c = &egt->cluster_records[idx];
         float baf = -NAN;
         float lrr = -NAN;
@@ -3755,7 +3766,7 @@ static void fill_controls_array(const idat_t *grn_idat, const idat_t *red_idat, 
 static gtc_t *gtc_init(const idat_t *grn_idat, const idat_t *red_idat, const bpm_t *bpm, const egt_t *egt,
                        int gentrain_version, int gtc_file_version, float gencall_cutoff, int sample_name, int checksums,
                        int imaging_date, const char *autocall_date_format, const char *autocall_version,
-                       const gender_t *gender) {
+                       int allow_missing_clusters, const gender_t *gender) {
     if (!grn_idat || !red_idat || !bpm) return NULL;
 
     gtc_t *gtc = (gtc_t *)calloc(1, sizeof(gtc_t));
@@ -3814,7 +3825,7 @@ static gtc_t *gtc_init(const idat_t *grn_idat, const idat_t *red_idat, const bpm
 
     if (egt) {
         fprintf(stderr, "Calling...\n");
-        make_calls(gtc, bpm, egt, gencall_cutoff);
+        make_calls(gtc, bpm, egt, gencall_cutoff, allow_missing_clusters);
         fprintf(stderr, "Call rate: %.7f\n", gtc->call_rate);
         estimate_gender(gtc, bpm, egt, gender);
         fprintf(stderr, "Gender: %s\n", gtc->gender == 'M' ? "Male" : gtc->gender == 'F' ? "Female" : "Unknown");
@@ -3877,6 +3888,7 @@ static const char *usage_text(void) {
            "]\n"
            "        --autocall-version <string>     AutoCall version label to use [" AUTOCALL_VERSION_DFLT
            "]\n"
+           "        --allow-missing-clusters        BPM manifest file variants can be missing from the EGT cluster file"
            "\n"
            "Gender estimation options:\n"
            "        --gender-version <int>          whether to only use heterozygosity (1) or also intensities (2) "
@@ -3989,6 +4001,7 @@ int run(int argc, char *argv[]) {
     int sample_name = 1;
     int checksums = 1;
     int imaging_date = 1;
+    int allow_missing_clusters = 0;
     gender_t gender;
     gender.version = 2;                // 1 in AutoConvert
     gender.min_loci = 100;             // version 2
@@ -4017,15 +4030,16 @@ int run(int argc, char *argv[]) {
                                        {"no-imaging-date", no_argument, NULL, 7},
                                        {"autocall-date", required_argument, NULL, 8},
                                        {"autocall-version", required_argument, NULL, 9},
-                                       {"gender-version", no_argument, NULL, 10},
-                                       {"min-loci", no_argument, NULL, 11},
-                                       {"max-loci", no_argument, NULL, 12},
-                                       {"min-x-loci", no_argument, NULL, 13},
-                                       {"min-y-loci", no_argument, NULL, 14},
-                                       {"call-rate-threshold", no_argument, NULL, 15},
-                                       {"y-threshold", no_argument, NULL, 16},
-                                       {"x-threshold", no_argument, NULL, 17},
-                                       {"x-het-rate-threshold", no_argument, NULL, 18},
+                                       {"allow-missing-clusters", no_argument, NULL, 10},
+                                       {"gender-version", no_argument, NULL, 11},
+                                       {"min-loci", no_argument, NULL, 12},
+                                       {"max-loci", no_argument, NULL, 13},
+                                       {"min-x-loci", no_argument, NULL, 14},
+                                       {"min-y-loci", no_argument, NULL, 15},
+                                       {"call-rate-threshold", no_argument, NULL, 16},
+                                       {"y-threshold", no_argument, NULL, 17},
+                                       {"x-threshold", no_argument, NULL, 18},
+                                       {"x-het-rate-threshold", no_argument, NULL, 19},
                                        {NULL, 0, NULL, 0}};
     int c;
     while ((c = getopt_long(argc, argv, "h?b:e:i:g:r:o:v:c:", loptions, NULL)) >= 0) {
@@ -4135,40 +4149,43 @@ int run(int argc, char *argv[]) {
             autocall_version = optarg;
             break;
         case 10:
+            allow_missing_clusters = 1;
+            break;
+        case 11:
             gender.version = strtol(optarg, &tmp, 0);
             if (*tmp) error("Could not parse: --gender-version %s\n", optarg);
             if (gender.version != 1 && gender.version != 2)
                 error("The --gender-version option only allows values 1 and 2\n%s", usage_text());
             break;
-        case 11:
+        case 12:
             gender.min_loci = strtol(optarg, &tmp, 0);
             if (*tmp) error("Could not parse: --min-loci %s\n", optarg);
             break;
-        case 12:
+        case 13:
             gender.max_loci = strtol(optarg, &tmp, 0);
             if (*tmp) error("Could not parse: --max-loci %s\n", optarg);
             break;
-        case 13:
+        case 14:
             gender.min_x_loci = strtol(optarg, &tmp, 0);
             if (*tmp) error("Could not parse: --min-x-loci %s\n", optarg);
             break;
-        case 14:
+        case 15:
             gender.min_y_loci = strtol(optarg, &tmp, 0);
             if (*tmp) error("Could not parse: --min-y-loci %s\n", optarg);
             break;
-        case 15:
+        case 16:
             gender.call_rate_threshold = strtof(optarg, &tmp);
             if (*tmp) error("Could not parse: --call-rate-threshold %s\n", optarg);
             break;
-        case 16:
+        case 17:
             gender.y_threshold = strtof(optarg, &tmp);
             if (*tmp) error("Could not parse: --y-threshold %s\n", optarg);
             break;
-        case 17:
+        case 18:
             gender.x_threshold = strtof(optarg, &tmp);
             if (*tmp) error("Could not parse: --x-threshold %s\n", optarg);
             break;
-        case 18:
+        case 19:
             gender.x_het_rate_threshold = strtof(optarg, &tmp);
             if (*tmp) error("Could not parse: --x-het-rate-threshold %s\n", optarg);
             break;
@@ -4306,9 +4323,9 @@ int run(int argc, char *argv[]) {
             idat_t *grn_idat = idat_init(grn_idats[i], 1);
             fprintf(stderr, "Reading RED IDAT file %s\n", red_idats[i]);
             idat_t *red_idat = idat_init(red_idats[i], 1);
-            gtc_t *gtc =
-                gtc_init(grn_idat, red_idat, bpm, egt, gentrain_version, gtc_file_version, gencall_cutoff, sample_name,
-                         checksums, imaging_date, autocall_date_format, autocall_version, &gender);
+            gtc_t *gtc = gtc_init(grn_idat, red_idat, bpm, egt, gentrain_version, gtc_file_version, gencall_cutoff,
+                                  sample_name, checksums, imaging_date, autocall_date_format, autocall_version,
+                                  allow_missing_clusters, &gender);
             const char *ptr = strstr(grn_idats[i], "_Grn.idat");
             if (!ptr) ptr = strstr(grn_idats[i], ".idat");
             const char *ptr2 = strrchr(grn_idats[i], '/');

@@ -1,6 +1,6 @@
 /* The MIT License
 
-   Copyright (c) 2018-2024 Giulio Genovese
+   Copyright (c) 2018-2025 Giulio Genovese
 
    Author: Giulio Genovese <giulio.genovese@gmail.com>
 
@@ -35,7 +35,7 @@
 #include "bcftools.h"
 #include "gtc2vcf.h"
 
-#define AFFY2VCF_VERSION "2024-12-13"
+#define AFFY2VCF_VERSION "2025-08-19"
 
 #define TAG_LIST_DFLT "GT,CONF,BAF,LRR,NORMX,NORMY,DELTA,SIZE"
 #define GC_WIN_DFLT "200"
